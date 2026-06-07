@@ -23,7 +23,7 @@ import { TransactionComposer, AppCallMethodCall, AppMethodCallTransactionArgumen
 import { SendParams, SendSingleTransactionResult, SendAtomicTransactionComposerResults } from '@algorandfoundation/algokit-utils/types/transaction'
 import { Address, encodeAddress, modelsv2, OnApplicationComplete, Transaction, TransactionSigner } from 'algosdk'
 
-export const APP_SPEC: Arc56Contract = {"name":"SplitRouter","structs":{},"methods":[{"name":"hello","args":[{"type":"string","name":"name"}],"returns":{"type":"string"},"actions":{"create":[],"call":["NoOp"]},"readonly":false,"events":[],"recommendations":{}}],"arcs":[22,28],"networks":{},"state":{"schema":{"global":{"ints":0,"bytes":0},"local":{"ints":0,"bytes":0}},"keys":{"global":{},"local":{},"box":{}},"maps":{"global":{},"local":{},"box":{}}},"bareActions":{"create":["NoOp"],"call":[]},"sourceInfo":{"approval":{"sourceInfo":[{"pc":[37],"errorMessage":"OnCompletion must be NoOp && can only call when creating"},{"pc":[26],"errorMessage":"OnCompletion must be NoOp && can only call when not creating"},{"pc":[47],"errorMessage":"invalid array length header"},{"pc":[55],"errorMessage":"invalid number of bytes for arc4.dynamic_array<arc4.uint8>"}],"pcOffsetMethod":"none"},"clear":{"sourceInfo":[],"pcOffsetMethod":"none"}},"source":{"approval":"I3ByYWdtYSB2ZXJzaW9uIDExCiNwcmFnbWEgdHlwZXRyYWNrIGZhbHNlCgovLyBAYWxnb3JhbmRmb3VuZGF0aW9uL2FsZ29yYW5kLXR5cGVzY3JpcHQvYXJjNC9pbmRleC5kLnRzOjpDb250cmFjdC5hcHByb3ZhbFByb2dyYW0oKSAtPiB1aW50NjQ6Cm1haW46CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MwogICAgLy8gZXhwb3J0IGNsYXNzIFNwbGl0Um91dGVyIGV4dGVuZHMgQ29udHJhY3QgewogICAgdHhuIE51bUFwcEFyZ3MKICAgIGJ6IG1haW5fX19hbGdvdHNfXy5kZWZhdWx0Q3JlYXRlQDUKICAgIHB1c2hieXRlcyAweDAyYmVjZTExIC8vIG1ldGhvZCAiaGVsbG8oc3RyaW5nKXN0cmluZyIKICAgIHR4bmEgQXBwbGljYXRpb25BcmdzIDAKICAgIG1hdGNoIG1haW5faGVsbG9fcm91dGVAMwogICAgZXJyCgptYWluX2hlbGxvX3JvdXRlQDM6CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6NAogICAgLy8gaGVsbG8obmFtZTogc3RyaW5nKTogc3RyaW5nIHsKICAgIHR4biBPbkNvbXBsZXRpb24KICAgICEKICAgIHR4biBBcHBsaWNhdGlvbklECiAgICAmJgogICAgYXNzZXJ0IC8vIE9uQ29tcGxldGlvbiBtdXN0IGJlIE5vT3AgJiYgY2FuIG9ubHkgY2FsbCB3aGVuIG5vdCBjcmVhdGluZwogICAgYiBoZWxsbwoKbWFpbl9fX2FsZ290c19fLmRlZmF1bHRDcmVhdGVANToKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czozCiAgICAvLyBleHBvcnQgY2xhc3MgU3BsaXRSb3V0ZXIgZXh0ZW5kcyBDb250cmFjdCB7CiAgICB0eG4gT25Db21wbGV0aW9uCiAgICAhCiAgICB0eG4gQXBwbGljYXRpb25JRAogICAgIQogICAgJiYKICAgIGFzc2VydCAvLyBPbkNvbXBsZXRpb24gbXVzdCBiZSBOb09wICYmIGNhbiBvbmx5IGNhbGwgd2hlbiBjcmVhdGluZwogICAgcHVzaGludCAxIC8vIDEKICAgIHJldHVybgoKCi8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo6U3BsaXRSb3V0ZXIuaGVsbG9bcm91dGluZ10oKSAtPiB2b2lkOgpoZWxsbzoKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo0CiAgICAvLyBoZWxsbyhuYW1lOiBzdHJpbmcpOiBzdHJpbmcgewogICAgdHhuYSBBcHBsaWNhdGlvbkFyZ3MgMQogICAgZHVwCiAgICBwdXNoaW50IDAgLy8gMAogICAgZXh0cmFjdF91aW50MTYgLy8gb24gZXJyb3I6IGludmFsaWQgYXJyYXkgbGVuZ3RoIGhlYWRlcgogICAgcHVzaGludCAyIC8vIDIKICAgICsKICAgIGRpZyAxCiAgICBsZW4KICAgID09CiAgICBhc3NlcnQgLy8gaW52YWxpZCBudW1iZXIgb2YgYnl0ZXMgZm9yIGFyYzQuZHluYW1pY19hcnJheTxhcmM0LnVpbnQ4PgogICAgZXh0cmFjdCAyIDAKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo1CiAgICAvLyByZXR1cm4gYEhlbGxvLCAke25hbWV9YAogICAgcHVzaGJ5dGVzICJIZWxsbywgIgogICAgc3dhcAogICAgY29uY2F0CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6NAogICAgLy8gaGVsbG8obmFtZTogc3RyaW5nKTogc3RyaW5nIHsKICAgIGR1cAogICAgbGVuCiAgICBpdG9iCiAgICBleHRyYWN0IDYgMgogICAgc3dhcAogICAgY29uY2F0CiAgICBwdXNoYnl0ZXMgMHgxNTFmN2M3NQogICAgc3dhcAogICAgY29uY2F0CiAgICBsb2cKICAgIHB1c2hpbnQgMSAvLyAxCiAgICByZXR1cm4K","clear":"I3ByYWdtYSB2ZXJzaW9uIDExCiNwcmFnbWEgdHlwZXRyYWNrIGZhbHNlCgovLyBAYWxnb3JhbmRmb3VuZGF0aW9uL2FsZ29yYW5kLXR5cGVzY3JpcHQvYmFzZS1jb250cmFjdC5kLnRzOjpCYXNlQ29udHJhY3QuY2xlYXJTdGF0ZVByb2dyYW0oKSAtPiB1aW50NjQ6Cm1haW46CiAgICBwdXNoaW50IDEgLy8gMQogICAgcmV0dXJuCg=="},"byteCode":{"approval":"CzEbQQAYgAQCvs4RNhoAjgEAAQAxGRQxGBBEQgALMRkUMRgUEESBAUM2GgFJgQBZgQIISwEVEkRXAgCAB0hlbGxvLCBMUEkVFlcGAkxQgAQVH3x1TFCwgQFD","clear":"C4EBQw=="},"events":[],"templateVariables":{}} as unknown as Arc56Contract
+export const APP_SPEC: Arc56Contract = {"name":"SplitRouter","structs":{},"methods":[{"name":"setRecipients","args":[{"type":"address","name":"auditor"},{"type":"address","name":"maintainer"},{"type":"address","name":"adversarial"},{"type":"address","name":"treasury"},{"type":"address","name":"ops"},{"type":"uint64","name":"assetId"}],"returns":{"type":"void"},"actions":{"create":[],"call":["NoOp"]},"readonly":false,"events":[],"recommendations":{}},{"name":"optInToAsset","args":[{"type":"uint64","name":"asset"}],"returns":{"type":"void"},"actions":{"create":[],"call":["NoOp"]},"readonly":false,"events":[],"recommendations":{}}],"arcs":[22,28],"networks":{},"state":{"schema":{"global":{"ints":1,"bytes":5},"local":{"ints":0,"bytes":0}},"keys":{"global":{"auditor":{"keyType":"AVMString","valueType":"AVMBytes","key":"YXVk"},"maintainer":{"keyType":"AVMString","valueType":"AVMBytes","key":"bW50"},"adversarial":{"keyType":"AVMString","valueType":"AVMBytes","key":"YWR2"},"treasury":{"keyType":"AVMString","valueType":"AVMBytes","key":"dHJl"},"ops":{"keyType":"AVMString","valueType":"AVMBytes","key":"b3Bz"},"assetId":{"keyType":"AVMString","valueType":"AVMUint64","key":"YXN0"}},"local":{},"box":{}},"maps":{"global":{},"local":{},"box":{"attests":{"keyType":"AVMString","valueType":"AVMBytes","prefix":"YXR0ZXN0Og=="}}}},"bareActions":{"create":["NoOp"],"call":[]},"sourceInfo":{"approval":{"sourceInfo":[{"pc":[15],"errorMessage":"OnCompletion must be NoOp"},{"pc":[48],"errorMessage":"OnCompletion must be NoOp && can only call when creating"},{"pc":[105,169],"errorMessage":"admin only"},{"pc":[58,66,74,82,90],"errorMessage":"invalid number of bytes for arc4.static_array<arc4.uint8, 32>"},{"pc":[98,162],"errorMessage":"invalid number of bytes for arc4.uint64"}],"pcOffsetMethod":"none"},"clear":{"sourceInfo":[],"pcOffsetMethod":"none"}},"source":{"approval":"I3ByYWdtYSB2ZXJzaW9uIDExCiNwcmFnbWEgdHlwZXRyYWNrIGZhbHNlCgovLyBAYWxnb3JhbmRmb3VuZGF0aW9uL2FsZ29yYW5kLXR5cGVzY3JpcHQvYXJjNC9pbmRleC5kLnRzOjpDb250cmFjdC5hcHByb3ZhbFByb2dyYW0oKSAtPiB1aW50NjQ6Cm1haW46CiAgICBpbnRjYmxvY2sgMzIgMSA4IDAKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czoxOAogICAgLy8gZXhwb3J0IGNsYXNzIFNwbGl0Um91dGVyIGV4dGVuZHMgQ29udHJhY3QgewogICAgdHhuIE51bUFwcEFyZ3MKICAgIGJ6IG1haW5fX19hbGdvdHNfXy5kZWZhdWx0Q3JlYXRlQDkKICAgIHR4biBPbkNvbXBsZXRpb24KICAgICEKICAgIGFzc2VydCAvLyBPbkNvbXBsZXRpb24gbXVzdCBiZSBOb09wCiAgICB0eG4gQXBwbGljYXRpb25JRAogICAgYXNzZXJ0CiAgICBwdXNoYnl0ZXNzIDB4ODcwZjExNmQgMHg2ZmU5YWY4NSAvLyBtZXRob2QgInNldFJlY2lwaWVudHMoYWRkcmVzcyxhZGRyZXNzLGFkZHJlc3MsYWRkcmVzcyxhZGRyZXNzLHVpbnQ2NCl2b2lkIiwgbWV0aG9kICJvcHRJblRvQXNzZXQodWludDY0KXZvaWQiCiAgICB0eG5hIEFwcGxpY2F0aW9uQXJncyAwCiAgICBtYXRjaCBzZXRSZWNpcGllbnRzIG9wdEluVG9Bc3NldAogICAgZXJyCgptYWluX19fYWxnb3RzX18uZGVmYXVsdENyZWF0ZUA5OgogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjE4CiAgICAvLyBleHBvcnQgY2xhc3MgU3BsaXRSb3V0ZXIgZXh0ZW5kcyBDb250cmFjdCB7CiAgICB0eG4gT25Db21wbGV0aW9uCiAgICAhCiAgICB0eG4gQXBwbGljYXRpb25JRAogICAgIQogICAgJiYKICAgIGFzc2VydCAvLyBPbkNvbXBsZXRpb24gbXVzdCBiZSBOb09wICYmIGNhbiBvbmx5IGNhbGwgd2hlbiBjcmVhdGluZwogICAgaW50Y18xIC8vIDEKICAgIHJldHVybgoKCi8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo6U3BsaXRSb3V0ZXIuc2V0UmVjaXBpZW50c1tyb3V0aW5nXSgpIC0+IHZvaWQ6CnNldFJlY2lwaWVudHM6CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MjgtMzUKICAgIC8vIHB1YmxpYyBzZXRSZWNpcGllbnRzKAogICAgLy8gICBhdWRpdG9yOiBBY2NvdW50LAogICAgLy8gICBtYWludGFpbmVyOiBBY2NvdW50LAogICAgLy8gICBhZHZlcnNhcmlhbDogQWNjb3VudCwKICAgIC8vICAgdHJlYXN1cnk6IEFjY291bnQsCiAgICAvLyAgIG9wczogQWNjb3VudCwKICAgIC8vICAgYXNzZXRJZDogQXNzZXQsCiAgICAvLyApOiB2b2lkIHsKICAgIHR4bmEgQXBwbGljYXRpb25BcmdzIDEKICAgIGR1cAogICAgbGVuCiAgICBpbnRjXzAgLy8gMzIKICAgID09CiAgICBhc3NlcnQgLy8gaW52YWxpZCBudW1iZXIgb2YgYnl0ZXMgZm9yIGFyYzQuc3RhdGljX2FycmF5PGFyYzQudWludDgsIDMyPgogICAgdHhuYSBBcHBsaWNhdGlvbkFyZ3MgMgogICAgZHVwCiAgICBsZW4KICAgIGludGNfMCAvLyAzMgogICAgPT0KICAgIGFzc2VydCAvLyBpbnZhbGlkIG51bWJlciBvZiBieXRlcyBmb3IgYXJjNC5zdGF0aWNfYXJyYXk8YXJjNC51aW50OCwgMzI+CiAgICB0eG5hIEFwcGxpY2F0aW9uQXJncyAzCiAgICBkdXAKICAgIGxlbgogICAgaW50Y18wIC8vIDMyCiAgICA9PQogICAgYXNzZXJ0IC8vIGludmFsaWQgbnVtYmVyIG9mIGJ5dGVzIGZvciBhcmM0LnN0YXRpY19hcnJheTxhcmM0LnVpbnQ4LCAzMj4KICAgIHR4bmEgQXBwbGljYXRpb25BcmdzIDQKICAgIGR1cAogICAgbGVuCiAgICBpbnRjXzAgLy8gMzIKICAgID09CiAgICBhc3NlcnQgLy8gaW52YWxpZCBudW1iZXIgb2YgYnl0ZXMgZm9yIGFyYzQuc3RhdGljX2FycmF5PGFyYzQudWludDgsIDMyPgogICAgdHhuYSBBcHBsaWNhdGlvbkFyZ3MgNQogICAgZHVwCiAgICBsZW4KICAgIGludGNfMCAvLyAzMgogICAgPT0KICAgIGFzc2VydCAvLyBpbnZhbGlkIG51bWJlciBvZiBieXRlcyBmb3IgYXJjNC5zdGF0aWNfYXJyYXk8YXJjNC51aW50OCwgMzI+CiAgICB0eG5hIEFwcGxpY2F0aW9uQXJncyA2CiAgICBkdXAKICAgIGxlbgogICAgaW50Y18yIC8vIDgKICAgID09CiAgICBhc3NlcnQgLy8gaW52YWxpZCBudW1iZXIgb2YgYnl0ZXMgZm9yIGFyYzQudWludDY0CiAgICBidG9pCiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MzYKICAgIC8vIGFzc2VydChUeG4uc2VuZGVyLmJ5dGVzID09PSBHbG9iYWwuY3JlYXRvckFkZHJlc3MuYnl0ZXMsICdhZG1pbiBvbmx5JykKICAgIHR4biBTZW5kZXIKICAgIGdsb2JhbCBDcmVhdG9yQWRkcmVzcwogICAgPT0KICAgIGFzc2VydCAvLyBhZG1pbiBvbmx5CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MTkKICAgIC8vIGF1ZGl0b3IgPSBHbG9iYWxTdGF0ZTxieXRlcz4oeyBrZXk6ICdhdWQnIH0pCiAgICBwdXNoYnl0ZXMgImF1ZCIKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czozNwogICAgLy8gdGhpcy5hdWRpdG9yLnZhbHVlID0gYXVkaXRvci5ieXRlcwogICAgdW5jb3ZlciA2CiAgICBhcHBfZ2xvYmFsX3B1dAogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjIwCiAgICAvLyBtYWludGFpbmVyID0gR2xvYmFsU3RhdGU8Ynl0ZXM+KHsga2V5OiAnbW50JyB9KQogICAgcHVzaGJ5dGVzICJtbnQiCiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MzgKICAgIC8vIHRoaXMubWFpbnRhaW5lci52YWx1ZSA9IG1haW50YWluZXIuYnl0ZXMKICAgIHVuY292ZXIgNQogICAgYXBwX2dsb2JhbF9wdXQKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czoyMQogICAgLy8gYWR2ZXJzYXJpYWwgPSBHbG9iYWxTdGF0ZTxieXRlcz4oeyBrZXk6ICdhZHYnIH0pCiAgICBwdXNoYnl0ZXMgImFkdiIKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czozOQogICAgLy8gdGhpcy5hZHZlcnNhcmlhbC52YWx1ZSA9IGFkdmVyc2FyaWFsLmJ5dGVzCiAgICB1bmNvdmVyIDQKICAgIGFwcF9nbG9iYWxfcHV0CiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6MjIKICAgIC8vIHRyZWFzdXJ5ID0gR2xvYmFsU3RhdGU8Ynl0ZXM+KHsga2V5OiAndHJlJyB9KQogICAgcHVzaGJ5dGVzICJ0cmUiCiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6NDAKICAgIC8vIHRoaXMudHJlYXN1cnkudmFsdWUgPSB0cmVhc3VyeS5ieXRlcwogICAgdW5jb3ZlciAzCiAgICBhcHBfZ2xvYmFsX3B1dAogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjIzCiAgICAvLyBvcHMgPSBHbG9iYWxTdGF0ZTxieXRlcz4oeyBrZXk6ICdvcHMnIH0pCiAgICBwdXNoYnl0ZXMgIm9wcyIKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo0MQogICAgLy8gdGhpcy5vcHMudmFsdWUgPSBvcHMuYnl0ZXMKICAgIHVuY292ZXIgMgogICAgYXBwX2dsb2JhbF9wdXQKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czoyNAogICAgLy8gYXNzZXRJZCA9IEdsb2JhbFN0YXRlPHVpbnQ2ND4oeyBrZXk6ICdhc3QnIH0pCiAgICBwdXNoYnl0ZXMgImFzdCIKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo0MgogICAgLy8gdGhpcy5hc3NldElkLnZhbHVlID0gYXNzZXRJZC5pZAogICAgc3dhcAogICAgYXBwX2dsb2JhbF9wdXQKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czoyOC0zNQogICAgLy8gcHVibGljIHNldFJlY2lwaWVudHMoCiAgICAvLyAgIGF1ZGl0b3I6IEFjY291bnQsCiAgICAvLyAgIG1haW50YWluZXI6IEFjY291bnQsCiAgICAvLyAgIGFkdmVyc2FyaWFsOiBBY2NvdW50LAogICAgLy8gICB0cmVhc3VyeTogQWNjb3VudCwKICAgIC8vICAgb3BzOiBBY2NvdW50LAogICAgLy8gICBhc3NldElkOiBBc3NldCwKICAgIC8vICk6IHZvaWQgewogICAgaW50Y18xIC8vIDEKICAgIHJldHVybgoKCi8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo6U3BsaXRSb3V0ZXIub3B0SW5Ub0Fzc2V0W3JvdXRpbmddKCkgLT4gdm9pZDoKb3B0SW5Ub0Fzc2V0OgogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjQ1CiAgICAvLyBwdWJsaWMgb3B0SW5Ub0Fzc2V0KGFzc2V0OiBBc3NldCk6IHZvaWQgewogICAgdHhuYSBBcHBsaWNhdGlvbkFyZ3MgMQogICAgZHVwCiAgICBsZW4KICAgIGludGNfMiAvLyA4CiAgICA9PQogICAgYXNzZXJ0IC8vIGludmFsaWQgbnVtYmVyIG9mIGJ5dGVzIGZvciBhcmM0LnVpbnQ2NAogICAgYnRvaQogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjQ2CiAgICAvLyBhc3NlcnQoVHhuLnNlbmRlci5ieXRlcyA9PT0gR2xvYmFsLmNyZWF0b3JBZGRyZXNzLmJ5dGVzLCAnYWRtaW4gb25seScpCiAgICB0eG4gU2VuZGVyCiAgICBnbG9iYWwgQ3JlYXRvckFkZHJlc3MKICAgID09CiAgICBhc3NlcnQgLy8gYWRtaW4gb25seQogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjQ3LTU0CiAgICAvLyBpdHhuCiAgICAvLyAgIC5hc3NldFRyYW5zZmVyKHsKICAgIC8vICAgICB4ZmVyQXNzZXQ6IGFzc2V0LAogICAgLy8gICAgIGFzc2V0UmVjZWl2ZXI6IEdsb2JhbC5jdXJyZW50QXBwbGljYXRpb25BZGRyZXNzLAogICAgLy8gICAgIGFzc2V0QW1vdW50OiBVaW50NjQoMCksCiAgICAvLyAgICAgZmVlOiBVaW50NjQoMCksCiAgICAvLyAgIH0pCiAgICAvLyAgIC5zdWJtaXQoKQogICAgaXR4bl9iZWdpbgogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjUwCiAgICAvLyBhc3NldFJlY2VpdmVyOiBHbG9iYWwuY3VycmVudEFwcGxpY2F0aW9uQWRkcmVzcywKICAgIGdsb2JhbCBDdXJyZW50QXBwbGljYXRpb25BZGRyZXNzCiAgICAvLyBzbWFydF9jb250cmFjdHMvc3BsaXRfcm91dGVyL2NvbnRyYWN0LmFsZ28udHM6NTEKICAgIC8vIGFzc2V0QW1vdW50OiBVaW50NjQoMCksCiAgICBpbnRjXzMgLy8gMAogICAgaXR4bl9maWVsZCBBc3NldEFtb3VudAogICAgaXR4bl9maWVsZCBBc3NldFJlY2VpdmVyCiAgICBpdHhuX2ZpZWxkIFhmZXJBc3NldAogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjQ3LTUzCiAgICAvLyBpdHhuCiAgICAvLyAgIC5hc3NldFRyYW5zZmVyKHsKICAgIC8vICAgICB4ZmVyQXNzZXQ6IGFzc2V0LAogICAgLy8gICAgIGFzc2V0UmVjZWl2ZXI6IEdsb2JhbC5jdXJyZW50QXBwbGljYXRpb25BZGRyZXNzLAogICAgLy8gICAgIGFzc2V0QW1vdW50OiBVaW50NjQoMCksCiAgICAvLyAgICAgZmVlOiBVaW50NjQoMCksCiAgICAvLyAgIH0pCiAgICBwdXNoaW50IDQgLy8gNAogICAgaXR4bl9maWVsZCBUeXBlRW51bQogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjUyCiAgICAvLyBmZWU6IFVpbnQ2NCgwKSwKICAgIGludGNfMyAvLyAwCiAgICBpdHhuX2ZpZWxkIEZlZQogICAgLy8gc21hcnRfY29udHJhY3RzL3NwbGl0X3JvdXRlci9jb250cmFjdC5hbGdvLnRzOjQ3LTU0CiAgICAvLyBpdHhuCiAgICAvLyAgIC5hc3NldFRyYW5zZmVyKHsKICAgIC8vICAgICB4ZmVyQXNzZXQ6IGFzc2V0LAogICAgLy8gICAgIGFzc2V0UmVjZWl2ZXI6IEdsb2JhbC5jdXJyZW50QXBwbGljYXRpb25BZGRyZXNzLAogICAgLy8gICAgIGFzc2V0QW1vdW50OiBVaW50NjQoMCksCiAgICAvLyAgICAgZmVlOiBVaW50NjQoMCksCiAgICAvLyAgIH0pCiAgICAvLyAgIC5zdWJtaXQoKQogICAgaXR4bl9zdWJtaXQKICAgIC8vIHNtYXJ0X2NvbnRyYWN0cy9zcGxpdF9yb3V0ZXIvY29udHJhY3QuYWxnby50czo0NQogICAgLy8gcHVibGljIG9wdEluVG9Bc3NldChhc3NldDogQXNzZXQpOiB2b2lkIHsKICAgIGludGNfMSAvLyAxCiAgICByZXR1cm4K","clear":"I3ByYWdtYSB2ZXJzaW9uIDExCiNwcmFnbWEgdHlwZXRyYWNrIGZhbHNlCgovLyBAYWxnb3JhbmRmb3VuZGF0aW9uL2FsZ29yYW5kLXR5cGVzY3JpcHQvYmFzZS1jb250cmFjdC5kLnRzOjpCYXNlQ29udHJhY3QuY2xlYXJTdGF0ZVByb2dyYW0oKSAtPiB1aW50NjQ6Cm1haW46CiAgICBwdXNoaW50IDEgLy8gMQogICAgcmV0dXJuCg=="},"byteCode":{"approval":"CyAEIAEIADEbQQAdMRkURDEYRIICBIcPEW0Eb+mvhTYaAI4CAAsAcwAxGRQxGBQQRCNDNhoBSRUiEkQ2GgJJFSISRDYaA0kVIhJENhoESRUiEkQ2GgVJFSISRDYaBkkVJBJEFzEAMgkSRIADYXVkTwZngANtbnRPBWeAA2Fkdk8EZ4ADdHJlTwNngANvcHNPAmeAA2FzdExnI0M2GgFJFSQSRBcxADIJEkSxMgolshKyFLIRgQSyECWyAbMjQw==","clear":"C4EBQw=="},"events":[],"templateVariables":{}} as unknown as Arc56Contract
 
 /**
  * A state record containing binary data
@@ -70,15 +70,24 @@ export type SplitRouterArgs = {
    * The object representation of the arguments for each method
    */
   obj: {
-    'hello(string)string': {
-      name: string
+    'setRecipients(address,address,address,address,address,uint64)void': {
+      auditor: string
+      maintainer: string
+      adversarial: string
+      treasury: string
+      ops: string
+      assetId: bigint | number
+    }
+    'optInToAsset(uint64)void': {
+      asset: bigint | number
     }
   }
   /**
    * The tuple representation of the arguments for each method
    */
   tuple: {
-    'hello(string)string': [name: string]
+    'setRecipients(address,address,address,address,address,uint64)void': [auditor: string, maintainer: string, adversarial: string, treasury: string, ops: string, assetId: bigint | number]
+    'optInToAsset(uint64)void': [asset: bigint | number]
   }
 }
 
@@ -86,7 +95,8 @@ export type SplitRouterArgs = {
  * The return type for each method
  */
 export type SplitRouterReturns = {
-  'hello(string)string': string
+  'setRecipients(address,address,address,address,address,uint64)void': void
+  'optInToAsset(uint64)void': void
 }
 
 /**
@@ -97,21 +107,44 @@ export type SplitRouterTypes = {
    * Maps method signatures / names to their argument and return types.
    */
   methods:
-    & Record<'hello(string)string' | 'hello', {
-      argsObj: SplitRouterArgs['obj']['hello(string)string']
-      argsTuple: SplitRouterArgs['tuple']['hello(string)string']
-      returns: SplitRouterReturns['hello(string)string']
+    & Record<'setRecipients(address,address,address,address,address,uint64)void' | 'setRecipients', {
+      argsObj: SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void']
+      argsTuple: SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']
+      returns: SplitRouterReturns['setRecipients(address,address,address,address,address,uint64)void']
     }>
+    & Record<'optInToAsset(uint64)void' | 'optInToAsset', {
+      argsObj: SplitRouterArgs['obj']['optInToAsset(uint64)void']
+      argsTuple: SplitRouterArgs['tuple']['optInToAsset(uint64)void']
+      returns: SplitRouterReturns['optInToAsset(uint64)void']
+    }>
+  /**
+   * Defines the shape of the state of the application.
+   */
+  state: {
+    global: {
+      keys: {
+        auditor: BinaryState
+        maintainer: BinaryState
+        adversarial: BinaryState
+        treasury: BinaryState
+        ops: BinaryState
+        assetId: bigint
+      }
+      maps: {}
+    }
+    box: {
+      keys: {}
+      maps: {
+        attests: Map<string, Uint8Array>
+      }
+    }
+  }
 }
 
 /**
  * Defines the possible abi call signatures.
  */
 export type SplitRouterSignatures = keyof SplitRouterTypes['methods']
-/**
- * Defines the possible abi call signatures for methods that return a non-void value.
- */
-export type SplitRouterNonVoidMethodSignatures = keyof SplitRouterTypes['methods'] extends infer T ? T extends keyof SplitRouterTypes['methods'] ? MethodReturn<T> extends void ? never : T  : never : never
 /**
  * Defines an object containing all relevant parameters for a single call to the contract.
  */
@@ -130,6 +163,16 @@ export type MethodArgs<TSignature extends SplitRouterSignatures> = SplitRouterTy
  * Maps a method signature from the SplitRouter smart contract to the method's return type
  */
 export type MethodReturn<TSignature extends SplitRouterSignatures> = SplitRouterTypes['methods'][TSignature]['returns']
+
+/**
+ * Defines the shape of the keyed global state of the application.
+ */
+export type GlobalKeysState = SplitRouterTypes['state']['global']['keys']
+
+/**
+ * Defines the shape of the keyed box state of the application.
+ */
+export type BoxKeysState = SplitRouterTypes['state']['box']['keys']
 
 
 /**
@@ -153,16 +196,29 @@ export type SplitRouterDeployParams = Expand<Omit<AppFactoryDeployParams, 'creat
  */
 export abstract class SplitRouterParamsFactory {
   /**
-   * Constructs a no op call for the hello(string)string ABI method
+   * Constructs a no op call for the setRecipients(address,address,address,address,address,uint64)void ABI method
    *
    * @param params Parameters for the call
    * @returns An `AppClientMethodCallParams` object for the call
    */
-  static hello(params: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']> & CallOnComplete): AppClientMethodCallParams & CallOnComplete {
+  static setRecipients(params: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']> & CallOnComplete): AppClientMethodCallParams & CallOnComplete {
     return {
       ...params,
-      method: 'hello(string)string' as const,
-      args: Array.isArray(params.args) ? params.args : [params.args.name],
+      method: 'setRecipients(address,address,address,address,address,uint64)void' as const,
+      args: Array.isArray(params.args) ? params.args : [params.args.auditor, params.args.maintainer, params.args.adversarial, params.args.treasury, params.args.ops, params.args.assetId],
+    }
+  }
+  /**
+   * Constructs a no op call for the optInToAsset(uint64)void ABI method
+   *
+   * @param params Parameters for the call
+   * @returns An `AppClientMethodCallParams` object for the call
+   */
+  static optInToAsset(params: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']> & CallOnComplete): AppClientMethodCallParams & CallOnComplete {
+    return {
+      ...params,
+      method: 'optInToAsset(uint64)void' as const,
+      args: Array.isArray(params.args) ? params.args : [params.args.asset],
     }
   }
 }
@@ -337,14 +393,6 @@ export class SplitRouterClient {
   }
 
   /**
-   * Checks for decode errors on the given return value and maps the return value to the return type for the given method
-   * @returns The typed return value or undefined if there was no value
-   */
-  decodeReturnValue<TSignature extends SplitRouterNonVoidMethodSignatures>(method: TSignature, returnValue: ABIReturn | undefined) {
-    return returnValue !== undefined ? getArc56ReturnValue<MethodReturn<TSignature>>(returnValue, this.appClient.getABIMethod(method), APP_SPEC.structs) : undefined
-  }
-
-  /**
    * Returns a new `SplitRouterClient` client, resolving the app by creator address and name
    * using AlgoKit app deployment semantics (i.e. looking for the app creation transaction note).
    * @param params The parameters to create the app client
@@ -406,13 +454,23 @@ export class SplitRouterClient {
     },
 
     /**
-     * Makes a call to the SplitRouter smart contract using the `hello(string)string` ABI method.
+     * Makes a call to the SplitRouter smart contract using the `setRecipients(address,address,address,address,address,uint64)void` ABI method.
      *
      * @param params The params for the smart contract call
      * @returns The call params
      */
-    hello: (params: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
-      return this.appClient.params.call(SplitRouterParamsFactory.hello(params))
+    setRecipients: (params: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      return this.appClient.params.call(SplitRouterParamsFactory.setRecipients(params))
+    },
+
+    /**
+     * Makes a call to the SplitRouter smart contract using the `optInToAsset(uint64)void` ABI method.
+     *
+     * @param params The params for the smart contract call
+     * @returns The call params
+     */
+    optInToAsset: (params: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      return this.appClient.params.call(SplitRouterParamsFactory.optInToAsset(params))
     },
 
   }
@@ -432,13 +490,23 @@ export class SplitRouterClient {
     },
 
     /**
-     * Makes a call to the SplitRouter smart contract using the `hello(string)string` ABI method.
+     * Makes a call to the SplitRouter smart contract using the `setRecipients(address,address,address,address,address,uint64)void` ABI method.
      *
      * @param params The params for the smart contract call
      * @returns The call transaction
      */
-    hello: (params: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
-      return this.appClient.createTransaction.call(SplitRouterParamsFactory.hello(params))
+    setRecipients: (params: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      return this.appClient.createTransaction.call(SplitRouterParamsFactory.setRecipients(params))
+    },
+
+    /**
+     * Makes a call to the SplitRouter smart contract using the `optInToAsset(uint64)void` ABI method.
+     *
+     * @param params The params for the smart contract call
+     * @returns The call transaction
+     */
+    optInToAsset: (params: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      return this.appClient.createTransaction.call(SplitRouterParamsFactory.optInToAsset(params))
     },
 
   }
@@ -458,14 +526,25 @@ export class SplitRouterClient {
     },
 
     /**
-     * Makes a call to the SplitRouter smart contract using the `hello(string)string` ABI method.
+     * Makes a call to the SplitRouter smart contract using the `setRecipients(address,address,address,address,address,uint64)void` ABI method.
      *
      * @param params The params for the smart contract call
      * @returns The call result
      */
-    hello: async (params: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']> & SendParams & {onComplete?: OnApplicationComplete.NoOpOC}) => {
-      const result = await this.appClient.send.call(SplitRouterParamsFactory.hello(params))
-      return {...result, return: result.return as unknown as (undefined | SplitRouterReturns['hello(string)string'])}
+    setRecipients: async (params: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']> & SendParams & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      const result = await this.appClient.send.call(SplitRouterParamsFactory.setRecipients(params))
+      return {...result, return: result.return as unknown as (undefined | SplitRouterReturns['setRecipients(address,address,address,address,address,uint64)void'])}
+    },
+
+    /**
+     * Makes a call to the SplitRouter smart contract using the `optInToAsset(uint64)void` ABI method.
+     *
+     * @param params The params for the smart contract call
+     * @returns The call result
+     */
+    optInToAsset: async (params: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']> & SendParams & {onComplete?: OnApplicationComplete.NoOpOC}) => {
+      const result = await this.appClient.send.call(SplitRouterParamsFactory.optInToAsset(params))
+      return {...result, return: result.return as unknown as (undefined | SplitRouterReturns['optInToAsset(uint64)void'])}
     },
 
   }
@@ -484,6 +563,75 @@ export class SplitRouterClient {
    * Methods to access state for the current SplitRouter app
    */
   state = {
+    /**
+     * Methods to access global state for the current SplitRouter app
+     */
+    global: {
+      /**
+       * Get all current keyed values from global state
+       */
+      getAll: async (): Promise<Partial<Expand<GlobalKeysState>>> => {
+        const result = await this.appClient.state.global.getAll()
+        return {
+          auditor: new BinaryStateValue(result.auditor),
+          maintainer: new BinaryStateValue(result.maintainer),
+          adversarial: new BinaryStateValue(result.adversarial),
+          treasury: new BinaryStateValue(result.treasury),
+          ops: new BinaryStateValue(result.ops),
+          assetId: result.assetId,
+        }
+      },
+      /**
+       * Get the current value of the auditor key in global state
+       */
+      auditor: async (): Promise<BinaryState> => { return new BinaryStateValue((await this.appClient.state.global.getValue("auditor")) as Uint8Array | undefined) },
+      /**
+       * Get the current value of the maintainer key in global state
+       */
+      maintainer: async (): Promise<BinaryState> => { return new BinaryStateValue((await this.appClient.state.global.getValue("maintainer")) as Uint8Array | undefined) },
+      /**
+       * Get the current value of the adversarial key in global state
+       */
+      adversarial: async (): Promise<BinaryState> => { return new BinaryStateValue((await this.appClient.state.global.getValue("adversarial")) as Uint8Array | undefined) },
+      /**
+       * Get the current value of the treasury key in global state
+       */
+      treasury: async (): Promise<BinaryState> => { return new BinaryStateValue((await this.appClient.state.global.getValue("treasury")) as Uint8Array | undefined) },
+      /**
+       * Get the current value of the ops key in global state
+       */
+      ops: async (): Promise<BinaryState> => { return new BinaryStateValue((await this.appClient.state.global.getValue("ops")) as Uint8Array | undefined) },
+      /**
+       * Get the current value of the assetId key in global state
+       */
+      assetId: async (): Promise<bigint | undefined> => { return (await this.appClient.state.global.getValue("assetId")) as bigint | undefined },
+    },
+    /**
+     * Methods to access box state for the current SplitRouter app
+     */
+    box: {
+      /**
+       * Get all current keyed values from box state
+       */
+      getAll: async (): Promise<Partial<Expand<BoxKeysState>>> => {
+        const result = await this.appClient.state.box.getAll()
+        return {
+        }
+      },
+      /**
+       * Get values from the attests map in box state
+       */
+      attests: {
+        /**
+         * Get all current values of the attests map in box state
+         */
+        getMap: async (): Promise<Map<string, Uint8Array>> => { return (await this.appClient.state.box.getMap("attests")) as Map<string, Uint8Array> },
+        /**
+         * Get a current value of the attests map by key from box state
+         */
+        value: async (key: string): Promise<Uint8Array | undefined> => { return await this.appClient.state.box.getMapValue("attests", key) as Uint8Array | undefined },
+      },
+    },
   }
 
   public newGroup(): SplitRouterComposer {
@@ -493,11 +641,19 @@ export class SplitRouterClient {
     const resultMappers: Array<undefined | ((x: ABIReturn | undefined) => any)> = []
     return {
       /**
-       * Add a hello(string)string method call against the SplitRouter contract
+       * Add a setRecipients(address,address,address,address,address,uint64)void method call against the SplitRouter contract
        */
-      hello(params: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']> & {onComplete?: OnApplicationComplete.NoOpOC}) {
-        promiseChain = promiseChain.then(async () => composer.addAppCallMethodCall(await client.params.hello(params)))
-        resultMappers.push((v) => client.decodeReturnValue('hello(string)string', v))
+      setRecipients(params: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) {
+        promiseChain = promiseChain.then(async () => composer.addAppCallMethodCall(await client.params.setRecipients(params)))
+        resultMappers.push(undefined)
+        return this
+      },
+      /**
+       * Add a optInToAsset(uint64)void method call against the SplitRouter contract
+       */
+      optInToAsset(params: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']> & {onComplete?: OnApplicationComplete.NoOpOC}) {
+        promiseChain = promiseChain.then(async () => composer.addAppCallMethodCall(await client.params.optInToAsset(params)))
+        resultMappers.push(undefined)
         return this
       },
       /**
@@ -536,13 +692,22 @@ export class SplitRouterClient {
 }
 export type SplitRouterComposer<TReturns extends [...any[]] = []> = {
   /**
-   * Calls the hello(string)string ABI method.
+   * Calls the setRecipients(address,address,address,address,address,uint64)void ABI method.
    *
    * @param args The arguments for the contract call
    * @param params Any additional parameters for the call
    * @returns The typed transaction composer so you can fluently chain multiple calls or call execute to execute all queued up transactions
    */
-  hello(params?: CallParams<SplitRouterArgs['obj']['hello(string)string'] | SplitRouterArgs['tuple']['hello(string)string']>): SplitRouterComposer<[...TReturns, SplitRouterReturns['hello(string)string'] | undefined]>
+  setRecipients(params?: CallParams<SplitRouterArgs['obj']['setRecipients(address,address,address,address,address,uint64)void'] | SplitRouterArgs['tuple']['setRecipients(address,address,address,address,address,uint64)void']>): SplitRouterComposer<[...TReturns, SplitRouterReturns['setRecipients(address,address,address,address,address,uint64)void'] | undefined]>
+
+  /**
+   * Calls the optInToAsset(uint64)void ABI method.
+   *
+   * @param args The arguments for the contract call
+   * @param params Any additional parameters for the call
+   * @returns The typed transaction composer so you can fluently chain multiple calls or call execute to execute all queued up transactions
+   */
+  optInToAsset(params?: CallParams<SplitRouterArgs['obj']['optInToAsset(uint64)void'] | SplitRouterArgs['tuple']['optInToAsset(uint64)void']>): SplitRouterComposer<[...TReturns, SplitRouterReturns['optInToAsset(uint64)void'] | undefined]>
 
   /**
    * Makes a clear_state call to an existing instance of the SplitRouter smart contract.
