@@ -1,2 +1,5 @@
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
 overrides:
   ws: "8.21.0"
