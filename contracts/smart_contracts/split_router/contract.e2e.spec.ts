@@ -225,4 +225,27 @@ describe('SplitRouter', () => {
         .send({ coverAppCallInnerTransactionFees: true }),
     ).rejects.toThrow()
   })
+
+  test('pay() rejects wrong receiver', async () => {
+    const { creator, client, usdcId } = await setupFull()
+
+    // Send USDC to creator instead of the app address
+    const wrongReceiver = creator
+    const badPayment = await localnet.algorand.createTransaction.assetTransfer({
+      sender: creator,
+      receiver: wrongReceiver,
+      assetId: usdcId,
+      amount: UNIT,
+    })
+
+    await expect(
+      client
+        .newGroup()
+        .pay({
+          args: { payment: badPayment, pkg: 'lodash', ver: '4.17.21' },
+          maxFee: microAlgos(6_000),
+        })
+        .send({ coverAppCallInnerTransactionFees: true }),
+    ).rejects.toThrow()
+  })
 })
