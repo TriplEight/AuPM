@@ -4,6 +4,8 @@ import dotenv from 'dotenv'
 import path from 'node:path'
 import { SplitRouterFactory } from '../artifacts/split_router/SplitRouterClient'
 
+// Load root .env first, then override with contracts-level .env if present
+dotenv.config({ path: path.resolve(__dirname, '../../../.env') })
 dotenv.config({ path: path.resolve(process.cwd(), '.env') })
 
 const USDC_TESTNET_ASA_ID = 10458941n
@@ -75,6 +77,17 @@ export async function deploy() {
     coverAppCallInnerTransactionFees: true,
   })
   console.log('App account opted into USDC.')
+
+  // Fund each recipient with 0.3 ALGO from PAYER so they can cover opt-in MBR + fee
+  algorand.setSigner(deployer.addr, algosdk.makeBasicAccountTransactionSigner(deployer))
+  for (const [name, acct] of Object.entries(recipients)) {
+    await algorand.send.payment({
+      sender: deployer.addr,
+      receiver: acct.addr,
+      amount: microAlgos(300_000), // 0.3 ALGO covers 0.2 MBR + 0.001 fee + buffer
+    })
+    console.log(`Funded ${name} with 0.3 ALGO.`)
+  }
 
   // Each recipient opts into USDC
   for (const [name, acct] of Object.entries(recipients)) {
