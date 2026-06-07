@@ -8,7 +8,8 @@ mkdir -p .claude/agents .claude/commands \
          .claude/skills/spm-split-contract \
          .claude/skills/spm-x402-flow \
          .claude/skills/spm-audit-status \
-         docs
+         .claude/skills/spm-testing \
+         docs scripts
 
 ###############################################################################
 # Root project memory
@@ -19,6 +20,8 @@ cat > CLAUDE.md <<'EOF'
 @AGENTS.md
 @docs/architecture.md
 @docs/scope-map.md
+@docs/test-plan.md
+@docs/goals.md
 
 ## What we are building (12h hackathon MVP)
 An npm-compatible **registry overlay** where **human-audited** packages cost a
@@ -64,13 +67,24 @@ calls and pays for autonomously.
 - Every payment-path change must keep the free tier free (status < COMMUNITY_REVIEWED).
 - After finishing a unit of work, append a dated entry to `NOTES.md` (use /handoff).
 - Prefer the relevant SPM skill (spm-split-contract / spm-x402-flow /
-  spm-audit-status) and the Algorand DevRel skills before writing AVM/x402 code.
+  spm-audit-status / spm-testing) and the Algorand DevRel skills before writing code.
 - Pin dep versions on install; avoid API drift.
+
+## Verification (this is how "done" is judged — read before goal mode)
+- Single source of truth for "working": **`bash scripts/verify.sh` exits 0** and prints
+  every check `PASS`. It runs typecheck + unit + integration + a LocalNet E2E.
+- **`bash scripts/demo.sh` exits 0** runs the documented demo path end-to-end against the
+  configured network and prints the Lora URL. The demo is not "done" until this is green.
+- Test/loop on **LocalNet** (instant, deterministic). Reserve **TestNet** for the final
+  E2E pass + the live stage demo — never run goal loops against TestNet.
+- See docs/test-plan.md for the full matrix and docs/goals.md for ready-to-paste /goal
+  conditions. A goal condition must be something a command's transcript output proves.
 
 ## Skills available
 - spm-split-contract — SplitRouter math + atomic inner-txn pattern.
 - spm-x402-flow      — 402 round-trip with @x402-avm + correct ids.
 - spm-audit-status   — status tiers, auto-reset rule, SQLite schema, /api contract.
+- spm-testing        — test stack, LocalNet fixtures, how to assert the 5-way split, harness.
 - (Algorand DevRel skills, copied into .claude/skills/ — AVM/x402/AlgoKit knowledge.)
 EOF
 
@@ -194,6 +208,114 @@ deferred; state it in the pitch, do not build it.
 ## Bonus track (conditional)
 Quantoz EURD: same SplitRouter with a second ASA + recipient opt-ins + a EURD-priced
 route (`@ever_amsterdam/x402-euro-eurd` patterns). Only if S4 is green and it's <=30 min.
+EOF
+
+###############################################################################
+# Test plan (imported into project memory)
+###############################################################################
+cat > docs/test-plan.md <<'EOF'
+# SPM test plan (imported into project memory)
+
+Goal-mode judges "done" by command output in the transcript. Every component below
+has tests that a single harness runs. Loop on LocalNet; TestNet only for the final pass.
+
+## Stack
+- Contract: vitest + @algorandfoundation/algokit-utils against AlgoKit LocalNet.
+- Proxy: vitest + Hono's built-in test client (`app.request(...)`). SQLite in a temp file.
+- MCP/CLI: vitest; drive the MCP tools against a local proxy + LocalNet app.
+- E2E/demo: `scripts/e2e.mjs` (node, tsx-runnable) driving the real flow + on-chain asserts.
+
+## Required npm scripts (wire in root package.json)
+- `test`       -> run all workspace vitest suites (unit + integration).
+- `typecheck`  -> `tsc -b` (or per-package `tsc --noEmit`).
+- (Optional) `lint`.
+`scripts/verify.sh` calls these + a LocalNet E2E. `scripts/demo.sh` runs E2E on $NETWORK.
+
+## Unit tests
+### contracts/ (SplitRouter)
+- split-sum: a pay() of UNIT (1000) emits exactly 5 inner axfers 500/200/150/100/50 to the
+  5 configured recipients; their sum == UNIT.
+- reject wrong-asset: pay() with a non-ASSET_ID axfer fails.
+- reject wrong-amount: pay() with amount != UNIT fails.
+- reject wrong-receiver: payment not addressed to the app fails.
+- attest-auth: attest() from a non-authorizedAuditor fails; from authorizedAuditor writes
+  box `attest:<pkg>@<ver>` with the expected fields.
+### proxy/
+- free passthrough: GET an UNREVIEWED package -> 200 + tarball, no 402, no wallet.
+- paid gate: GET a COMMUNITY_REVIEWED package -> 402 with PaymentRequirements
+  (scheme "exact", asset "10458941", payTo app addr, maxAmountRequired "1000").
+- status API: GET /api/v1/status/:pkg/:version returns the row shape; unknown -> UNREVIEWED.
+- auto-reset: a version with no row resolves to UNREVIEWED.
+### mcp/ + cli/
+- check_audit_status returns status without payment.
+- install_audited_package on a 402 builds an atomic group [USDC axfer->app]+[appcall pay]
+  with correct asset/amount/args (assert the constructed group, signed locally).
+
+## Integration / system tests (LocalNet)
+- proxy <-> contract: a real pay() group submitted via the proxy settles; proxy confirms
+  the 5 inner txns before returning 200.
+- mcp <-> proxy <-> contract: install_audited_package end-to-end returns tarball +
+  X-AUDIT-ATTESTATION; balances of the 5 recipients increased by 500/200/150/100/50.
+- attest -> status flip: attest() then GET status shows COMMUNITY_REVIEWED + attest_txid.
+
+## E2E (scripts/e2e.mjs) — the goal/demo gate
+Runs against --network localnet (default for loops) or testnet (final/demo). Asserts:
+1. Free install of an UNREVIEWED package succeeds with zero payment.
+2. install_audited_package on the seeded COMMUNITY_REVIEWED package returns a tarball.
+3. The settlement group on-chain has exactly 5 inner axfers 500/200/150/100/50 to the 5
+   recipients (read via algosdk/indexer). Print the group txid + Lora URL.
+4. GET /api/v1/status returns COMMUNITY_REVIEWED + attest_txid.
+5. Version bump -> status resolves to UNREVIEWED.
+Exit 0 only if all pass; print `E2E: PASS` / `E2E: FAIL <reason>`.
+
+## Definition of done (per sync point)
+- S2: `npm test` green for contracts split/reject/attest + proxy gate tests (LocalNet).
+- S3: contract on TestNet; integration tests green on LocalNet; MCP builds the real group.
+- S4: `bash scripts/verify.sh` exits 0 AND `bash scripts/demo.sh` exits 0 on TestNet.
+EOF
+
+###############################################################################
+# Ready-to-paste /goal conditions (imported into project memory)
+###############################################################################
+cat > docs/goals.md <<'EOF'
+# /goal conditions for SPM (Claude Code v2.1.139+)
+
+How to use: enable auto mode (so each turn runs unattended), trust the workspace, then
+paste ONE condition with `/goal <condition>`. The evaluator only sees what's in the
+transcript, so each condition names a command whose output proves it. Each ends with a
+turn bound. Run the right subagent first (it scopes files + skills).
+
+Loop on LocalNet. Do not point a goal loop at TestNet.
+
+## G1 — SplitRouter (algorand-contract-engineer)
+/goal `npm -w contracts test` exits 0 with the split-sum, reject-wrong-asset,
+reject-wrong-amount, reject-wrong-receiver, and attest-auth tests all passing on LocalNet;
+inner amounts are exactly 500/200/150/100/50 µUSDC; do not modify proxy/ mcp/ cli/;
+stop after 25 turns.
+
+## G2 — Proxy + x402 gate (x402-proxy-engineer)
+/goal `npm -w proxy test` exits 0 with free-passthrough, paid-402, status-API, and
+auto-reset tests passing; the 402 uses scheme "exact", asset "10458941", and amount
+"1000"; the free tier never returns 402; do not modify contracts/; stop after 25 turns.
+
+## G3 — MCP hero path (mcp-payer-engineer)
+/goal `npm -w mcp test` exits 0 proving check_audit_status needs no payment and
+install_audited_package builds a correct atomic group [USDC axfer->app]+[appcall pay];
+do not change the split or the contract ABI; stop after 20 turns.
+
+## G4 — Full system on LocalNet (integration-tester)
+/goal `bash scripts/verify.sh` exits 0 and its output shows every check PASS, including
+the LocalNet E2E asserting 5 inner transfers 500/200/150/100/50 to the 5 recipients;
+do not weaken any assertion to make it pass; stop after 30 turns.
+
+## G5 — Tested demo on TestNet (integration-tester)
+/goal `NETWORK=testnet bash scripts/demo.sh` exits 0, prints `DEMO: PASS`, and prints a
+Lora URL for the settlement group showing the 5 inner transfers; the free-install step
+completes with no payment; do not mock the chain; stop after 20 turns.
+
+## Tips
+- If a goal stalls, run `/goal` (no arg) to read the evaluator's last reason, fix scope.
+- Keep conditions to one measurable end state + the check command + constraints + bound.
 EOF
 
 ###############################################################################
@@ -332,18 +454,22 @@ description: >
 tools: Read, Bash, Grep, Glob
 model: sonnet
 ---
-You are the E2E verifier for SPM. You do not write application code; you run it and report.
+You are the E2E verifier for SPM. You do not write application code; you run the harness,
+report, and (only) author/fix the verification scripts and tests.
 
-Checklist each run:
+Primary tools: `bash scripts/verify.sh` (LocalNet, the G4 gate) and
+`NETWORK=testnet bash scripts/demo.sh` (the G5 demo gate). Keep both green.
+
+Checklist each run (mirrors scripts/e2e.mjs):
 1. Free path: install an UNREVIEWED package — must succeed with zero payment.
 2. Paid path: install a COMMUNITY_REVIEWED package via the MCP tool — must 402,
    pay, and return a settlement txid.
 3. On-chain: confirm the group txn has exactly 5 inner axfers of 500/200/150/100/50
-   µUSDC to the 5 recipients (use algosdk / indexer; provide the Lora URL).
+   µUSDC to the 5 recipients (algosdk/indexer); provide the Lora URL.
 4. API: GET /api/v1/status/:pkg/:version returns the expected status + attest txid.
 5. Auto-reset: bump version, confirm status flips to UNREVIEWED.
-Report failures with the exact failing assertion and suspected owner subagent.
-Produce a one-paragraph go/no-go for the demo.
+Report failures with the exact failing assertion and suspected owner subagent. Never
+weaken an assertion to pass. Produce a one-paragraph go/no-go for the demo.
 EOF
 
 cat > .claude/agents/scope-sentinel.md <<'EOF'
@@ -415,6 +541,27 @@ allowed-tools: Read, Edit, Bash
 Append a timestamped entry to NOTES.md with: what changed ($ARGUMENTS), files
 touched, current APP_ID/state if relevant, what's blocked, and the single next
 action for whoever picks this up. Keep it under 8 lines.
+EOF
+
+cat > .claude/commands/verify.md <<'EOF'
+---
+description: Run the full verification harness (typecheck + unit + integration + LocalNet E2E)
+allowed-tools: Read, Bash, Grep, Glob
+---
+Run `bash scripts/verify.sh` and show the full output. Report which checks PASS/FAIL and
+the exit code. If anything FAILs, summarize the first failing check and the likely owner
+subagent. Do not modify tests to make them pass. This is the G4 completion signal.
+EOF
+
+cat > .claude/commands/demo.md <<'EOF'
+---
+description: Run the documented, tested demo path end-to-end and print the Lora URL
+argument-hint: "[network: localnet|testnet, default testnet]"
+allowed-tools: Read, Bash, Grep, Glob
+---
+Run `NETWORK=${ARGUMENTS:-testnet} bash scripts/demo.sh`, show the output, and confirm it
+printed `DEMO: PASS` plus a Lora URL for the settlement group with 5 inner transfers.
+Then echo the demo runbook steps from DEMO.md so the operator can follow along live.
 EOF
 
 ###############################################################################
@@ -553,6 +700,147 @@ GET /api/v1/status/:pkg/:version
 -> unknown version => synthesize { status: "UNREVIEWED" } per the auto-reset rule.
 EOF
 
+cat > .claude/skills/spm-testing/SKILL.md <<'EOF'
+---
+name: spm-testing
+description: >
+  SPM test stack, LocalNet fixtures, the verification harness, and how to assert the
+  5-way on-chain split. Use whenever writing tests, the e2e/demo scripts, or wiring
+  scripts/verify.sh — and before setting any /goal condition.
+---
+# Testing SPM
+
+## Principle
+"Done" = a command exits 0 with PASS in its output. Goal-mode's evaluator reads the
+transcript, not the filesystem, so always run the check and let the result print.
+
+## Where tests run
+- Loop/dev on **LocalNet** (`algokit localnet start`) — instant + deterministic.
+- **TestNet** only for the final E2E pass and the live demo (`scripts/demo.sh`).
+
+## Stack
+- contracts: vitest + @algorandfoundation/algokit-utils; deploy to LocalNet in beforeAll,
+  fund test accounts, opt them into a locally-created USDC-like ASA.
+- proxy: vitest + Hono `app.request()`; SQLite in a tmp file seeded per test.
+- mcp/cli: vitest; spin the proxy + LocalNet app, drive the tools, assert built groups.
+
+## Asserting the split (the key test)
+After a pay() group is confirmed, read the txn's inner-transactions (algosdk
+`pendingTransactionInformation` / indexer) and assert exactly 5 inner AssetTransfers with
+amounts [500,200,150,100,50] to [auditor,maintainer,adversarial,treasury,ops]. Equivalent:
+each recipient's ASA balance delta equals its share. Compare integer micro-units, never floats.
+
+## Harness
+- `scripts/verify.sh` — typecheck + `npm test` + LocalNet E2E; per-check PASS/FAIL; nonzero
+  if any FAIL. This is the G4 goal condition.
+- `scripts/e2e.mjs` — free install, paid install, on-chain split assert, status API,
+  auto-reset. `--network localnet|testnet`. Prints `E2E: PASS|FAIL`.
+- `scripts/demo.sh` — runs e2e on $NETWORK (default testnet), prints the Lora URL. G5 gate.
+Stubs ship failing ("not implemented") so a /goal loop has a red target. Never weaken an
+assertion to pass a goal — fix the code.
+EOF
+
+###############################################################################
+# Verification harness stubs (ship failing so /goal has a red target)
+###############################################################################
+cat > scripts/verify.sh <<'EOF'
+#!/usr/bin/env bash
+# SPM verification harness. Exit 0 only if every check passes. The G4 /goal gate.
+# Loops should run this against LocalNet. Prints PASS/FAIL per check.
+set -uo pipefail
+fail=0
+run() { # name | command
+  printf '%-26s ' "$1"
+  if eval "$2" >"/tmp/spm_verify_${1// /_}.log" 2>&1; then echo PASS; else echo "FAIL  (see /tmp/spm_verify_${1// /_}.log)"; fail=1; fi
+}
+echo "== SPM verify (LocalNet) =="
+run "typecheck"        "npm run -s typecheck"
+run "unit+integration" "npm test --silent"
+run "e2e:localnet"     "node scripts/e2e.mjs --network localnet"
+echo "==========================="
+if [ "$fail" -eq 0 ]; then echo "VERIFY: PASS"; else echo "VERIFY: FAIL"; fi
+exit "$fail"
+EOF
+chmod +x scripts/verify.sh
+
+cat > scripts/e2e.mjs <<'EOF'
+#!/usr/bin/env node
+// SPM end-to-end check. Drives the real flow and asserts the on-chain 5-way split.
+// Usage: node scripts/e2e.mjs --network localnet|testnet
+// Implement against docs/test-plan.md "E2E". MUST exit nonzero until real.
+const net = (process.argv.find(a => a.startsWith('--network')) || '').split('=')[1]
+         || process.argv[process.argv.indexOf('--network') + 1] || 'localnet';
+
+async function main() {
+  // TODO(mcp-payer-engineer + integration-tester): implement these against ${net}
+  //  1. free install of an UNREVIEWED package -> succeeds, NO payment
+  //  2. install_audited_package(seeded COMMUNITY_REVIEWED) -> tarball returned
+  //  3. read settlement group inner-txns -> EXACTLY [500,200,150,100,50] to 5 recipients
+  //  4. GET /api/v1/status -> COMMUNITY_REVIEWED + attest_txid
+  //  5. version bump -> status resolves to UNREVIEWED
+  //  print the group txid + Lora URL.
+  throw new Error('E2E not implemented');
+}
+main()
+  .then(() => { console.log('E2E: PASS'); process.exit(0); })
+  .catch((e) => { console.error('E2E: FAIL', e.message); process.exit(1); });
+EOF
+chmod +x scripts/e2e.mjs
+
+cat > scripts/demo.sh <<'EOF'
+#!/usr/bin/env bash
+# Runs the documented demo path end-to-end and prints the Lora URL. The G5 demo gate.
+# NETWORK defaults to testnet (the live stage network).
+set -uo pipefail
+NETWORK="${NETWORK:-testnet}"
+echo "== SPM demo ($NETWORK) =="
+if node scripts/e2e.mjs --network "$NETWORK"; then
+  echo "DEMO: PASS"
+  echo "Follow DEMO.md for the live walkthrough. Open the printed Lora URL on stage."
+  exit 0
+else
+  echo "DEMO: FAIL — see DEMO.md fallback (play the recorded video)."
+  exit 1
+fi
+EOF
+chmod +x scripts/demo.sh
+
+###############################################################################
+# Demo runbook (documented + tested via scripts/demo.sh)
+###############################################################################
+cat > DEMO.md <<'EOF'
+# SPM demo runbook (documented + tested)
+
+The demo is "done" only when `NETWORK=testnet bash scripts/demo.sh` exits 0 and prints
+`DEMO: PASS` + a Lora URL. Rehearse it; record a backup video. ~90 seconds on stage.
+
+## Pre-stage checklist
+- [ ] SplitRouter deployed to TestNet; APP_ID/APP_ADDRESS in `.env`.
+- [ ] 5 recipients + app opted into USDC ASA 10458941; payer wallet funded (ALGO + USDC).
+- [ ] DB seeded: one COMMUNITY_REVIEWED package (paid) + one UNREVIEWED (free) — `/seed`.
+- [ ] `bash scripts/verify.sh` green on LocalNet; `NETWORK=testnet bash scripts/demo.sh` green.
+- [ ] Lora open; backup video on disk.
+
+## Script (what you say + do)
+1. **Free tier.** Agent calls `check_audit_status` then installs an UNREVIEWED package.
+   Instant, no wallet. "Unreviewed packages are free — same as npm today."
+2. **Paid, agentic.** Agent calls `install_audited_package("lodash","<ver>")`. It hits
+   402, signs+pays USDC autonomously, install completes. "The agent paid — no human, no
+   subscription, no API key."
+3. **On-chain proof.** Open the printed Lora URL: one group txn, five inner transfers
+   500/200/150/100/50 µUSDC to auditor/maintainer/adversarial/treasury/ops. "Five parties
+   paid atomically, per download."
+4. **The hook.** `curl /api/v1/status/lodash/<ver>` shows the status + attestation txid;
+   then note a version bump resets to UNREVIEWED. "That bump is exactly where supply-chain
+   attacks inject — and where the next bounty appears."
+5. (Optional) Live `submit_audit` flip, or the Quantoz EURD-denominated install.
+
+## Fallbacks
+- TestNet slow/flaky: switch the narration to the recorded video; still open a prior Lora txn.
+- Facilitator down: proxy uses direct algosdk submit (default). No demo change.
+- Anything red in `scripts/demo.sh`: do NOT demo live — play the video.
+EOF
+
 ###############################################################################
 # Handoff log seed
 ###############################################################################
@@ -567,5 +855,8 @@ Use `/handoff <summary>` to append entries. Newest at top.
 EOF
 
 echo "SPM bootstrap complete."
-echo "Created: CLAUDE.md, docs/architecture.md, NOTES.md, .claude/{settings.json,agents/*,commands/*,skills/*}"
+echo "Created: CLAUDE.md, docs/{architecture,scope-map,test-plan,goals}.md, DEMO.md, NOTES.md,"
+echo "         scripts/{verify.sh,e2e.mjs,demo.sh} (stubs), .claude/{settings.json,agents/*,commands/*,skills/*}"
+echo "Verify gate: bash scripts/verify.sh   |   Demo gate: NETWORK=testnet bash scripts/demo.sh"
+echo "Goal conditions: docs/goals.md (G1..G5).   Run /verify and /demo inside Claude Code."
 echo "Reminder: AGENTS.md and .mcp.json come from algorand-agent-skills (SETUP.md step 2)."
