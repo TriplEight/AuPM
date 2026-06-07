@@ -11,6 +11,8 @@ import {
   itxn,
   gtxn,
   log,
+  op,
+  clone,
   type uint64,
   type bytes,
 } from '@algorandfoundation/algorand-typescript'
@@ -54,6 +56,17 @@ export class SplitRouter extends Contract {
         fee: Uint64(0),
       })
       .submit()
+  }
+
+  public attest(pkg: string, ver: string, status: uint64): void {
+    assert(Txn.sender.bytes === clone(this.auditor.value), 'not auditor')
+    const key = pkg + '@' + ver
+    // Pack 80 bytes: auditor(32) + txId(32) + status(8) + ts(8)
+    const packed: bytes = Txn.sender.bytes
+      .concat(Txn.txId)
+      .concat(op.itob(status))
+      .concat(op.itob(Global.latestTimestamp))
+    this.attests(key).value = packed
   }
 
   public pay(payment: gtxn.AssetTransferTxn, pkg: string, ver: string): void {

@@ -152,6 +152,36 @@ describe('SplitRouter', () => {
     expect(opsBalance.balance).toBe(50n)
   })
 
+  test('attest() writes box and only auditor can call it', async () => {
+    const { creator, client, usdcId, auditor } = await setupFull()
+
+    const boxKeyStr = 'attest:lodash@4.17.21'
+    const boxKey = new TextEncoder().encode(boxKeyStr)
+
+    // Auditor can attest (status 2 = COMMUNITY_REVIEWED)
+    await client.send.attest({
+      args: { pkg: 'lodash', ver: '4.17.21', status: 2n },
+      sender: auditor.toString(),
+      boxReferences: [{ appId: client.appId, name: boxKey }],
+    })
+
+    // Box should exist and be 80 bytes: auditor(32) + txId(32) + status(8) + ts(8)
+    const boxResult = await localnet.algorand.client.algod
+      .getApplicationBoxByName(Number(client.appId), boxKey)
+      .do()
+    expect(boxResult.value).toBeDefined()
+    expect(boxResult.value.length).toBe(80)
+
+    // Non-auditor cannot attest
+    await expect(
+      client.send.attest({
+        args: { pkg: 'lodash', ver: '4.17.21', status: 2n },
+        sender: creator,
+        boxReferences: [{ appId: client.appId, name: boxKey }],
+      }),
+    ).rejects.toThrow()
+  })
+
   test('pay() rejects wrong asset', async () => {
     const { creator, client } = await setupFull()
     const wrongId = await createMockUsdc(creator)
