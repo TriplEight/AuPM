@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.5.0",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "start": "node --import tsx/esm src/index.ts",
+    "start": "node --env-file=../.env --import tsx/esm src/index.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "build:native": "pnpm rebuild better-sqlite3",
