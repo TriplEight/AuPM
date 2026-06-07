@@ -23,6 +23,14 @@ vi.mock('algosdk', async (importOriginal) => {
               }),
           }
         }
+        getApplicationByID(_appId: number) {
+          return {
+            do: () =>
+              Promise.resolve({
+                params: { globalState: [] },
+              }),
+          }
+        }
       },
     },
   }

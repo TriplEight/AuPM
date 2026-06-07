@@ -3,6 +3,7 @@ import algosdk from 'algosdk'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { withEurPayment } from '@ever_amsterdam/x402-euro-eurd'
 import { signerFromMnemonic } from '../signer.js'
 
 const PROXY_URL = process.env['SPM_PROXY_URL'] ?? 'http://localhost:4873'
@@ -134,7 +135,8 @@ export const installTool = {
   name: 'install_audited_package',
   description:
     'Install an npm package via SPM. If COMMUNITY_REVIEWED or higher, autonomously pays ' +
-    '$0.001 USDC on Algorand TestNet. Returns tarball path and settlement txid.',
+    '$0.001 USDC on Algorand TestNet, or €0.01 EURD via Quantoz when QUANTOZ_API_KEY is set. ' +
+    'Returns tarball path and settlement txid.',
 
   async handler({ pkg, version }: { pkg: string; version: string }): Promise<InstallResult> {
     const basePkg = pkg.split('/').pop() ?? pkg
@@ -149,12 +151,30 @@ export const installTool = {
 
     if (res.status === 402) {
       const requirements = (await res.json()) as PaymentRequirements
-      const paymentHeader = await buildPaymentHeader(requirements)
-      res = await fetch(url, { headers: { 'PAYMENT-SIGNATURE': paymentHeader } })
-      if (!res.ok) {
-        throw new Error(`Payment rejected: ${res.status} — ${await res.text()}`)
+
+      // EURD bonus path: use Quantoz bridge when credentials and mainnet EURD offer are present
+      const quantozKey = process.env['QUANTOZ_API_KEY']
+      const quantozAccount = process.env['QUANTOZ_ACCOUNT']
+      const hasEurdOffer = requirements.accepts.some(
+        (a) => a.scheme === 'exact' && (a as PaymentAccept & { network: string }).network === 'algorand:mainnet',
+      )
+
+      if (quantozKey && quantozAccount && hasEurdOffer) {
+        const eurdFetch = withEurPayment(fetch, { apiKey: quantozKey, fromAccount: quantozAccount })
+        res = await eurdFetch(url)
+        if (!res.ok) {
+          throw new Error(`EURD payment rejected: ${res.status} — ${await res.text()}`)
+        }
+        txid = res.headers.get('X-AUDIT-ATTESTATION')
+      } else {
+        // Default USDC path
+        const paymentHeader = await buildPaymentHeader(requirements)
+        res = await fetch(url, { headers: { 'PAYMENT-SIGNATURE': paymentHeader } })
+        if (!res.ok) {
+          throw new Error(`Payment rejected: ${res.status} — ${await res.text()}`)
+        }
+        txid = res.headers.get('X-AUDIT-ATTESTATION')
       }
-      txid = res.headers.get('X-AUDIT-ATTESTATION')
     } else if (!res.ok) {
       throw new Error(`Install failed: ${res.status}`)
     }
@@ -163,13 +183,14 @@ export const installTool = {
     const tarballPath = path.join(tmpDir, tarballName)
     fs.writeFileSync(tarballPath, Buffer.from(await res.arrayBuffer()))
 
+    const isEurd = txid?.startsWith('QP') // Quantoz transactionCode format
     return {
       pkg,
       version,
       status: txid ? 'paid' : 'free',
       tarballPath,
       txid,
-      loraUrl: txid ? `https://testnet.lora.algokit.io/transaction/${txid}` : null,
+      loraUrl: txid && !isEurd ? `https://testnet.lora.algokit.io/transaction/${txid}` : null,
     }
   },
 }
