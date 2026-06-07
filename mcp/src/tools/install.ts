@@ -31,6 +31,26 @@ export type InstallResult = {
   loraUrl: string | null
 }
 
+async function fetchRecipients(
+  algod: algosdk.Algodv2,
+  appId: number,
+): Promise<string[]> {
+  const appInfo = await algod.getApplicationByID(appId).do()
+  const gs: Array<{ key: string; value: { type: number; bytes: string; uint: bigint } }> =
+    (appInfo.params?.globalState as never) ?? []
+  const keyToAddr: Record<string, string> = {}
+  for (const entry of gs) {
+    const key = Buffer.from(entry.key, 'base64').toString()
+    if (entry.value.type === 1) {
+      keyToAddr[key] = algosdk.encodeAddress(Buffer.from(entry.value.bytes, 'base64'))
+    }
+  }
+  // Return in split order: auditor, maintainer, adversarial, treasury, ops
+  return ['aud', 'mnt', 'adv', 'tre', 'ops']
+    .map((k) => keyToAddr[k])
+    .filter(Boolean)
+}
+
 async function buildPaymentHeader(requirements: PaymentRequirements): Promise<string> {
   const mnemonic = process.env['PAYER_MNEMONIC']
   if (!mnemonic) throw new Error('PAYER_MNEMONIC env var not set')
@@ -53,6 +73,9 @@ async function buildPaymentHeader(requirements: PaymentRequirements): Promise<st
   const args = accepted.extra?.args ?? []
   const pkg = args[0] ?? ''
   const ver = args[1] ?? ''
+
+  // Fetch recipient addresses from app global state so inner txns can reach them
+  const recipients = await fetchRecipients(algod, appId)
 
   // Txn 0: USDC asset transfer to SplitRouter app (fee pooled — inner txns covered by appcall)
   const axfer = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -86,6 +109,10 @@ async function buildPaymentHeader(requirements: PaymentRequirements): Promise<st
       fee: BigInt(7000), // covers 5 inner txn fees via pooling
       flatFee: true,
     },
+    // All 5 split recipients must be in appAccounts so the AVM can execute inner transfers.
+    // The asset must also be in appForeignAssets so the inner-txn holdings are available.
+    appAccounts: recipients,
+    appForeignAssets: [assetId],
     signer,
   })
 
