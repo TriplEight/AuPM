@@ -7,7 +7,9 @@
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "node --import tsx/esm src/index.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
@@ -19,6 +21,7 @@
   "devDependencies": {
     "@types/node": "22.15.21",
     "tsx": "4.22.4",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vitest": "4.1.8"
   }
 }
