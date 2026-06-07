@@ -7,7 +7,7 @@
   "scripts": {
     "build": "algokit compile ts smart_contracts --output-source-map --out-dir artifacts && algokit generate client smart_contracts/artifacts --output {app_spec_dir}/{contract_name}Client.ts",
     "deploy": "ts-node-dev --transpile-only --watch .env -r dotenv/config smart_contracts/index.ts",
-    "deploy:ci": "ts-node --transpile-only -r dotenv/config smart_contracts/index.ts",
+    "deploy:ci": "tsx --tsconfig tsconfig.json smart_contracts/index.ts",
     "check-types": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest"
