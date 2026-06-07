@@ -72,9 +72,12 @@ export async function deploy() {
   console.log('Recipients set.')
 
   // App account opts into USDC
+  // asset must be in assetReferences so the AVM can reference it in the inner axfer
+  // staticFee=2000 pools the fee: 1000 for outer + 1000 for the inner assetTransfer
   await appClient.send.optInToAsset({
     args: { asset: USDC_TESTNET_ASA_ID },
-    coverAppCallInnerTransactionFees: true,
+    assetReferences: [USDC_TESTNET_ASA_ID],
+    staticFee: microAlgos(2000),
   })
   console.log('App account opted into USDC.')
 

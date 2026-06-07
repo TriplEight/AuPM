@@ -2,15 +2,15 @@
 # Deploy SplitRouter to TestNet and update root .env with APP_ID + APP_ADDRESS.
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Verify PAYER has ALGO before attempting deploy
 PAYER_ADDR=$(grep '^PAYER_ADDR=' "$ROOT/.env" | cut -d= -f2)
 echo "== Checking PAYER balance =="
 BALANCE=$(curl -s "https://testnet-api.algonode.cloud/v2/accounts/${PAYER_ADDR}" | node -e "const d=require('fs').readFileSync('/dev/stdin','utf8'); const j=JSON.parse(d); console.log(j.amount ?? 0)")
 echo "PAYER balance: $((BALANCE / 1000000)) ALGO ($BALANCE µALGO)"
-if [ "$BALANCE" -lt 5000000 ]; then
-  echo "ERROR: PAYER needs at least 5 ALGO to deploy. Current: $((BALANCE / 1000000)) ALGO"
+if [ "$BALANCE" -lt 3500000 ]; then
+  echo "ERROR: PAYER needs at least 3.5 ALGO to deploy. Current: ${BALANCE} µALGO"
   echo "Fund via: https://bank.testnet.algorand.network/"
   exit 1
 fi
