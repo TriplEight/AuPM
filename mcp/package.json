@@ -1,0 +1,24 @@
+{
+  "name": "spm-mcp",
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@11.5.0",
+  "bin": { "spm-mcp": "dist/index.js" },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "start": "node --import tsx/esm src/index.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "@x402-avm/avm": "2.6.1",
+    "@x402-avm/fetch": "2.6.1",
+    "algosdk": "3.5.2",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.21",
+    "tsx": "4.22.4",
+    "typescript": "5.8.3"
+  }
+}
