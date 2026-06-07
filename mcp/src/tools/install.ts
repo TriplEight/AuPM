@@ -190,7 +190,7 @@ export const installTool = {
       status: txid ? 'paid' : 'free',
       tarballPath,
       txid,
-      loraUrl: txid && !isEurd ? `https://testnet.lora.algokit.io/transaction/${txid}` : null,
+      loraUrl: txid ? `https://lora.algokit.io/testnet/transaction/${txid}` : null,
     }
   },
 }
