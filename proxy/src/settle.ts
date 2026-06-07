@@ -25,7 +25,13 @@ export async function settle(paymentHeader: string): Promise<SettlementResult> {
     const { txid } = (await algod.sendRawTransaction(rawTxns).do()) as { txid: string }
     await algosdk.waitForConfirmation(algod, txid, 6)
 
-    return { success: true, txid }
+    // Return the appcall txid (last txn in group) — it holds the inner transfers.
+    // sendRawTransaction returns the first txn's txid (the axfer).
+    const lastRaw = rawTxns[rawTxns.length - 1]!
+    const lastStxn = algosdk.decodeSignedTransaction(lastRaw)
+    const appCallTxid = (lastStxn.txn as algosdk.Transaction).txID()
+
+    return { success: true, txid: appCallTxid }
   } catch (err) {
     return { success: false, error: String(err) }
   }
