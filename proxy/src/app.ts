@@ -42,31 +42,40 @@ app.use('*', async (c, next) => {
 
   if (isFree(row.status)) return next()
 
-  // Paid tier — check for payment header
-  const paymentHeader = c.req.header('PAYMENT-SIGNATURE')
+  // Paid tier — check for payment header (PAYMENT-SIGNATURE = USDC, X-PAYMENT = EURD bridge)
+  const paymentHeader = c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT')
   if (!paymentHeader) {
-    return c.json(
+    const accepts: object[] = [
       {
-        x402Version: 2,
-        accepts: [
-          {
-            scheme: 'exact',
-            network: ALGORAND_TESTNET_CAIP2,
-            payTo: process.env['SPLIT_APP_ADDRESS'] ?? '',
-            asset: String(USDC_TESTNET_ASA_ID),
-            maxAmountRequired: '1000',
-            maxTimeoutSeconds: 60,
-            extra: {
-              name: 'USDC',
-              decimals: 6,
-              appMethod: 'pay',
-              args: [pkg, version],
-            },
-          },
-        ],
+        scheme: 'exact',
+        network: ALGORAND_TESTNET_CAIP2,
+        payTo: process.env['SPLIT_APP_ADDRESS'] ?? '',
+        asset: String(USDC_TESTNET_ASA_ID),
+        maxAmountRequired: '1000',
+        maxTimeoutSeconds: 60,
+        extra: {
+          name: 'USDC',
+          decimals: 6,
+          appMethod: 'pay',
+          args: [pkg, version],
+        },
       },
-      402,
-    )
+    ]
+    // EURD bonus: advertise Quantoz bridge path when configured
+    const eurdAsaId = process.env['EURD_MAINNET_ASA_ID']
+    const eurdPayTo = process.env['EURD_PAY_TO']
+    if (eurdAsaId && eurdPayTo) {
+      accepts.push({
+        scheme: 'exact',
+        network: 'algorand:mainnet',
+        payTo: eurdPayTo,
+        asset: eurdAsaId,
+        maxAmountRequired: '1', // 1 atomic EURD = €0.01 (2 decimals)
+        maxTimeoutSeconds: 120,
+        extra: { name: 'EURD', decimals: 2 },
+      })
+    }
+    return c.json({ x402Version: 2, accepts }, 402)
   }
 
   // Has payment header — settle the payment before proxying

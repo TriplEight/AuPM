@@ -75,6 +75,9 @@ importers:
 
   mcp:
     dependencies:
+      '@ever_amsterdam/x402-euro-eurd':
+        specifier: 0.1.1
+        version: 0.1.1
       '@modelcontextprotocol/sdk':
         specifier: 1.29.0
         version: 1.29.0(zod@4.4.3)
@@ -385,6 +388,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@ever_amsterdam/x402-euro-eurd@0.1.1':
+    resolution: {integrity: sha512-/ZB2d6ty5BE9e/ISw2a00CdRbAtJCNmN7ygvqnp4Dy2BIuUzyRXtapexz4+xR9aOaqPzuuX8ZoK0rAYv7kFakA==}
 
   '@hono/node-server@1.19.14':
     resolution: {integrity: sha512-GwtvgtXxnWsucXvbQXkRgqksiH2Qed37H9xHZocE5sA3N8O8O8/8FA3uclQXxXVzc9XBZuEOMK7+r02FmSpHtw==}
@@ -2176,6 +2182,8 @@ snapshots:
   '@esbuild/win32-x64@0.28.0':
     optional: true
 
+  '@ever_amsterdam/x402-euro-eurd@0.1.1': {}
+
   '@hono/node-server@1.19.14(hono@4.12.23)':
     dependencies:
       hono: 4.12.23
@@ -2415,7 +2423,7 @@ snapshots:
       obug: 2.1.2
       std-env: 4.1.0
       tinyrainbow: 3.1.0
-      vitest: 4.1.8(@types/node@25.9.1)(@vitest/coverage-v8@4.1.8)(vite@8.0.16(@types/node@25.9.1)(esbuild@0.28.0)(tsx@4.22.4))
+      vitest: 4.1.8(@types/node@22.15.21)(@vitest/coverage-v8@4.1.8)(vite@8.0.16(@types/node@22.15.21)(esbuild@0.28.0)(tsx@4.22.4))
 
   '@vitest/expect@4.1.8':
     dependencies:
