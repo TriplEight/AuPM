@@ -1,20 +1,15 @@
 {
   "name": "spm",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "directories": {
-    "doc": "docs"
-  },
+  "type": "module",
+  "workspaces": ["contracts", "proxy", "mcp", "cli"],
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "pnpm --filter './proxy' test && pnpm --filter './contracts' test",
+    "typecheck": "pnpm run --filter './contracts' check-types && pnpm -C proxy exec tsc --noEmit && pnpm -C mcp exec tsc --noEmit && pnpm -C cli exec tsc --noEmit"
   },
   "repository": {
     "type": "git",
     "url": "ssh://git@ssh.github.com:443/tripleight/spm.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs"
+  "license": "ISC"
 }

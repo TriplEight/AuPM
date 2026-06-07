@@ -3,27 +3,24 @@
 
 // @algorandfoundation/algorand-typescript/arc4/index.d.ts::Contract.approvalProgram() -> uint64:
 main:
-    // smart_contracts/split_router/contract.algo.ts:3
+    intcblock 0 4 1 32
+    bytecblock "aud" "mnt" "adv" "tre" "ops" "ast"
+    // smart_contracts/split_router/contract.algo.ts:22
     // export class SplitRouter extends Contract {
     txn NumAppArgs
-    bz main___algots__.defaultCreate@5
-    pushbytes 0x02bece11 // method "hello(string)string"
-    txna ApplicationArgs 0
-    match main_hello_route@3
-    err
-
-main_hello_route@3:
-    // smart_contracts/split_router/contract.algo.ts:4
-    // hello(name: string): string {
+    bz main___algots__.defaultCreate@11
     txn OnCompletion
     !
+    assert // OnCompletion must be NoOp
     txn ApplicationID
-    &&
-    assert // OnCompletion must be NoOp && can only call when not creating
-    b hello
+    assert
+    pushbytess 0x870f116d 0x6fe9af85 0x4ec9d2a2 0xa1234d79 // method "setRecipients(address,address,address,address,address,uint64)void", method "optInToAsset(uint64)void", method "attest(string,string,uint64)void", method "pay(axfer,string,string)void"
+    txna ApplicationArgs 0
+    match setRecipients optInToAsset attest pay
+    err
 
-main___algots__.defaultCreate@5:
-    // smart_contracts/split_router/contract.algo.ts:3
+main___algots__.defaultCreate@11:
+    // smart_contracts/split_router/contract.algo.ts:22
     // export class SplitRouter extends Contract {
     txn OnCompletion
     !
@@ -31,17 +28,192 @@ main___algots__.defaultCreate@5:
     !
     &&
     assert // OnCompletion must be NoOp && can only call when creating
-    pushint 1 // 1
+    intc_2 // 1
     return
 
 
-// smart_contracts/split_router/contract.algo.ts::SplitRouter.hello[routing]() -> void:
-hello:
-    // smart_contracts/split_router/contract.algo.ts:4
-    // hello(name: string): string {
+// smart_contracts/split_router/contract.algo.ts::SplitRouter.setRecipients[routing]() -> void:
+setRecipients:
+    // smart_contracts/split_router/contract.algo.ts:32-39
+    // public setRecipients(
+    //   auditor: Account,
+    //   maintainer: Account,
+    //   adversarial: Account,
+    //   treasury: Account,
+    //   ops: Account,
+    //   assetId: Asset,
+    // ): void {
     txna ApplicationArgs 1
     dup
-    pushint 0 // 0
+    len
+    intc_3 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 2
+    dup
+    len
+    intc_3 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 3
+    dup
+    len
+    intc_3 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 4
+    dup
+    len
+    intc_3 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 5
+    dup
+    len
+    intc_3 // 32
+    ==
+    assert // invalid number of bytes for arc4.static_array<arc4.uint8, 32>
+    txna ApplicationArgs 6
+    dup
+    len
+    pushint 8 // 8
+    ==
+    assert // invalid number of bytes for arc4.uint64
+    btoi
+    // smart_contracts/split_router/contract.algo.ts:40
+    // assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    txn Sender
+    global CreatorAddress
+    ==
+    assert // admin only
+    // smart_contracts/split_router/contract.algo.ts:23
+    // auditor = GlobalState<bytes>({ key: 'aud' })
+    bytec_0 // "aud"
+    // smart_contracts/split_router/contract.algo.ts:41
+    // this.auditor.value = auditor.bytes
+    uncover 6
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:24
+    // maintainer = GlobalState<bytes>({ key: 'mnt' })
+    bytec_1 // "mnt"
+    // smart_contracts/split_router/contract.algo.ts:42
+    // this.maintainer.value = maintainer.bytes
+    uncover 5
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:25
+    // adversarial = GlobalState<bytes>({ key: 'adv' })
+    bytec_2 // "adv"
+    // smart_contracts/split_router/contract.algo.ts:43
+    // this.adversarial.value = adversarial.bytes
+    uncover 4
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:26
+    // treasury = GlobalState<bytes>({ key: 'tre' })
+    bytec_3 // "tre"
+    // smart_contracts/split_router/contract.algo.ts:44
+    // this.treasury.value = treasury.bytes
+    uncover 3
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:27
+    // ops = GlobalState<bytes>({ key: 'ops' })
+    bytec 4 // "ops"
+    // smart_contracts/split_router/contract.algo.ts:45
+    // this.ops.value = ops.bytes
+    uncover 2
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:28
+    // assetId = GlobalState<uint64>({ key: 'ast' })
+    bytec 5 // "ast"
+    // smart_contracts/split_router/contract.algo.ts:46
+    // this.assetId.value = assetId.id
+    swap
+    app_global_put
+    // smart_contracts/split_router/contract.algo.ts:32-39
+    // public setRecipients(
+    //   auditor: Account,
+    //   maintainer: Account,
+    //   adversarial: Account,
+    //   treasury: Account,
+    //   ops: Account,
+    //   assetId: Asset,
+    // ): void {
+    intc_2 // 1
+    return
+
+
+// smart_contracts/split_router/contract.algo.ts::SplitRouter.optInToAsset[routing]() -> void:
+optInToAsset:
+    // smart_contracts/split_router/contract.algo.ts:49
+    // public optInToAsset(asset: Asset): void {
+    txna ApplicationArgs 1
+    dup
+    len
+    pushint 8 // 8
+    ==
+    assert // invalid number of bytes for arc4.uint64
+    btoi
+    // smart_contracts/split_router/contract.algo.ts:50
+    // assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    txn Sender
+    global CreatorAddress
+    ==
+    assert // admin only
+    // smart_contracts/split_router/contract.algo.ts:51-58
+    // itxn
+    //   .assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Global.currentApplicationAddress,
+    //     assetAmount: Uint64(0),
+    //     fee: Uint64(0),
+    //   })
+    //   .submit()
+    itxn_begin
+    // smart_contracts/split_router/contract.algo.ts:54
+    // assetReceiver: Global.currentApplicationAddress,
+    global CurrentApplicationAddress
+    // smart_contracts/split_router/contract.algo.ts:55
+    // assetAmount: Uint64(0),
+    intc_0 // 0
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:51-57
+    // itxn
+    //   .assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Global.currentApplicationAddress,
+    //     assetAmount: Uint64(0),
+    //     fee: Uint64(0),
+    //   })
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:56
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:51-58
+    // itxn
+    //   .assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Global.currentApplicationAddress,
+    //     assetAmount: Uint64(0),
+    //     fee: Uint64(0),
+    //   })
+    //   .submit()
+    itxn_submit
+    // smart_contracts/split_router/contract.algo.ts:49
+    // public optInToAsset(asset: Asset): void {
+    intc_2 // 1
+    return
+
+
+// smart_contracts/split_router/contract.algo.ts::SplitRouter.attest[routing]() -> void:
+attest:
+    // smart_contracts/split_router/contract.algo.ts:61
+    // public attest(pkg: string, ver: string, status: uint64): void {
+    txna ApplicationArgs 1
+    dup
+    intc_0 // 0
     extract_uint16 // on error: invalid array length header
     pushint 2 // 2
     +
@@ -50,22 +222,417 @@ hello:
     ==
     assert // invalid number of bytes for arc4.dynamic_array<arc4.uint8>
     extract 2 0
-    // smart_contracts/split_router/contract.algo.ts:5
-    // return `Hello, ${name}`
-    pushbytes "Hello, "
-    swap
-    concat
-    // smart_contracts/split_router/contract.algo.ts:4
-    // hello(name: string): string {
+    txna ApplicationArgs 2
+    dup
+    intc_0 // 0
+    extract_uint16 // on error: invalid array length header
+    pushint 2 // 2
+    +
+    dig 1
+    len
+    ==
+    assert // invalid number of bytes for arc4.dynamic_array<arc4.uint8>
+    extract 2 0
+    txna ApplicationArgs 3
     dup
     len
+    pushint 8 // 8
+    ==
+    assert // invalid number of bytes for arc4.uint64
+    btoi
+    // smart_contracts/split_router/contract.algo.ts:62
+    // assert(Txn.sender.bytes === clone(this.auditor.value), 'not auditor')
+    txn Sender
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:23
+    // auditor = GlobalState<bytes>({ key: 'aud' })
+    bytec_0 // "aud"
+    // smart_contracts/split_router/contract.algo.ts:62
+    // assert(Txn.sender.bytes === clone(this.auditor.value), 'not auditor')
+    app_global_get_ex
+    assert // check GlobalState exists
+    ==
+    assert // not auditor
+    // smart_contracts/split_router/contract.algo.ts:63
+    // const key = pkg + '@' + ver
+    uncover 2
+    pushbytes "@"
+    concat
+    uncover 2
+    concat
+    // smart_contracts/split_router/contract.algo.ts:65
+    // const packed: bytes = Txn.sender.bytes
+    txn Sender
+    // smart_contracts/split_router/contract.algo.ts:66
+    // .concat(Txn.txId)
+    txn TxID
+    // smart_contracts/split_router/contract.algo.ts:65-66
+    // const packed: bytes = Txn.sender.bytes
+    //   .concat(Txn.txId)
+    concat
+    // smart_contracts/split_router/contract.algo.ts:67
+    // .concat(op.itob(status))
+    uncover 2
     itob
-    extract 6 2
+    // smart_contracts/split_router/contract.algo.ts:65-67
+    // const packed: bytes = Txn.sender.bytes
+    //   .concat(Txn.txId)
+    //   .concat(op.itob(status))
+    concat
+    // smart_contracts/split_router/contract.algo.ts:68
+    // .concat(op.itob(Global.latestTimestamp))
+    global LatestTimestamp
+    itob
+    // smart_contracts/split_router/contract.algo.ts:65-68
+    // const packed: bytes = Txn.sender.bytes
+    //   .concat(Txn.txId)
+    //   .concat(op.itob(status))
+    //   .concat(op.itob(Global.latestTimestamp))
+    concat
+    // smart_contracts/split_router/contract.algo.ts:30
+    // attests = BoxMap<string, bytes>({ keyPrefix: 'attest:' })
+    pushbytes "attest:"
+    uncover 2
+    concat
+    // smart_contracts/split_router/contract.algo.ts:69
+    // this.attests(key).value = packed
+    dup
+    box_del
+    pop
+    swap
+    box_put
+    // smart_contracts/split_router/contract.algo.ts:61
+    // public attest(pkg: string, ver: string, status: uint64): void {
+    intc_2 // 1
+    return
+
+
+// smart_contracts/split_router/contract.algo.ts::SplitRouter.pay[routing]() -> void:
+pay:
+    // smart_contracts/split_router/contract.algo.ts:72
+    // public pay(payment: gtxn.AssetTransferTxn, pkg: string, ver: string): void {
+    txn GroupIndex
+    intc_2 // 1
+    -
+    dup
+    gtxns TypeEnum
+    intc_1 // axfer
+    ==
+    assert // transaction type is axfer
+    txna ApplicationArgs 1
+    dup
+    intc_0 // 0
+    extract_uint16 // on error: invalid array length header
+    pushint 2 // 2
+    +
+    dig 1
+    len
+    ==
+    assert // invalid number of bytes for arc4.dynamic_array<arc4.uint8>
+    extract 2 0
+    txna ApplicationArgs 2
+    dup
+    intc_0 // 0
+    extract_uint16 // on error: invalid array length header
+    pushint 2 // 2
+    +
+    dig 1
+    len
+    ==
+    assert // invalid number of bytes for arc4.dynamic_array<arc4.uint8>
+    extract 2 0
+    // smart_contracts/split_router/contract.algo.ts:73
+    // assert(payment.xferAsset === Asset(this.assetId.value), 'wrong asset')
+    dig 2
+    gtxns XferAsset
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:28
+    // assetId = GlobalState<uint64>({ key: 'ast' })
+    bytec 5 // "ast"
+    // smart_contracts/split_router/contract.algo.ts:73
+    // assert(payment.xferAsset === Asset(this.assetId.value), 'wrong asset')
+    app_global_get_ex
+    assert // check GlobalState exists
+    swap
+    dig 1
+    ==
+    assert // wrong asset
+    // smart_contracts/split_router/contract.algo.ts:74
+    // assert(payment.assetReceiver.bytes === Global.currentApplicationAddress.bytes, 'wrong receiver')
+    dig 3
+    gtxns AssetReceiver
+    global CurrentApplicationAddress
+    ==
+    assert // wrong receiver
+    // smart_contracts/split_router/contract.algo.ts:75
+    // assert(payment.assetAmount === UNIT, 'wrong amount')
+    uncover 3
+    gtxns AssetAmount
+    pushint 1000 // 1000
+    ==
+    assert // wrong amount
+    // smart_contracts/split_router/contract.algo.ts:78-109
+    // itxn.submitGroup(
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.auditor.value),
+    //     assetAmount: Uint64(500),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.maintainer.value),
+    //     assetAmount: Uint64(200),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.adversarial.value),
+    //     assetAmount: Uint64(150),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.treasury.value),
+    //     assetAmount: Uint64(100),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.ops.value),
+    //     assetAmount: Uint64(50),
+    //     fee: Uint64(0),
+    //   }),
+    // )
+    itxn_begin
+    // smart_contracts/split_router/contract.algo.ts:81
+    // assetReceiver: Account(this.auditor.value),
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:23
+    // auditor = GlobalState<bytes>({ key: 'aud' })
+    bytec_0 // "aud"
+    // smart_contracts/split_router/contract.algo.ts:81
+    // assetReceiver: Account(this.auditor.value),
+    app_global_get_ex
+    assert // check GlobalState exists
+    // smart_contracts/split_router/contract.algo.ts:82
+    // assetAmount: Uint64(500),
+    pushint 500 // 500
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    dup
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:79-84
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.auditor.value),
+    //   assetAmount: Uint64(500),
+    //   fee: Uint64(0),
+    // }),
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:83
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:85-90
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.maintainer.value),
+    //   assetAmount: Uint64(200),
+    //   fee: Uint64(0),
+    // }),
+    itxn_next
+    // smart_contracts/split_router/contract.algo.ts:87
+    // assetReceiver: Account(this.maintainer.value),
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:24
+    // maintainer = GlobalState<bytes>({ key: 'mnt' })
+    bytec_1 // "mnt"
+    // smart_contracts/split_router/contract.algo.ts:87
+    // assetReceiver: Account(this.maintainer.value),
+    app_global_get_ex
+    assert // check GlobalState exists
+    // smart_contracts/split_router/contract.algo.ts:88
+    // assetAmount: Uint64(200),
+    pushint 200 // 200
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    dup
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:85-90
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.maintainer.value),
+    //   assetAmount: Uint64(200),
+    //   fee: Uint64(0),
+    // }),
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:89
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:91-96
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.adversarial.value),
+    //   assetAmount: Uint64(150),
+    //   fee: Uint64(0),
+    // }),
+    itxn_next
+    // smart_contracts/split_router/contract.algo.ts:93
+    // assetReceiver: Account(this.adversarial.value),
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:25
+    // adversarial = GlobalState<bytes>({ key: 'adv' })
+    bytec_2 // "adv"
+    // smart_contracts/split_router/contract.algo.ts:93
+    // assetReceiver: Account(this.adversarial.value),
+    app_global_get_ex
+    assert // check GlobalState exists
+    // smart_contracts/split_router/contract.algo.ts:94
+    // assetAmount: Uint64(150),
+    pushint 150 // 150
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    dup
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:91-96
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.adversarial.value),
+    //   assetAmount: Uint64(150),
+    //   fee: Uint64(0),
+    // }),
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:95
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:97-102
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.treasury.value),
+    //   assetAmount: Uint64(100),
+    //   fee: Uint64(0),
+    // }),
+    itxn_next
+    // smart_contracts/split_router/contract.algo.ts:99
+    // assetReceiver: Account(this.treasury.value),
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:26
+    // treasury = GlobalState<bytes>({ key: 'tre' })
+    bytec_3 // "tre"
+    // smart_contracts/split_router/contract.algo.ts:99
+    // assetReceiver: Account(this.treasury.value),
+    app_global_get_ex
+    assert // check GlobalState exists
+    // smart_contracts/split_router/contract.algo.ts:100
+    // assetAmount: Uint64(100),
+    pushint 100 // 100
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    dup
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:97-102
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.treasury.value),
+    //   assetAmount: Uint64(100),
+    //   fee: Uint64(0),
+    // }),
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:101
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:103-108
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.ops.value),
+    //   assetAmount: Uint64(50),
+    //   fee: Uint64(0),
+    // }),
+    itxn_next
+    // smart_contracts/split_router/contract.algo.ts:105
+    // assetReceiver: Account(this.ops.value),
+    intc_0 // 0
+    // smart_contracts/split_router/contract.algo.ts:27
+    // ops = GlobalState<bytes>({ key: 'ops' })
+    bytec 4 // "ops"
+    // smart_contracts/split_router/contract.algo.ts:105
+    // assetReceiver: Account(this.ops.value),
+    app_global_get_ex
+    assert // check GlobalState exists
+    // smart_contracts/split_router/contract.algo.ts:106
+    // assetAmount: Uint64(50),
+    pushint 50 // 50
+    itxn_field AssetAmount
+    itxn_field AssetReceiver
+    itxn_field XferAsset
+    // smart_contracts/split_router/contract.algo.ts:103-108
+    // itxn.assetTransfer({
+    //   xferAsset: asset,
+    //   assetReceiver: Account(this.ops.value),
+    //   assetAmount: Uint64(50),
+    //   fee: Uint64(0),
+    // }),
+    intc_1 // 4
+    itxn_field TypeEnum
+    // smart_contracts/split_router/contract.algo.ts:107
+    // fee: Uint64(0),
+    intc_0 // 0
+    itxn_field Fee
+    // smart_contracts/split_router/contract.algo.ts:78-109
+    // itxn.submitGroup(
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.auditor.value),
+    //     assetAmount: Uint64(500),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.maintainer.value),
+    //     assetAmount: Uint64(200),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.adversarial.value),
+    //     assetAmount: Uint64(150),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.treasury.value),
+    //     assetAmount: Uint64(100),
+    //     fee: Uint64(0),
+    //   }),
+    //   itxn.assetTransfer({
+    //     xferAsset: asset,
+    //     assetReceiver: Account(this.ops.value),
+    //     assetAmount: Uint64(50),
+    //     fee: Uint64(0),
+    //   }),
+    // )
+    itxn_submit
+    // smart_contracts/split_router/contract.algo.ts:110
+    // log(pkg, '@', ver, ' ', Txn.sender.bytes)
+    swap
+    pushbytes "@"
+    concat
     swap
     concat
-    pushbytes 0x151f7c75
-    swap
+    pushbytes " "
+    concat
+    txn Sender
     concat
     log
-    pushint 1 // 1
+    // smart_contracts/split_router/contract.algo.ts:72
+    // public pay(payment: gtxn.AssetTransferTxn, pkg: string, ver: string): void {
+    intc_2 // 1
     return

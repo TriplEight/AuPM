@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "paths": {
+      "../../mcp/src/tools/check.js": ["../../mcp/src/tools/check.ts"],
+      "../../mcp/src/tools/install.js": ["../../mcp/src/tools/install.ts"]
+    }
+  },
+  "include": ["src/**/*.ts"]
+}

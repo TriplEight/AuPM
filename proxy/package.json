@@ -1,0 +1,30 @@
+{
+  "name": "spm-proxy",
+  "version": "1.0.0",
+  "type": "module",
+  "packageManager": "pnpm@11.5.0",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node --import tsx/esm src/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:native": "pnpm rebuild better-sqlite3",
+    "seed": "tsx src/seed.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "2.0.4",
+    "@x402-avm/avm": "2.6.1",
+    "@x402-avm/core": "2.6.1",
+    "@x402-avm/hono": "2.6.1",
+    "algosdk": "3.5.2",
+    "better-sqlite3": "12.10.0",
+    "hono": "4.12.23"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/node": "22.15.21",
+    "tsx": "4.22.4",
+    "typescript": "5.8.3",
+    "vitest": "4.1.8"
+  }
+}
