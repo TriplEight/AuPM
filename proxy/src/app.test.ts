@@ -47,13 +47,15 @@ describe('x402 gate', () => {
     expect(body.accepts[0]?.payTo).toBe(FAKE_APP_ADDRESS)
   })
 
-  test('paid package tarball with payment header: passes through gate', async () => {
+  test('paid package tarball with payment header: invalid payment returns 402', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'PAYMENT-SIGNATURE': 'placeholder-payment' },
+      headers: { 'PAYMENT-SIGNATURE': 'invalid-base64-payment' },
     })
-    // Should not be 402 — settlement is handled in A4, for now just passes through
-    expect(res.status).not.toBe(402)
+    // settle() rejects the malformed header and returns 402 with an error body
+    expect(res.status).toBe(402)
+    const body = (await res.json()) as { error: string }
+    expect(typeof body.error).toBe('string')
   })
 
   test('scoped package tarball: returns 402', async () => {

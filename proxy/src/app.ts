@@ -1,13 +1,15 @@
 // proxy/src/app.ts
 import { Hono } from 'hono'
+import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { ALGORAND_TESTNET_CAIP2, USDC_TESTNET_ASA_ID } from '@x402-avm/avm'
 import statusRouter from './routes/status.js'
 import { proxyToNpm } from './proxy.js'
 import { getStatusOrUnreviewed, isFree } from './status.js'
+import { settle } from './settle.js'
 
 type AppVariables = {
-  paymentHeader: string
-  settlementTxid: string
+  paymentHeader?: string
+  settlementTxid?: string
 }
 
 const app = new Hono<{ Variables: AppVariables }>()
@@ -67,8 +69,12 @@ app.use('*', async (c, next) => {
     )
   }
 
-  // Has payment header — store for after proxy (settlement wired in A4)
-  c.set('paymentHeader', paymentHeader)
+  // Has payment header — settle the payment before proxying
+  const result = await settle(paymentHeader)
+  if (!result.success) {
+    return c.json({ error: result.error }, 402 as ContentfulStatusCode)
+  }
+  c.set('settlementTxid', result.txid)
   return next()
 })
 
