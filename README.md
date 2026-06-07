@@ -32,35 +32,94 @@ UNREVIEWED (where supply-chain attacks inject). Full design in `SPEC.md` / `docs
 - `CLAUDE.md`, `.claude/` — Claude Code config (subagents, skills, commands)
 
 ## Setup
-Full steps in **`SETUP.md`**. Short version:
+
+**Prerequisites:** Node ≥ 20, Docker (running), and AlgoKit (`pipx install algokit`).
 
 ```bash
-# prereqs: pipx install algokit ; npm i -g @anthropic-ai/claude-code ; Docker running
 git clone <repo> && cd spm
-bash bootstrap.sh                       # scaffolds CLAUDE.md, .claude/, docs/, scripts/
-# load Algorand DevRel agent skills + .mcp.json (SETUP.md §2) — primes Claude Code for AVM/x402
-# fund TestNet wallets: ALGO (Lora faucet) + USDC (Circle faucet). USDC ASA = 10458941
+npm install                 # installs all workspaces (contracts, proxy, mcp, cli)
+algokit localnet start      # local Algorand chain in Docker — no faucets, no wallets
 ```
 
-## Build (Claude Code, goal-driven)
-This repo is built with Claude Code. Work is split across subagents and driven by
-ready-to-paste `/goal` conditions in **`docs/goals.md`** (G1 contract → G5 tested demo).
-Loop on LocalNet; reserve TestNet for the final pass.
+That's everything for the default **LocalNet** path. LocalNet is the recommended way to
+see it work: it's deterministic, instant, and needs no funded accounts.
+
+> Want to watch it settle on a public chain instead? See [TestNet mode](#testnet-mode) below.
+
+## Build & run
+
+One command brings the whole system up on LocalNet — deploys the `SplitRouter` contract,
+opts the five payout accounts into a test USDC asset, seeds a couple of demo packages, and
+starts the proxy:
 
 ```bash
-claude            # then, e.g.:  /goal <paste G1 from docs/goals.md>
+npm run up                  # deploy + opt-in + seed + start proxy  (LocalNet)
 ```
 
-## Verify & demo
-"Done" is a green command, not a vibe:
+If you'd rather run the steps yourself:
 
 ```bash
-bash scripts/verify.sh                  # typecheck + unit + integration + LocalNet E2E
-NETWORK=testnet bash scripts/demo.sh    # full demo path on TestNet + prints the Lora URL
+npm run deploy:localnet     # compile SplitRouter, deploy, set 5 recipients, opt them into USDC
+npm run seed                # 1 audited package (paid) + 1 unreviewed package (free)
+npm run proxy               # Hono overlay on http://localhost:8402
 ```
 
-Inside Claude Code: `/verify` and `/demo`. The live walkthrough (≈90s) is in **`DEMO.md`**:
-free install → agent pays for an audited install → Lora shows 5 inner transfers → version-bump hook.
+You now have a working registry overlay at `http://localhost:8402`.
+
+## Demo — see it work
+
+**Fastest proof (one command, fully automated):**
+
+```bash
+bash scripts/verify.sh
+```
+
+It runs the end-to-end flow and asserts each claim, printing `VERIFY: PASS` when all hold:
+
+```
+typecheck                  PASS
+unit+integration           PASS
+e2e:localnet               PASS
+  ✓ unreviewed package installs free (no payment)
+  ✓ audited package returns 402 → pays → installs
+  ✓ on-chain group has 5 inner transfers 500/200/150/100/50 µUSDC to the 5 recipients
+  ✓ GET /api/v1/status returns COMMUNITY_REVIEWED + attestation txid
+  ✓ version bump resets status to UNREVIEWED
+VERIFY: PASS
+```
+
+**Feel it yourself (manual):** point npm at the overlay and install both kinds of package.
+
+```bash
+# free tier — identical to npm, no wallet:
+npm install is-odd --registry http://localhost:8402
+
+# audited tier — triggers the x402 micropayment + on-chain split:
+npm install lodash --registry http://localhost:8402
+# check the machine-readable status any time:
+curl http://localhost:8402/api/v1/status/lodash/<version>
+```
+
+**The agentic path (primary track):** an AI agent calls the MCP tools and pays on its own.
+
+```bash
+npm run mcp                 # starts the MCP server (stdio)
+# check_audit_status(pkg)         -> free status lookup
+# install_audited_package(pkg)    -> hits 402, signs + pays USDC autonomously, returns the tarball
+```
+
+### TestNet mode
+To watch payments settle on a public chain with a block-explorer link, copy `.env.example`
+to `.env`, fund the payer + 5 recipient wallets (ALGO via the Lora faucet, USDC via the
+Circle faucet — USDC ASA `10458941`), then:
+
+```bash
+NETWORK=testnet npm run deploy:testnet
+NETWORK=testnet bash scripts/demo.sh        # runs the full flow, prints DEMO: PASS + a Lora URL
+```
+
+Open the printed Lora URL to see the single group transaction fan out into five inner
+transfers. The ≈90-second narrated walkthrough is in **`DEMO.md`**.
 
 ## Docs
 `SPEC.md` (engineering spec) · `SETUP.md` (setup) · `PLAN.md` (12h two-dev plan) ·
