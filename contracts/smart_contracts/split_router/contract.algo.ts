@@ -9,6 +9,8 @@ import {
   Asset,
   assert,
   itxn,
+  gtxn,
+  log,
   type uint64,
   type bytes,
 } from '@algorandfoundation/algorand-typescript'
@@ -52,5 +54,46 @@ export class SplitRouter extends Contract {
         fee: Uint64(0),
       })
       .submit()
+  }
+
+  public pay(payment: gtxn.AssetTransferTxn, pkg: string, ver: string): void {
+    assert(payment.xferAsset === Asset(this.assetId.value), 'wrong asset')
+    assert(payment.assetReceiver.bytes === Global.currentApplicationAddress.bytes, 'wrong receiver')
+    assert(payment.assetAmount === UNIT, 'wrong amount')
+
+    const asset = Asset(this.assetId.value)
+    itxn.submitGroup(
+      itxn.assetTransfer({
+        xferAsset: asset,
+        assetReceiver: Account(this.auditor.value),
+        assetAmount: Uint64(500),
+        fee: Uint64(0),
+      }),
+      itxn.assetTransfer({
+        xferAsset: asset,
+        assetReceiver: Account(this.maintainer.value),
+        assetAmount: Uint64(200),
+        fee: Uint64(0),
+      }),
+      itxn.assetTransfer({
+        xferAsset: asset,
+        assetReceiver: Account(this.adversarial.value),
+        assetAmount: Uint64(150),
+        fee: Uint64(0),
+      }),
+      itxn.assetTransfer({
+        xferAsset: asset,
+        assetReceiver: Account(this.treasury.value),
+        assetAmount: Uint64(100),
+        fee: Uint64(0),
+      }),
+      itxn.assetTransfer({
+        xferAsset: asset,
+        assetReceiver: Account(this.ops.value),
+        assetAmount: Uint64(50),
+        fee: Uint64(0),
+      }),
+    )
+    log(pkg, '@', ver, ' ', Txn.sender.bytes)
   }
 }
