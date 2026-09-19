@@ -1,5 +1,5 @@
 // proxy/src/status.ts
-import { getStatus, upsertStatus, type StatusRow } from './db.js'
+import { getStatus, type StatusRow, upsertStatus } from './db.js'
 
 export const PAID_STATUSES = new Set(['COMMUNITY_REVIEWED', 'PEER_REVIEWED'])
 

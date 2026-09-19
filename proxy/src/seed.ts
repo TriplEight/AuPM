@@ -2,8 +2,8 @@
 // Demo seed script — populates audit_status for the SPM demo
 // Run: cd proxy && npx tsx src/seed.ts
 
-import { setStatus } from './status.js'
 import db from './db.js'
+import { setStatus } from './status.js'
 
 // Clear existing demo entries
 db.exec(`DELETE FROM audit_status WHERE pkg IN ('lodash', 'express', 'chalk')`)

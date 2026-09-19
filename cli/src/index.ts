@@ -2,10 +2,19 @@
 const [, , command, pkg, version] = process.argv
 
 async function main(): Promise<void> {
+  if (command === 'verify') {
+    const { runVerify } = await import('./verify.js')
+    const exitCode = await runVerify(process.argv.slice(3))
+    process.exit(exitCode)
+  }
+
   if (!command || !pkg || !version) {
     console.log('Usage:')
     console.log('  spm status <pkg> <version>')
     console.log('  spm install <pkg> <version>')
+    console.log(
+      '  spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+    )
     process.exit(1)
   }
 

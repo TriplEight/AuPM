@@ -1,8 +1,9 @@
 // proxy/src/db.ts
-import BetterSqlite3 from 'better-sqlite3'
-import path from 'node:path'
 
-const DB_PATH = process.env['SQLITE_PATH'] ?? path.join(process.cwd(), 'audit.db')
+import path from 'node:path'
+import BetterSqlite3 from 'better-sqlite3'
+
+const DB_PATH = process.env.SQLITE_PATH ?? path.join(process.cwd(), 'audit.db')
 
 const db = new BetterSqlite3(DB_PATH)
 

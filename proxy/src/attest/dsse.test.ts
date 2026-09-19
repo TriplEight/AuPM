@@ -1,7 +1,7 @@
 // proxy/src/attest/dsse.test.ts
 import algosdk from 'algosdk'
 import { describe, expect, test } from 'vitest'
-import { pae, signEnvelope, verifyEnvelope, type Envelope } from './dsse.js'
+import { type Envelope, pae, signEnvelope, verifyEnvelope } from './dsse.js'
 import { loadSigningKey } from './keys.js'
 
 describe('pae', () => {
@@ -10,15 +10,24 @@ describe('pae', () => {
     // Expected: "DSSEv1" SP "3" SP "app" SP "3" SP <payload bytes>
     // ASCII: D S S E v 1 _ 3 _ a  p   p   _  3  _  1 2 3
     const expected = Uint8Array.from([
-      68, 83, 83, 69, 118, 49, // "DSSEv1"
+      68,
+      83,
+      83,
+      69,
+      118,
+      49, // "DSSEv1"
       32, // SP
       51, // "3" (len("app"))
       32, // SP
-      97, 112, 112, // "app"
+      97,
+      112,
+      112, // "app"
       32, // SP
       51, // "3" (len(payload))
       32, // SP
-      1, 2, 3, // payload bytes
+      1,
+      2,
+      3, // payload bytes
     ])
 
     const actual = pae('app', new Uint8Array([1, 2, 3]))
@@ -61,7 +70,9 @@ describe('signEnvelope / verifyEnvelope', () => {
     const envelope = await signEnvelope(payload, 'application/vnd.in-toto+json', key)
 
     // Accepted key list only contains a different keyid.
-    const ok = await verifyEnvelope(envelope, [{ keyid: otherKey.keyid, publicKey: otherKey.publicKey }])
+    const ok = await verifyEnvelope(envelope, [
+      { keyid: otherKey.keyid, publicKey: otherKey.publicKey },
+    ])
 
     expect(ok).toBe(false)
   })
@@ -71,8 +82,8 @@ describe('signEnvelope / verifyEnvelope', () => {
     const seed = account.sk.slice(0, 32)
     const message = pae('application/vnd.in-toto+json', new TextEncoder().encode('{"a":1}'))
 
-    // algosdk.signBytes prepends "MX" to the message before signing.
-    const algosdkSig = algosdk.signBytes(message, account.sk)
+    // algosdk.signBytes prepends "MX" to the message before signing. guard-allow: RULE3 — proves the signature is not MX-prefixed
+    const algosdkSig = algosdk.signBytes(message, account.sk) // guard-allow: RULE3 — proves the signature is not MX-prefixed
     // Our signing path signs the raw PAE bytes directly, with no prefix.
     const { signAsync } = await import('@noble/ed25519')
     const rawSig = await signAsync(message, seed)
@@ -98,11 +109,18 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
       subjectName: 'package-lock.json',
       sha256: 'a'.repeat(64),
       predicateType: 'https://spm.dev/attestation/lockfile/v1',
-      predicate: { issuer: 'spm', issuedAt: '2026-09-19T00:00:00Z', network: 'testnet', registryAppId: 0 },
+      predicate: {
+        issuer: 'spm',
+        issuedAt: '2026-09-19T00:00:00Z',
+        network: 'testnet',
+        registryAppId: 0,
+      },
     })
 
     expect(statement._type).toBe('https://in-toto.io/Statement/v1')
-    expect(statement.subject).toEqual([{ name: 'package-lock.json', digest: { sha256: 'a'.repeat(64) } }])
+    expect(statement.subject).toEqual([
+      { name: 'package-lock.json', digest: { sha256: 'a'.repeat(64) } },
+    ])
     expect(statement.predicateType).toBe('https://spm.dev/attestation/lockfile/v1')
   })
 
@@ -115,6 +133,8 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
       predicate: { issuer: 'spm' },
     })
 
-    expect(statement.subject).toEqual([{ name: 'pkg:npm/ms@2.1.3', digest: { sha512: 'b'.repeat(128) } }])
+    expect(statement.subject).toEqual([
+      { name: 'pkg:npm/ms@2.1.3', digest: { sha512: 'b'.repeat(128) } },
+    ])
   })
 })

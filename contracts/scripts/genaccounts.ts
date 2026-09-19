@@ -1,6 +1,6 @@
-import algosdk from 'algosdk'
 import fs from 'node:fs'
 import path from 'node:path'
+import algosdk from 'algosdk'
 
 const roles = ['PAYER', 'AUDITOR', 'MAINTAINER', 'ADVERSARIAL', 'TREASURY', 'OPS'] as const
 

@@ -111,11 +111,9 @@ describe('SplitRouter', () => {
     const { contract, creator } = setupFull()
 
     expect(() =>
-      callInScope(
-        contract,
-        () => contract.attest('lodash', '4.17.21', 2n, 'sha512-abc123=='),
-        { sender: creator },
-      ),
+      callInScope(contract, () => contract.attest('lodash', '4.17.21', 2n, 'sha512-abc123=='), {
+        sender: creator,
+      }),
     ).toThrow()
   })
 
@@ -123,7 +121,9 @@ describe('SplitRouter', () => {
     const { contract, auditor } = setupFull()
     const integrity = 'sha512-Zx9F+deadbeef=='
 
-    callInScope(contract, () => contract.attest('lodash', '4.17.21', 2n, integrity), { sender: auditor })
+    callInScope(contract, () => contract.attest('lodash', '4.17.21', 2n, integrity), {
+      sender: auditor,
+    })
 
     const boxValue = contract.attests('lodash@4.17.21').value
     // Pack layout: auditor(32) + txId(32) + status(8) + ts(8) + integrity(variable)

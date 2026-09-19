@@ -103,7 +103,8 @@ export async function verifyEnvelope(
   for (const signature of envelope.signatures) {
     const key = publicKeys.find((candidate) => candidate.keyid === signature.keyid)
     if (!key) continue
-    const publicKeyBytes = typeof key.publicKey === 'string' ? algosdk.base64ToBytes(key.publicKey) : key.publicKey
+    const publicKeyBytes =
+      typeof key.publicKey === 'string' ? algosdk.base64ToBytes(key.publicKey) : key.publicKey
     const sigBytes = algosdk.base64ToBytes(signature.sig)
     const valid = await ed.verifyAsync(sigBytes, message, publicKeyBytes)
     if (valid) return true

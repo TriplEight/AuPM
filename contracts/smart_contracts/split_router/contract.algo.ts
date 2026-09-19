@@ -1,20 +1,19 @@
 import {
-  Contract,
-  GlobalState,
-  BoxMap,
-  Txn,
-  Global,
-  Uint64,
-  Bytes,
   Account,
   Asset,
   assert,
+  BoxMap,
+  Bytes,
+  type bytes,
+  Contract,
+  Global,
+  GlobalState,
   itxn,
   log,
   op,
-
+  Txn,
+  Uint64,
   type uint64,
-  type bytes,
 } from '@algorandfoundation/algorand-typescript'
 
 // Rounding granularity for the distributable portion. Dust below this always
@@ -98,7 +97,8 @@ export class SplitRouter extends Contract {
     const treasuryShare: uint64 = (divisible * Uint64(10)) / Uint64(100)
     // Remainder, not a fresh division, so the five shares always sum exactly
     // to divisible regardless of rounding in the shares above.
-    const opsShare: uint64 = divisible - auditorShare - maintainerShare - adversarialShare - treasuryShare
+    const opsShare: uint64 =
+      divisible - auditorShare - maintainerShare - adversarialShare - treasuryShare
 
     itxn.submitGroup(
       itxn.assetTransfer({

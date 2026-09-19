@@ -34,7 +34,12 @@ describe('publishedKeys', () => {
     const key = await loadSigningKey(crypto.getRandomValues(new Uint8Array(32)))
 
     const published = publishedKeys([
-      { keyid: key.keyid, publicKey: key.publicKey, validFrom: '2026-09-19T00:00:00Z', validUntil: null },
+      {
+        keyid: key.keyid,
+        publicKey: key.publicKey,
+        validFrom: '2026-09-19T00:00:00Z',
+        validUntil: null,
+      },
     ])
 
     expect(published).toHaveLength(1)
@@ -51,7 +56,12 @@ describe('publishedKeys', () => {
     const key = await loadSigningKey(crypto.getRandomValues(new Uint8Array(32)))
 
     const published = publishedKeys([
-      { keyid: key.keyid, publicKey: key.publicKey, validFrom: '2026-09-19T00:00:00Z', validUntil: null },
+      {
+        keyid: key.keyid,
+        publicKey: key.publicKey,
+        validFrom: '2026-09-19T00:00:00Z',
+        validUntil: null,
+      },
     ])
 
     const serialized = JSON.stringify(published)

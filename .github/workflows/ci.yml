@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1, pinned to a full commit SHA.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup pnpm
+        # pnpm/action-setup v6.1.0, pinned to a full commit SHA.
+        uses: pnpm/action-setup@d9184bf108216479bc5a137cc391f4d7b14c870b
+        with:
+          version: 10.33.0
+
+      - name: Setup Node
+        # actions/setup-node v7.0.0, pinned to a full commit SHA.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run invariant guard
+        run: bash scripts/guard.sh
+
+      - name: Run Biome
+        run: pnpm exec biome ci .
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test proxy
+        run: pnpm -C proxy test
+
+      - name: Test contracts
+        run: pnpm -C contracts test
+
+      - name: Test mcp
+        run: pnpm -C mcp test

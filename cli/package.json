@@ -7,7 +7,8 @@
     "spm": "src/index.ts"
   },
   "scripts": {
-    "start": "tsx src/index.ts"
+    "start": "tsx src/index.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@noble/ed25519": "3.2.0",
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/node": "22.15.21",
     "tsx": "4.22.4",
-    "typescript": "5.8.3"
+    "typescript": "5.8.3",
+    "vitest": "4.1.11"
   }
 }
