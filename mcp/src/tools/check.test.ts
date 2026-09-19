@@ -65,14 +65,15 @@ describe('check_audit_status', () => {
   it('encodes scoped packages correctly', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        pkg: '@scope/pkg',
-        version: '1.0.0',
-        status: 'UNREVIEWED',
-        auditor_addr: null,
-        attest_txid: null,
-        ts: null,
-      }),
+      json: () =>
+        Promise.resolve({
+          pkg: '@scope/pkg',
+          version: '1.0.0',
+          status: 'UNREVIEWED',
+          auditor_addr: null,
+          attest_txid: null,
+          ts: null,
+        }),
     })
     vi.stubGlobal('fetch', mockFetch)
 

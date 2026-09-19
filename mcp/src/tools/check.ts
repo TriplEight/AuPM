@@ -17,9 +17,7 @@ export const checkTool = {
     'Returns status (UNREVIEWED/COMMUNITY_REVIEWED/PEER_REVIEWED), auditor address, and attestation txid. ' +
     'Free — no payment required.',
   async handler({ pkg, version }: { pkg: string; version: string }): Promise<AuditStatusResult> {
-    const encodedPkg = pkg.startsWith('@')
-      ? pkg.replace('@', '%40')
-      : encodeURIComponent(pkg)
+    const encodedPkg = pkg.startsWith('@') ? pkg.replace('@', '%40') : encodeURIComponent(pkg)
     const url = `${PROXY_URL}/api/v1/status/${encodedPkg}/${version}`
     const res = await fetch(url)
     if (!res.ok) throw new Error(`Status check failed: ${res.status} ${await res.text()}`)
