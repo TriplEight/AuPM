@@ -21,3 +21,11 @@ Use `/handoff <summary>` to append entries. Newest at top.
 ## <date> bootstrap
 - Repo scaffolded; Algorand agent skills + .mcp.json in place; SPM Claude config written.
 - Next: Dev A -> proxy passthrough (hr1 sync); Dev B -> SplitRouter on LocalNet.
+
+## 2026-09-19 W0 x402-avm research (no code changed)
+
+- **Task**: Read installed @x402-avm packages, answer 5 questions with file:line citations.
+- **Findings**: See `/tmp/claude-0/-home-user-SPM/49e092e2-974a-5c45-b1bb-a30d7a0befbf/scratchpad/w0-findings.md`.
+- **Key answer**: Hono middleware DOES discard the handler body on settlement failure (returns a new Response built from the settlement error, not the handler's body) — `hono/dist/esm/index.mjs:176-182`.
+- **Key answer**: Middleware skips settlement entirely when handler status >= 400 — `hono/dist/esm/index.mjs:164-166`.
+- **Next**: Feed these findings into the proxy's x402 gate implementation (spm-x402-flow skill).

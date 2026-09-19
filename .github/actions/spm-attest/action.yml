@@ -1,0 +1,38 @@
+name: 'spm-attest'
+description: 'Posts a lockfile to the SPM attestation server and writes the signed envelope for upload as a build artifact.'
+inputs:
+  endpoint:
+    description: 'URL of the SPM attestation server.'
+    required: true
+  lockfile:
+    description: 'Path to the lockfile to post.'
+    required: false
+    default: 'package-lock.json'
+  wallet-secret:
+    description: 'Wallet secret used to retry a paid attestation after a 402 response.'
+    required: false
+    default: ''
+  fail-on-mismatch:
+    description: 'Set to "true" to fail the step when the summary reports integrityMismatch above zero.'
+    required: false
+    default: 'false'
+  output:
+    description: 'Path to write the signed attestation envelope.'
+    required: false
+    default: 'spm-attestation.json'
+outputs:
+  output-path:
+    description: 'Path to the written attestation envelope file.'
+    value: ${{ inputs.output }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Run spm-attest
+      shell: bash
+      env:
+        ENDPOINT: ${{ inputs.endpoint }}
+        LOCKFILE: ${{ inputs.lockfile }}
+        WALLET_SECRET: ${{ inputs.wallet-secret }}
+        FAIL_ON_MISMATCH: ${{ inputs.fail-on-mismatch }}
+        OUTPUT: ${{ inputs.output }}
+      run: node "${{ github.action_path }}/attest.mjs"

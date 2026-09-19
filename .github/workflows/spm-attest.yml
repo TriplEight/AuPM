@@ -1,0 +1,37 @@
+name: SPM Attest
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  attest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Run spm-attest
+        uses: ./.github/actions/spm-attest
+        with:
+          endpoint: ${{ vars.SPM_ENDPOINT }}
+          lockfile: package-lock.json
+          wallet-secret: ${{ secrets.SPM_WALLET_SECRET }}
+          fail-on-mismatch: 'false'
+          output: spm-attestation.json
+
+      - name: Upload attestation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spm-attestation
+          path: spm-attestation.json
+          if-no-files-found: ignore
