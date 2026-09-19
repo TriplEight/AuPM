@@ -2,6 +2,28 @@
 
 Use `/handoff <summary>` to append entries. Newest at top.
 
+## 2026-09-19 Contract artifacts stale — build needed on a Docker machine
+
+- **Changed**: `SplitRouter` reworked for the v3 MainNet spec. `pay()` removed;
+  `distribute()`, `releaseAuthority()`, `setAttestationKey()` added; `attest()`
+  gained an `integrity` argument. Proxy migrated to the x402 middleware;
+  `settle.ts` deleted. DSSE attestation signing added. `spm verify` added.
+  Biome, an invariant guard, pre-commit hooks and CI added.
+- **Files**: `contracts/smart_contracts/split_router/*`, `proxy/src/{app,config}.ts`,
+  `proxy/src/x402/*`, `proxy/src/attest/*`, `cli/src/verify.ts`, `scripts/guard.sh`,
+  `biome.json`, `.githooks/pre-commit`, `.github/workflows/ci.yml`.
+- **State**: 45 proxy, 8 cli, 7 contracts, 5 mcp and 6 action tests pass.
+  Typecheck passes. Guard is clean. Direct-dependency advisories are zero.
+- **Blocked**: `contracts/smart_contracts/artifacts/` is STALE. The committed
+  ARC-56 spec still lists `pay()` and lacks `distribute()`. The session that
+  reworked the contract had no Docker and no AlgoKit CLI, so it could not
+  compile with Puya or run LocalNet. WARNING: the JavaScript test harness does
+  not prove the contract compiles or runs on the AVM.
+- **Next**: Run `docs/RUNBOOK-contract-build.md` on a machine with Docker and
+  the AlgoKit CLI. It lists the build commands, the ABI that must appear, the
+  five constructs most likely to fail under Puya, the LocalNet rehearsal, and
+  the irreversible opt-in-before-rekey ordering for `payTo`.
+
 ## 2026-06-07 EURD bonus track integrated
 
 - **Changed**: Added `@ever_amsterdam/x402-euro-eurd@0.1.1` (zero prod deps) to MCP. Proxy 402 response now includes `exact+algorand:mainnet` EURD entry when `EURD_MAINNET_ASA_ID`+`EURD_PAY_TO` env vars set. `settle.ts` dispatches on proof type (USDC signed-group vs Quantoz bridge transactionCode). MCP `install_audited_package` uses `withEurPayment` wrapper when `QUANTOZ_API_KEY`+`QUANTOZ_ACCOUNT` present; falls back to USDC otherwise. Fixed pre-existing `MockAlgod` missing `getApplicationByID` in MCP test.
