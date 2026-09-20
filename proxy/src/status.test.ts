@@ -1,13 +1,20 @@
 // proxy/src/status.test.ts
+//
+// CAUTION: this file gets its own SQLite file via SQLITE_PATH, set before
+// the dynamic import below (same trick as proxy/src/claims/ledger.test.ts).
+// Without per-file isolation, vitest's parallel test files race on the same
+// physical database and writes from one file can be wiped by another file's
+// beforeEach mid-test.
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import db from './db.js'
-import {
-  getStatusOrUnreviewed,
-  isFree,
-  isReviewedWithIntegrity,
-  reviewerIdentity,
-  setStatus,
-} from './status.js'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-status-test-${randomUUID()}.db`)
+
+const { default: db } = await import('./db.js')
+const { getStatusOrUnreviewed, isFree, isReviewedWithIntegrity, reviewerIdentity, setStatus } =
+  await import('./status.js')
 
 beforeEach(() => {
   db.exec('DELETE FROM audit_status')

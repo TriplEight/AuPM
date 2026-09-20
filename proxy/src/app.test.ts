@@ -4,7 +4,16 @@
 // stubFacilitatorClient below). No test in this file performs a network
 // call — env vars are set before the app modules are imported so that
 // proxy/src/config.ts resolves PAY_TO/CAIP2_NETWORK/USDC_ASA_ID from them.
+//
+// CAUTION: this file also gets its own SQLite file via SQLITE_PATH, set
+// before the dynamic import of ./db.js below (same trick as
+// proxy/src/claims/ledger.test.ts). Without per-file isolation, vitest's
+// parallel test files race on the same physical database and writes from
+// one file can be wiped by another file's beforeEach mid-test.
 
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402-avm/core/http'
 import type { FacilitatorClient } from '@x402-avm/core/server'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -20,6 +29,7 @@ process.env.NETWORK = 'mainnet'
 // in this file; every paid path is blocked by the (stub, always-invalid)
 // facilitator before signing would run.
 process.env.ATTEST_SIGNING_KEY = 'fc982b5f02591ece632fde9d22879692daafd28398f928369c5f1c1f9ff0fd3a'
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-app-test-${randomUUID()}.db`)
 
 const db = (await import('./db.js')).default
 const { setStatus } = await import('./status.js')

@@ -1,9 +1,20 @@
 // proxy/src/attest/lockfile.test.ts
-import { createHash } from 'node:crypto'
+//
+// CAUTION: this file gets its own SQLite file via SQLITE_PATH, set before
+// the dynamic import below (same trick as proxy/src/claims/ledger.test.ts).
+// Without per-file isolation, vitest's parallel test files race on the same
+// physical database and writes from one file can be wiped by another file's
+// beforeEach mid-test.
+import { createHash, randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
-import db from '../db.js'
-import { setStatus } from '../status.js'
-import { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } from './lockfile.js'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-lockfile-test-${randomUUID()}.db`)
+
+const { default: db } = await import('../db.js')
+const { setStatus } = await import('../status.js')
+const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./lockfile.js')
 
 const encoder = new TextEncoder()
 

@@ -9,7 +9,14 @@
 // scope (see proxy/src/app.test.ts and proxy/src/x402/server.test.ts for
 // gate-ordering coverage).
 
-import { createHash } from 'node:crypto'
+// CAUTION: this file gets its own SQLite file via SQLITE_PATH, set before
+// the dynamic imports below (same trick as proxy/src/claims/ledger.test.ts).
+// Without per-file isolation, vitest's parallel test files race on the same
+// physical database and writes from one file can be wiped by another file's
+// beforeEach mid-test.
+import { createHash, randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import algosdk from 'algosdk'
 import { Hono } from 'hono'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -18,9 +25,13 @@ import type { Envelope, Statement } from '../attest/dsse.js'
 import { verifyEnvelope } from '../attest/dsse.js'
 import { loadSigningKey, type SigningKey } from '../attest/keys.js'
 import { createRateLimiter } from '../attest/ratelimit.js'
-import db from '../db.js'
-import { setStatus } from '../status.js'
-import { type AttestRoutesOptions, buildAttestRoutes } from './attest.js'
+import type { AttestRoutesOptions } from './attest.js'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-attest-routes-test-${randomUUID()}.db`)
+
+const { default: db } = await import('../db.js')
+const { setStatus } = await import('../status.js')
+const { buildAttestRoutes } = await import('./attest.js')
 
 type AppVariables = {
   attribution?: Attribution
