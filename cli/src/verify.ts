@@ -232,7 +232,8 @@ function parseArgv(argv: string[]): ParsedArgs {
       result.lockfilePath = argv[index + 1]
       index += 2
     } else if (arg === '--key') {
-      if (argv[index + 1] !== undefined) result.keyArgs.push(argv[index + 1]!)
+      const keyArg = argv[index + 1]
+      if (keyArg !== undefined) result.keyArgs.push(keyArg)
       index += 2
     } else if (arg === '--keys') {
       result.keysPath = argv[index + 1]

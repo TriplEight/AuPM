@@ -1,5 +1,5 @@
 // mcp/src/tools/check.ts
-const PROXY_URL = process.env['SPM_PROXY_URL'] ?? 'http://localhost:4873'
+const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
 
 export type AuditStatusResult = {
   pkg: string

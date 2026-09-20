@@ -60,16 +60,16 @@ function requestUrl(input: RequestInfo | URL): string {
 
 describe('install_audited_package', () => {
   beforeEach(() => {
-    process.env['PAYER_MNEMONIC'] = TEST_MNEMONIC
-    process.env['SPM_PROXY_URL'] = 'http://localhost:4873'
-    delete process.env['NETWORK']
+    process.env.PAYER_MNEMONIC = TEST_MNEMONIC
+    process.env.SPM_PROXY_URL = 'http://localhost:4873'
+    delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env['PAYER_MNEMONIC']
-    delete process.env['SPM_PROXY_URL']
-    delete process.env['NETWORK']
+    delete process.env.PAYER_MNEMONIC
+    delete process.env.SPM_PROXY_URL
+    delete process.env.NETWORK
   })
 
   it('pays with a plain USDC asset transfer to payTo — exactly one paid retry, no appcall', async () => {
@@ -122,6 +122,7 @@ describe('install_audited_package', () => {
     expect(resourceCalls).toHaveLength(2)
 
     // Decode PAYMENT-SIGNATURE (base64 JSON) → payment payload → paymentGroup.
+    // biome-ignore lint/style/noNonNullAssertion: not-null asserted above
     const payloadJson = JSON.parse(Buffer.from(capturedHeader!, 'base64').toString('utf8')) as {
       payload: { paymentGroup: string[]; paymentIndex: number }
     }
@@ -140,6 +141,7 @@ describe('install_audited_package', () => {
     }
 
     // The designated payment transaction is a plain USDC transfer to payTo.
+    // biome-ignore lint/style/noNonNullAssertion: paymentIndex is decoded from this same settled payment group
     const payment = decoded[paymentIndex]!
     expect(payment.type).toBe('axfer')
     expect(payment.assetTransfer?.receiver.toString()).toBe(PAY_TO)

@@ -5,7 +5,7 @@ const NPM_REGISTRY = 'https://registry.npmjs.org'
 
 export async function proxyToNpm(c: Context): Promise<Response> {
   const query = c.req.query() as Record<string, string>
-  const queryStr = Object.keys(query).length > 0 ? '?' + new URLSearchParams(query).toString() : ''
+  const queryStr = Object.keys(query).length > 0 ? `?${new URLSearchParams(query).toString()}` : ''
   const upstream = `${NPM_REGISTRY}${c.req.path}${queryStr}`
 
   const headers = new Headers(c.req.raw.headers)

@@ -143,7 +143,7 @@ export class SplitRouter extends Contract {
   // so lockfiles cannot re-point the same name@version at other bytes.
   public attest(pkg: string, ver: string, status: uint64, integrity: string): void {
     assert(Txn.sender.bytes === this.auditor.value, 'not auditor')
-    const key = pkg + '@' + ver
+    const key = `${pkg}@${ver}`
     // Pack: auditor(32) + txId(32) + status(8) + ts(8) + integrity(variable)
     const packed: bytes = Txn.sender.bytes
       .concat(Txn.txId)

@@ -54,6 +54,7 @@ describe('signEnvelope / verifyEnvelope', () => {
     const envelope = await signEnvelope(payload, 'application/vnd.in-toto+json', key)
 
     const tamperedBytes = algosdk.base64ToBytes(envelope.payload)
+    // biome-ignore lint/style/noNonNullAssertion: tamperedBytes is a real, non-empty decoded payload
     tamperedBytes[0] = tamperedBytes[0]! ^ 0xff
     const tampered: Envelope = { ...envelope, payload: algosdk.bytesToBase64(tamperedBytes) }
 

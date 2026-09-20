@@ -62,6 +62,7 @@ describe('verifySignatures', () => {
     const keys = loadFixtureKeys()
     const results = await verifySignatures(envelope, keys)
     expect(results).toHaveLength(1)
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
     expect(results[0]!.ok).toBe(true)
   })
 
@@ -70,10 +71,12 @@ describe('verifySignatures', () => {
     const keys = loadFixtureKeys()
 
     const payloadBytes = Buffer.from(envelope.payload, 'base64')
+    // biome-ignore lint/style/noNonNullAssertion: payloadBytes is a real, non-empty decoded buffer
     payloadBytes[0] = payloadBytes[0]! ^ 0xff
     const tampered: Envelope = { ...envelope, payload: payloadBytes.toString('base64') }
 
     const results = await verifySignatures(tampered, keys)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
     expect(results[0]!.ok).toBe(false)
   })
 
@@ -88,7 +91,9 @@ describe('verifySignatures', () => {
     ]
 
     const results = await verifySignatures(envelope, foreignKeys)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
     expect(results[0]!.ok).toBe(false)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
     expect(results[0]!.line).toContain('not in supplied key list')
   })
 })
@@ -137,6 +142,7 @@ describe('runVerify (end to end, exit code)', () => {
   test('exits 1 when the fixture payload is tampered', async () => {
     const envelope = loadFixtureEnvelope()
     const payloadBytes = Buffer.from(envelope.payload, 'base64')
+    // biome-ignore lint/style/noNonNullAssertion: payloadBytes is a real, non-empty decoded buffer
     payloadBytes[0] = payloadBytes[0]! ^ 0xff
     const tampered: Envelope = { ...envelope, payload: payloadBytes.toString('base64') }
 

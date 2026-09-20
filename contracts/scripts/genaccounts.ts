@@ -14,8 +14,8 @@ const lines = Object.entries(accounts).flatMap(([name, acct]) => [
 ])
 
 const envPath = path.resolve(process.cwd(), '.env')
-const existing = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf8') + '\n' : ''
-fs.writeFileSync(envPath, existing + lines.join('\n') + '\n')
+const existing = fs.existsSync(envPath) ? `${fs.readFileSync(envPath, 'utf8')}\n` : ''
+fs.writeFileSync(envPath, `${existing + lines.join('\n')}\n`)
 
 console.log('Generated accounts (fund these on TestNet):')
 for (const [name, acct] of Object.entries(accounts)) {

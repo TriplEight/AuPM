@@ -39,6 +39,7 @@ describe('buildRoutes', () => {
         | { bazaar: Parameters<typeof validateDiscoveryExtension>[0] }
         | undefined
       expect(extensions?.bazaar).toBeDefined()
+      // biome-ignore lint/style/noNonNullAssertion: definedness asserted above
       const result = validateDiscoveryExtension(extensions!.bazaar)
       expect(result.valid).toBe(true)
     }

@@ -43,6 +43,7 @@ describe('publishedKeys', () => {
     ])
 
     expect(published).toHaveLength(1)
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
     const entry = published[0]!
     expect(Object.keys(entry).sort()).toEqual(['keyid', 'publicKey', 'validFrom', 'validUntil'])
     expect(entry.keyid).toBe(key.keyid)

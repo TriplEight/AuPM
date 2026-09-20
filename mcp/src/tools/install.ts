@@ -13,10 +13,10 @@ import { x402Client } from '@x402-avm/core/client'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
 import { signerFromMnemonic } from '../signer.js'
 
-const PROXY_URL = process.env['SPM_PROXY_URL'] ?? 'http://localhost:4873'
+const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
 
 // NETWORK selects Algorand MainNet (default) or TestNet rehearsal.
-const NETWORK = (process.env['NETWORK'] ?? 'mainnet').toLowerCase()
+const NETWORK = (process.env.NETWORK ?? 'mainnet').toLowerCase()
 const IS_TESTNET = NETWORK === 'testnet'
 const CAIP2_NETWORK = IS_TESTNET ? ALGORAND_TESTNET_CAIP2 : ALGORAND_MAINNET_CAIP2
 const USDC_ASSET_ID = IS_TESTNET ? USDC_TESTNET_ASA_ID : USDC_MAINNET_ASA_ID
