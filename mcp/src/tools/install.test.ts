@@ -5,6 +5,7 @@ import {
   decodeUnsignedTransaction,
   USDC_MAINNET_ASA_ID,
 } from '@x402-avm/avm'
+import { encodePaymentResponseHeader } from '@x402-avm/core/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { installTool } from './install.js'
 
@@ -58,6 +59,16 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url
 }
 
+// Builds a real PAYMENT-RESPONSE header value via the matching encoder, the
+// same one the installed @x402-avm/hono middleware uses to set it.
+function settleResponseHeader(transaction: string, success = true): string {
+  return encodePaymentResponseHeader({
+    success,
+    transaction,
+    network: ALGORAND_MAINNET_CAIP2,
+  })
+}
+
 describe('install_audited_package', () => {
   beforeEach(() => {
     process.env.PAYER_MNEMONIC = TEST_MNEMONIC
@@ -102,7 +113,7 @@ describe('install_audited_package', () => {
       capturedHeader = paymentSignature
       return new Response(new Uint8Array([1, 2, 3, 4]), {
         status: 200,
-        headers: { 'X-AUDIT-ATTESTATION': 'txid-abc123' },
+        headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-abc123') },
       })
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -111,6 +122,8 @@ describe('install_audited_package', () => {
 
     expect(result.status).toBe('paid')
     expect(result.txid).toBe('txid-abc123')
+    expect(result.loraUrl).not.toBeNull()
+    expect(result.loraUrl).toContain('txid-abc123')
     expect(paidRequestCount).toBe(1)
     expect(capturedHeader).not.toBeNull()
 
@@ -163,7 +176,53 @@ describe('install_audited_package', () => {
 
     expect(result.status).toBe('free')
     expect(result.txid).toBeNull()
+    expect(result.loraUrl).toBeNull()
     // Only one fetch — no 402, so no retry and no payment.
     expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('accepts the legacy X-PAYMENT-RESPONSE header the same way', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { 'X-PAYMENT-RESPONSE': settleResponseHeader('txid-legacy456') },
+        }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
+
+    expect(result.status).toBe('paid')
+    expect(result.txid).toBe('txid-legacy456')
+    expect(result.loraUrl).toContain('txid-legacy456')
+  })
+
+  it('raises an error rather than reporting free on a malformed payment header', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { 'PAYMENT-RESPONSE': 'not-valid-base64-json!!!' },
+        }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(installTool.handler({ pkg: 'lodash', version: '4.17.21' })).rejects.toThrow()
+  })
+
+  it('raises an error rather than reporting free when settlement did not succeed', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: {
+            'PAYMENT-RESPONSE': settleResponseHeader('txid-failed789', false),
+          },
+        }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(installTool.handler({ pkg: 'lodash', version: '4.17.21' })).rejects.toThrow()
   })
 })

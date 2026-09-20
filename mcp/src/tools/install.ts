@@ -10,6 +10,7 @@ import {
 } from '@x402-avm/avm'
 import { registerExactAvmScheme } from '@x402-avm/avm/exact/client'
 import { x402Client } from '@x402-avm/core/client'
+import { decodePaymentResponseHeader } from '@x402-avm/core/http'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
 import { signerFromMnemonic } from '../signer.js'
 
@@ -29,6 +30,46 @@ export type InstallResult = {
   tarballPath: string
   txid: string | null
   loraUrl: string | null
+}
+
+type DecodedSettleResponse = {
+  success: boolean
+  transaction: string
+}
+
+function isDecodedSettleResponse(value: unknown): value is DecodedSettleResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'success' in value &&
+    typeof (value as { success: unknown }).success === 'boolean' &&
+    'transaction' in value &&
+    typeof (value as { transaction: unknown }).transaction === 'string'
+  )
+}
+
+// Reads the settlement txid from the PAYMENT-RESPONSE header the installed
+// @x402-avm/hono middleware sets on a paid response (legacy name
+// X-PAYMENT-RESPONSE also accepted by @x402-avm/core). A missing header
+// means the download was free. A present but malformed or unsuccessful
+// header means settlement is unproven — that must never be reported as
+// 'free'.
+function readSettlementTxid(res: Response): string | null {
+  const header = res.headers.get('PAYMENT-RESPONSE') ?? res.headers.get('X-PAYMENT-RESPONSE')
+  if (!header) return null
+
+  let decoded: unknown
+  try {
+    decoded = decodePaymentResponseHeader(header)
+  } catch {
+    throw new Error('Install failed: malformed PAYMENT-RESPONSE header')
+  }
+
+  if (!isDecodedSettleResponse(decoded) || !decoded.success || !decoded.transaction) {
+    throw new Error('Install failed: unsettled PAYMENT-RESPONSE header')
+  }
+
+  return decoded.transaction
 }
 
 // Env var holding the payer's 25-word Algorand mnemonic.
@@ -75,7 +116,7 @@ export const installTool = {
       throw new Error(`Install failed: ${res.status}`)
     }
 
-    const txid = res.headers.get('X-AUDIT-ATTESTATION')
+    const txid = readSettlementTxid(res)
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-'))
     const tarballPath = path.join(tmpDir, tarballName)
