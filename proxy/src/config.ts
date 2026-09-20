@@ -10,6 +10,7 @@ import {
   USDC_TESTNET_ASA_ID,
 } from '@x402-avm/avm'
 import type { Network, SupportedResponse } from '@x402-avm/core/types'
+import algosdk from 'algosdk'
 import { loadSigningKey, type SigningKey } from './attest/keys.js'
 
 export type SupportedKind = SupportedResponse['kinds'][number]
@@ -26,6 +27,31 @@ export const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitat
 // payTo is fixed for the whole competition — the SplitRouter app address.
 // It is the leaderboard key (CLAUDE.md invariant 1). Never change it in code.
 export const PAY_TO = process.env.SPLIT_APP_ADDRESS ?? ''
+
+/**
+ * Boot guard (pure function, no I/O). Follows the shape of resolveFeePayer
+ * below: it throws instead of returning a boolean, so a single call inside
+ * proxy/src/index.ts's existing try/catch is enough to stop boot and exit
+ * non-zero. It never runs at module-import time — SPLIT_APP_ADDRESS is
+ * unset or intentionally fake in most of the test suite (stubbed
+ * facilitator clients never reach the network), so eager validation here
+ * would break every one of those imports. Call it once, explicitly, from
+ * main() in proxy/src/index.ts.
+ *
+ * Validates shape, not merely non-emptiness: payTo must decode as a valid
+ * Algorand address (58-char base32, checksum included), via algosdk's own
+ * `isValidAddress`. WARNING: payTo is the leaderboard key. A server that
+ * advertises an empty or malformed one lets a caller build a payment that
+ * can never settle.
+ */
+export function assertValidPayTo(payTo: string = PAY_TO): void {
+  if (!payTo || !algosdk.isValidAddress(payTo)) {
+    throw new Error(
+      `x402 boot guard: PAY_TO is not a valid Algorand address (got ${JSON.stringify(payTo)}); ` +
+        'set SPLIT_APP_ADDRESS to the SplitRouter app address',
+    )
+  }
+}
 
 // Attribution tag, written at settlement time, not retroactive (CLAUDE.md).
 export const TAG = 'x402-global-challenge'

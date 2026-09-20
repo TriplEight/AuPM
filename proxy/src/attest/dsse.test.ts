@@ -78,6 +78,29 @@ describe('signEnvelope / verifyEnvelope', () => {
     expect(ok).toBe(false)
   })
 
+  test('a signature that is not 64 bytes returns false rather than throwing', async () => {
+    const key = await loadSigningKey(crypto.getRandomValues(new Uint8Array(32)))
+    const payload = new TextEncoder().encode('{"hello":"world"}')
+
+    const envelope = await signEnvelope(payload, 'application/vnd.in-toto+json', key)
+    // biome-ignore lint/style/noNonNullAssertion: signEnvelope always returns one signature
+    const sigBytes = algosdk.base64ToBytes(envelope.signatures[0]!.sig)
+    const truncated: Envelope = {
+      ...envelope,
+      signatures: [
+        {
+          // biome-ignore lint/style/noNonNullAssertion: signEnvelope always returns one signature
+          ...envelope.signatures[0]!,
+          sig: algosdk.bytesToBase64(sigBytes.subarray(0, -1)),
+        },
+      ],
+    }
+
+    await expect(
+      verifyEnvelope(truncated, [{ keyid: key.keyid, publicKey: key.publicKey }]),
+    ).resolves.toBe(false)
+  })
+
   test('the signature does not contain the algosdk MX domain-separation prefix', async () => {
     const account = algosdk.generateAccount()
     const seed = account.sk.slice(0, 32)

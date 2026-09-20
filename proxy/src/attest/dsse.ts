@@ -106,7 +106,14 @@ export async function verifyEnvelope(
     const publicKeyBytes =
       typeof key.publicKey === 'string' ? algosdk.base64ToBytes(key.publicKey) : key.publicKey
     const sigBytes = algosdk.base64ToBytes(signature.sig)
-    const valid = await ed.verifyAsync(sigBytes, message, publicKeyBytes)
+    let valid: boolean
+    try {
+      valid = await ed.verifyAsync(sigBytes, message, publicKeyBytes)
+    } catch {
+      // A malformed signature or public key throws instead of returning
+      // false. Fail closed: a throw means the signature is not valid.
+      valid = false
+    }
     if (valid) return true
   }
   return false

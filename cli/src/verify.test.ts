@@ -96,6 +96,39 @@ describe('verifySignatures', () => {
     // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
     expect(results[0]!.line).toContain('not in supplied key list')
   })
+
+  test('a signature that is not 64 bytes reports a failed verification, not a crash', async () => {
+    const envelope = loadFixtureEnvelope()
+    const keys = loadFixtureKeys()
+
+    // biome-ignore lint/style/noNonNullAssertion: the fixture envelope always has one signature
+    const sigBytes = Buffer.from(envelope.signatures[0]!.sig, 'base64')
+    const truncatedSig = sigBytes.subarray(0, sigBytes.length - 1)
+    const truncated: Envelope = {
+      ...envelope,
+      // biome-ignore lint/style/noNonNullAssertion: the fixture envelope always has one signature
+      signatures: [{ ...envelope.signatures[0]!, sig: truncatedSig.toString('base64') }],
+    }
+
+    const results = await verifySignatures(truncated, keys)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
+    expect(results[0]!.ok).toBe(false)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
+    expect(results[0]!.line).toContain('does not verify')
+  })
+
+  test('a malformed public key reports a failed verification, not a crash', async () => {
+    const envelope = loadFixtureEnvelope()
+    const keys = loadFixtureKeys()
+    // biome-ignore lint/style/noNonNullAssertion: fixture always has one key
+    const malformedKeys = [{ ...keys[0]!, publicKey: new Uint8Array(31) }]
+
+    const results = await verifySignatures(envelope, malformedKeys)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
+    expect(results[0]!.ok).toBe(false)
+    // biome-ignore lint/style/noNonNullAssertion: verifySignatures returns one result per supplied key
+    expect(results[0]!.line).toContain('does not verify')
+  })
 })
 
 describe('verifyLockfileDigest', () => {
@@ -161,6 +194,38 @@ describe('runVerify (end to end, exit code)', () => {
       }
       expect(code).toBe(1)
       expect(logs.join('\n')).toContain('verify: FAIL')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a signature truncated by one byte reports a failed verification, not a stack trace', async () => {
+    const envelope = loadFixtureEnvelope()
+    // biome-ignore lint/style/noNonNullAssertion: the fixture envelope always has one signature
+    const sigBytes = Buffer.from(envelope.signatures[0]!.sig, 'base64')
+    const truncatedSig = sigBytes.subarray(0, sigBytes.length - 1)
+    const truncated: Envelope = {
+      ...envelope,
+      // biome-ignore lint/style/noNonNullAssertion: the fixture envelope always has one signature
+      signatures: [{ ...envelope.signatures[0]!, sig: truncatedSig.toString('base64') }],
+    }
+
+    const dir = mkdtempSync(join(tmpdir(), 'spm-verify-test-'))
+    const truncatedPath = join(dir, 'truncated.json')
+    writeFileSync(truncatedPath, JSON.stringify(truncated))
+    try {
+      const logs: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => logs.push(args.join(' '))
+      let code: number
+      try {
+        code = await runVerify([truncatedPath, '--keys', join(FIXTURES_DIR, 'spm-keys.json')])
+      } finally {
+        console.log = originalLog
+      }
+      expect(code).toBe(1)
+      expect(logs.join('\n')).toContain('verify: FAIL')
+      expect(logs.join('\n')).toContain('does not verify')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

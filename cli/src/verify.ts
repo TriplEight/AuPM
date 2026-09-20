@@ -174,7 +174,14 @@ export async function verifySignatures(
       continue
     }
     const sigBytes = new Uint8Array(Buffer.from(signature.sig, 'base64'))
-    const valid = await ed.verifyAsync(sigBytes, message, key.publicKey)
+    let valid: boolean
+    try {
+      valid = await ed.verifyAsync(sigBytes, message, key.publicKey)
+    } catch {
+      // A malformed signature or public key throws instead of returning
+      // false. Fail closed: a throw means the signature is not valid.
+      valid = false
+    }
     results.push({
       ok: valid,
       line: valid
