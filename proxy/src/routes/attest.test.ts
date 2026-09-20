@@ -51,6 +51,25 @@ function decodeStatement(envelope: Envelope): Statement {
   return JSON.parse(new TextDecoder().decode(algosdk.base64ToBytes(envelope.payload))) as Statement
 }
 
+// Drives app.request() with a distinguishable simulated TCP peer, the way
+// @hono/node-server's real getConnInfo() reads one: bindings.incoming.
+// socket.remoteAddress (see @hono/node-server/dist/conninfo.mjs). Hono's
+// request() forwards its third argument straight through to `c.env`
+// (hono-base.js #dispatch -> new Context(..., { env })), so this is not a
+// stub of clientIp() itself — it exercises the real getConnInfo() call
+// against a fabricated (but shaped exactly like the real thing) env, the
+// same route production traffic takes under serve().
+function requestWithSocket(
+  app: Hono<{ Variables: AppVariables }>,
+  input: string,
+  remoteAddress: string,
+  init?: RequestInit,
+) {
+  return app.request(input, init, {
+    incoming: { socket: { remoteAddress, remotePort: 0, remoteFamily: 'IPv4' } },
+  })
+}
+
 let signingKey: SigningKey
 
 beforeEach(async () => {
@@ -470,6 +489,51 @@ describe('GET /v1/attest', () => {
   })
 })
 
+// A paid-tier row can carry a legacy sha1- integrity from before this route
+// only spoke sha512-. isReviewedWithIntegrity() (status.ts) only checks for
+// a non-null integrity, so it alone would still advertise this row as paid
+// — and the paid handler would then always throw decoding it, charging the
+// caller for a 500. Pins that the two agree: unusable integrity resolves to
+// UNREVIEWED, same as a missing one.
+describe('GET /v1/attest: integrity-format gating', () => {
+  test('a row with sha1- integrity is not advertised as paid, and the route does not throw', async () => {
+    setStatus('legacy-pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha1-deadbeef')
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=legacy-pkg&version=1.0.0')
+
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(500)
+    const body = (await res.json()) as { tier: string; attestation: Envelope }
+    expect(body.tier).toBe('UNREVIEWED')
+    const ok = await verifyEnvelope(body.attestation, [
+      { keyid: signingKey.keyid, publicKey: signingKey.publicKey },
+    ])
+    expect(ok).toBe(true)
+    expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
+  })
+
+  test('a row with sha512- integrity still prices and still returns a signed statement', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { tier: string; attestation: Envelope }
+    expect(body.tier).toBe('COMMUNITY_REVIEWED')
+    const ok = await verifyEnvelope(body.attestation, [
+      { keyid: signingKey.keyid, publicKey: signingKey.publicKey },
+    ])
+    expect(ok).toBe(true)
+    expect(getAttribution()).toEqual({
+      route: 'single-attest',
+      priceMicro: 1_000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+    })
+  })
+})
+
 // Boundary test between this route and the free-tier rate limiter: a
 // spoofable HTTP header must never be able to raise the cap. Pins the
 // TRUST_PROXY gate (defect: X-Forwarded-For trusted unconditionally, so an
@@ -530,5 +594,128 @@ describe('free-path rate limit: X-Forwarded-For trust boundary', () => {
       headers: { 'x-forwarded-for': 'different-attacker-value, 203.0.113.99' },
     })
     expect(second.status).toBe(429)
+  })
+})
+
+// Boundary test for the same reason, pinned separately for X-Real-IP: a
+// prior fix gated X-Forwarded-For behind TRUST_PROXY but left X-Real-IP
+// trusted unconditionally, letting a caller rotate it for unlimited free
+// signed attestations. clientIp() must decide both headers together.
+describe('free-path rate limit: X-Real-IP trust boundary', () => {
+  afterEach(() => {
+    delete process.env.TRUST_PROXY
+  })
+
+  test('TRUST_PROXY unset: a different X-Real-IP on every request never raises the cap', async () => {
+    delete process.env.TRUST_PROXY
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 2 }) })
+
+    const spoofedIps = ['198.51.100.11', '198.51.100.12', '198.51.100.13']
+    const statuses: number[] = []
+    for (const ip of spoofedIps) {
+      const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+        headers: { 'x-real-ip': ip },
+      })
+      statuses.push(res.status)
+    }
+
+    // All three requests collapse onto the same (untrusted) bucket, so the
+    // cap of 2 is enforced regardless of the spoofed header value.
+    expect(statuses).toEqual([200, 200, 429])
+  })
+
+  test('TRUST_PROXY=true: distinct X-Real-IP values get independent caps', async () => {
+    process.env.TRUST_PROXY = 'true'
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+
+    const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-real-ip': '203.0.113.60' },
+    })
+    const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-real-ip': '203.0.113.61' },
+    })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+  })
+
+  test('TRUST_PROXY=true, both headers present: X-Forwarded-For wins over X-Real-IP', async () => {
+    process.env.TRUST_PROXY = 'true'
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+
+    // Same X-Forwarded-For, a different X-Real-IP each time: must collapse
+    // onto the same bucket, pinning X-Forwarded-For's trusted last hop as
+    // the winner when both headers are present.
+    const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.77', 'x-real-ip': '198.51.100.1' },
+    })
+    expect(first.status).toBe(200)
+
+    const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.77', 'x-real-ip': '198.51.100.2' },
+    })
+    expect(second.status).toBe(429)
+  })
+})
+
+// Regression test for a second-pass defect: gating both headers behind
+// TRUST_PROXY made every untrusted caller collapse onto one shared bucket,
+// trading the header-spoofing bypass for a denial of service (one caller
+// exhausting the cap blocked the free path for everyone). clientIp() must
+// fall back to the unspoofable socket address, not a shared constant, while
+// a socket address is available.
+describe('free-path rate limit: socket-address fallback (TRUST_PROXY unset)', () => {
+  afterEach(() => {
+    delete process.env.TRUST_PROXY
+  })
+
+  test('two callers on different socket addresses get independent buckets', async () => {
+    delete process.env.TRUST_PROXY
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+
+    // Caller A exhausts its own cap.
+    const a1 = await requestWithSocket(app, '/v1/attest?name=ms&version=2.1.3', '203.0.113.201')
+    expect(a1.status).toBe(200)
+    const a2 = await requestWithSocket(app, '/v1/attest?name=ms&version=2.1.3', '203.0.113.201')
+    expect(a2.status).toBe(429)
+
+    // Caller B, a distinct socket address, is unaffected by A's exhausted
+    // cap: one caller must never be able to deny the free path to another.
+    const b1 = await requestWithSocket(app, '/v1/attest?name=ms&version=2.1.3', '203.0.113.202')
+    expect(b1.status).toBe(200)
+  })
+
+  test('a rotating X-Real-IP from one socket address still never raises that socket’s cap', async () => {
+    delete process.env.TRUST_PROXY
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 2 }) })
+
+    const spoofedIps = ['198.51.100.21', '198.51.100.22', '198.51.100.23']
+    const statuses: number[] = []
+    for (const ip of spoofedIps) {
+      const res = await requestWithSocket(
+        app,
+        '/v1/attest?name=ms&version=2.1.3',
+        '203.0.113.210',
+        {
+          headers: { 'x-real-ip': ip },
+        },
+      )
+      statuses.push(res.status)
+    }
+
+    // The header is ignored entirely (TRUST_PROXY unset); every request
+    // shares the one real socket's bucket, so the cap of 2 is enforced.
+    expect(statuses).toEqual([200, 200, 429])
+  })
+
+  test('no socket address available: the handler does not throw', async () => {
+    delete process.env.TRUST_PROXY
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 2 }) })
+
+    // app.request() with no injected env: getConnInfo() throws internally,
+    // caught by socketAddress(), falling back to the shared constant.
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(500)
   })
 })

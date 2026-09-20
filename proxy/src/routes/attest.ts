@@ -15,6 +15,7 @@
 // (free 200) never reaches — and is never charged by — the facilitator. The
 // `*Handler`s run *after* the gate, only once payment has cleared.
 
+import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AppVariables } from '../app.js'
 import type { AttributionEntry } from '../attest/attribution.js'
@@ -59,14 +60,46 @@ function isTrustProxyEnabled(): boolean {
 }
 
 /**
- * Resolves the caller's IP for the free-path rate limiter.
+ * The real TCP peer address, via @hono/node-server's ConnInfo helper. A
+ * caller cannot forge this — unlike a header — so it is the correct default
+ * bucket key for the free-path rate limiter (SPEC-v3 §6.3).
  *
- * WARNING: `X-Forwarded-For` is attacker-controlled input unless a known
- * reverse proxy sits in front of this server. Trusting it unconditionally
- * lets a caller defeat the free-path rate limit — the stated control
- * against using SPM as an unpriced signing oracle (SPEC-v3 §6.3) — by
- * sending a different value on every request. Only trust it when
- * TRUST_PROXY says so.
+ * CAUTION: `getConnInfo` reads `c.env.incoming.socket`, which only exists
+ * when this app runs under `@hono/node-server`'s `serve()`. A test harness
+ * driven by Hono's `app.request()` without an injected `incoming` env has
+ * no such socket and `getConnInfo` throws. Caught here and treated as
+ * genuinely unavailable — never left to throw out of the handler.
+ */
+function socketAddress(c: AttestContext): string | null {
+  try {
+    const address = getConnInfo(c).remote.address
+    return address && address.length > 0 ? address : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Resolves the caller's IP for the free-path rate limiter. The single
+ * decision point for every caller, so `X-Forwarded-For` and `X-Real-IP`
+ * can never drift apart into two different trust rules again.
+ *
+ * WARNING: both `X-Forwarded-For` and `X-Real-IP` are attacker-controlled
+ * input unless a known reverse proxy sits in front of this server. Trusting
+ * either unconditionally lets a caller defeat the free-path rate limit —
+ * the stated control against using SPM as an unpriced signing oracle
+ * (SPEC-v3 §6.3) — by sending a different value on every request. Only
+ * trust either header when TRUST_PROXY says so; otherwise ignore both and
+ * fall back to the unspoofable socket address.
+ *
+ * Precedence when TRUST_PROXY is set and both headers are present:
+ * `X-Forwarded-For`'s trusted last hop wins over `X-Real-IP`.
+ *
+ * WARNING: never fall back to one shared constant while the socket address
+ * is available — one caller who exhausts the cap would then block the free
+ * path for every other caller, trading the header-spoofing bypass for a
+ * denial of service. The shared constant is only for a genuinely
+ * unavailable socket address.
  */
 function clientIp(c: AttestContext): string {
   if (isTrustProxyEnabled()) {
@@ -84,8 +117,14 @@ function clientIp(c: AttestContext): string {
       const lastHop = hops[hops.length - 1]
       if (lastHop) return lastHop
     }
+    const realIp = c.req.header('x-real-ip')
+    if (realIp && realIp.length > 0) return realIp
   }
-  return c.req.header('x-real-ip') ?? 'unknown'
+  // Untrusted (TRUST_PROXY unset/false): ignore both headers, since neither
+  // can be trusted without a known reverse proxy in front. Use the
+  // unspoofable socket address; only when that is genuinely unavailable do
+  // every caller share one bucket.
+  return socketAddress(c) ?? 'unknown'
 }
 
 function registryAppId(): number {
@@ -127,12 +166,36 @@ async function signLockfileStatement(
  * Decodes an npm `integrity` string ("sha512-<base64>") to lowercase hex,
  * the digest shape the in-toto subject uses. Returns null for anything that
  * does not match that shape — never a placeholder digest.
+ *
+ * CAUTION: never widen this to accept `sha1-`. A weak digest must not back
+ * a paid security attestation.
  */
 function integrityToHex(integrity: string): string | null {
   const match = /^sha512-([A-Za-z0-9+/]+=*)$/.exec(integrity)
   const base64 = match?.[1]
   if (!base64) return null
   return Buffer.from(base64, 'base64').toString('hex')
+}
+
+/**
+ * True only for a paid-tier row whose stored integrity this route can
+ * actually turn into a digest (see integrityToHex()).
+ *
+ * `isReviewedWithIntegrity()` (status.ts) only checks that some non-null
+ * integrity string is stored — it does not know this route only speaks
+ * `sha512-`. A row carrying a legacy `sha1-` (or otherwise unusable)
+ * integrity would otherwise be priced by the pre-middleware and then always
+ * throw in the paid handler, charging the caller for a 500. Treat that row
+ * as an incomplete review — the same free-and-honest resolution
+ * status.ts's own isReviewedWithIntegrity() applies to a missing integrity
+ * — never as paid-and-broken.
+ */
+function isPriceableSingleAttest(status: ReturnType<typeof getStatusOrUnreviewed>): boolean {
+  return (
+    isReviewedWithIntegrity(status) &&
+    status.integrity !== null &&
+    integrityToHex(status.integrity) !== null
+  )
 }
 
 /**
@@ -264,10 +327,12 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     }
 
     const status = getStatusOrUnreviewed(name, version)
-    if (!isReviewedWithIntegrity(status)) {
+    if (!isPriceableSingleAttest(status)) {
       // Free tier: status < COMMUNITY_REVIEWED never returns 402 — and a
-      // paid-tier row with no stored integrity is an incomplete review,
-      // treated the same way (CLAUDE.md free-tier invariant). Answered here,
+      // paid-tier row with no stored integrity, or with an integrity this
+      // route cannot decode to a digest (e.g. a legacy `sha1-` value), is
+      // an incomplete review, treated the same way (CLAUDE.md free-tier
+      // invariant). Answered here,
       // before the x402 payment gate in app.ts runs at all: GET /v1/attest
       // is otherwise unconditionally priced, and the gate reads only the
       // path, not these query params, so it can never grant this itself.
@@ -297,13 +362,15 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     const version = c.req.query('version') as string
 
     const status = getStatusOrUnreviewed(name, version)
-    if (!isReviewedWithIntegrity(status) || status.integrity === null) {
+    if (!isPriceableSingleAttest(status) || status.integrity === null) {
       // Defensive: fail closed, not open, if the store changed between the
       // pre-middleware's check and payment clearing.
       return c.json({ error: 'internal error: reviewed package missing stored integrity' }, 500)
     }
     const hex = integrityToHex(status.integrity)
     if (hex === null) {
+      // Unreachable given isPriceableSingleAttest() above; kept as a
+      // fail-closed guard, never removed.
       return c.json({ error: 'internal error: stored integrity is not a valid sha512 value' }, 500)
     }
 
