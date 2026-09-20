@@ -9,12 +9,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
+import type { Attribution } from './attribution.js'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-lockfile-test-${randomUUID()}.db`)
 
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
 const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./lockfile.js')
+const { buildAccrualInputs } = await import('../claims/attribution-rules.js')
 
 const encoder = new TextEncoder()
 
@@ -260,6 +262,214 @@ describe('analyzeLockfile — classification', () => {
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('unreachable')
     expect(result.analysis.summary.total).toBe(0)
+  })
+})
+
+describe('analyzeLockfile — same package at more than one node_modules depth', () => {
+  // "$0.02" (CLAUDE.md lockfile-attest price), in integer micro-USDC.
+  const LOCKFILE_PRICE_MICRO = 20_000
+
+  function toAttribution(
+    refs: { pkg: string; version: string; auditor: string | null }[],
+    priceMicro = LOCKFILE_PRICE_MICRO,
+  ): Attribution {
+    return {
+      route: 'lockfile',
+      priceMicro,
+      packages: refs.map((ref) => ({
+        pkg: ref.pkg,
+        version: ref.version,
+        auditor: ref.auditor,
+        maintainer: null,
+      })),
+    }
+  }
+
+  test('a package listed at two node_modules depths collapses to one reviewed ref', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.total).toBe(2)
+    expect(result.analysis.reviewedPackageRefs).toEqual([
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
+    ])
+  })
+
+  test('summary.reviewed counts the depth-duplicated package once', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(1)
+  })
+
+  test('the signed statement (packages[]) lists the depth-duplicated package once', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.packages).toHaveLength(1)
+    expect(result.analysis.packages[0]?.name).toBe('ms')
+    expect(result.analysis.packages[0]?.version).toBe('2.1.3')
+    expect(result.analysis.packages[0]?.tier).toBe('COMMUNITY_REVIEWED')
+  })
+
+  test('the auditor accrues the full per-package share, not half, once depth duplicates are collapsed', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+
+    const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
+    expect(rows).toHaveLength(3) // one row per ledgered role: auditor, maintainer, reviewer
+
+    const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
+    expect(auditorRow?.amountMicro).toBe(10_000) // (20,000 / 1,000) * 500, the whole auditor share
+
+    const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
+    expect(totalMicro).toBe(17_000) // (20,000 / 1,000) * (500 + 200 + 150)
+  })
+
+  test('the same package at two different versions still yields two reviewed refs', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
+    setStatus('ms', '3.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID2', 'sha512-def', 'bob')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3', 'sha512-abc'),
+          'node_modules/old-dep/node_modules/ms': npmEntry('3.0.0', 'sha512-def'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(2)
+    expect(result.analysis.reviewedPackageRefs).toEqual([
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
+      { pkg: 'ms', version: '3.0.0', auditor: 'github:bob' },
+    ])
+
+    const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
+    const auditorRows = rows.filter((r) => r.role === 'auditor')
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([5_000, 5_000])
+    const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
+    expect(totalMicro).toBe(17_000)
+  })
+
+  test('an existing multi-package lockfile (1 reviewed + 200 unreviewed) still produces the same totals', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const packages: Record<string, unknown> = { 'node_modules/ms': npmEntry('2.1.3') }
+    for (let i = 0; i < 200; i++) {
+      packages[`node_modules/unreviewed-pkg-${i}`] = npmEntry('1.0.0')
+    }
+    const result = analyzeLockfile(lockfileBytes({ lockfileVersion: 3, packages }))
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.total).toBe(201)
+    expect(result.analysis.summary.unreviewed).toBe(200)
+    expect(result.analysis.summary.reviewed).toBe(1)
+    expect(result.analysis.packages).toHaveLength(1)
+    expect(result.analysis.reviewedPackageRefs).toEqual([
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
+    ])
+
+    const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
+    const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
+    expect(auditorRow?.amountMicro).toBe(10_000)
+    const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
+    expect(totalMicro).toBe(17_000)
+  })
+
+  test('several distinct reviewed packages each keep their own ref and split the auditor share evenly', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
+    setStatus(
+      'lodash',
+      '4.17.21',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID2',
+      'sha512-def',
+      'bob',
+    )
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3', 'sha512-abc'),
+          'node_modules/lodash': npmEntry('4.17.21', 'sha512-def'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(2)
+    expect(result.analysis.reviewedPackageRefs).toHaveLength(2)
+
+    const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
+    const auditorRows = rows.filter((r) => r.role === 'auditor')
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([5_000, 5_000])
+    const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
+    expect(totalMicro).toBe(17_000)
+  })
+
+  // CAUTION: two node_modules entries for the same name@version can, in a
+  // corrupted or crafted lockfile, disagree on their raw `integrity` field.
+  // That is not a harmless duplicate — it is two different tarballs claimed
+  // for one identity. The dedup must never merge that into a single
+  // reviewed ref; it must fall back to INTEGRITY_MISMATCH for the entry
+  // that disagrees, same as any other tampered entry.
+  test('duplicate name@version entries with different raw integrity are never merged into one reviewed ref', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3', 'sha512-abc'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3', 'sha512-different'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(1)
+    expect(result.analysis.summary.integrityMismatch).toBe(1)
+    expect(result.analysis.reviewedPackageRefs).toHaveLength(1)
+    expect(result.analysis.packages).toHaveLength(2)
+    expect(result.analysis.packages.filter((p) => p.tier === 'INTEGRITY_MISMATCH')).toHaveLength(1)
   })
 })
 

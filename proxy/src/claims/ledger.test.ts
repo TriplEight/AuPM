@@ -307,3 +307,53 @@ describe('claims', () => {
     expect(github.calls).toBe(0)
   })
 })
+
+describe('identity canonicalisation', () => {
+  const MIXED_CASE_ATTRIBUTION: Attribution = {
+    route: 'single-attest',
+    priceMicro: 1000,
+    packages: [
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
+    ],
+  }
+
+  function stubGithubClient(gistContentByLogin: Record<string, string>): GithubClient {
+    return {
+      getFile: async () => null,
+      getGistContent: async (login) => gistContentByLogin[login] ?? null,
+    }
+  }
+
+  test('a claim created as github:Alice and an accrual for reviewer alice resolve to the same identity; earnings reports the exact accrued amount', () => {
+    createClaim('github:Alice', 'ALGOADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    // The accrual identity is built from a reviewer login stored elsewhere
+    // as `github:alice` — lower-case, as `resolveAuditorIdentity` resolves it.
+    writeAccruals(MIXED_CASE_ATTRIBUTION, 'TXID-CANON-1')
+
+    const earnings = getEarningsForLogin('Alice')
+    expect(earnings.identity).toBe('github:alice')
+    expect(earnings.claimStatus).toBe('pending')
+    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
+    expect(auditorRole?.accruedMicro).toBe(500)
+    expect(earnings.totalAccruedMicro).toBe(500)
+  })
+
+  test('a proof owner differing only in case still verifies', async () => {
+    const { nonce } = createClaim('github:Alice', 'ALGOADDR-CANON-2')
+    const github = stubGithubClient({ alice: `spm-claim:ALGOADDR-CANON-2:${nonce}` })
+
+    const claim = await verifyClaim('github:Alice', { kind: 'gist', owner: 'alice' }, github)
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('a proof owner that is a genuinely different login is still rejected', async () => {
+    createClaim('github:Alice', 'ALGOADDR-CANON-3')
+    const github = stubGithubClient({ mallory: 'anything' })
+
+    await expect(
+      verifyClaim('github:Alice', { kind: 'gist', owner: 'mallory' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    const claim = getClaim('github:alice')
+    expect(claim?.status).toBe('pending')
+  })
+})

@@ -9,6 +9,26 @@ import { type Attribution, buildAccrualInputs, UNASSIGNED } from './attribution-
 import db, { type AccrualRow, type ClaimRow, type ClaimStatus, type PayoutRow } from './schema.js'
 
 // ---------------------------------------------------------------------------
+// Identity canonicalisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Canonical form for every stored identity string. Lower-cases the whole
+ * string, so `github:Alice` and `github:alice` always collapse to the same
+ * row and join key. Apply this everywhere an identity is written or looked
+ * up: claim creation, claim lookup, accrual writes, and the earnings lookup.
+ * That keeps a row from ever being written in a non-canonical form.
+ *
+ * WARNING: this only normalises case for storage and joins. It must never
+ * replace the case-insensitive proof-owner comparison in
+ * `requireProofOwnerMatchesIdentity` — that check stays independent, and
+ * still accepts a proof owner differing only in case.
+ */
+function canonicalizeIdentity(identity: string): string {
+  return identity.toLowerCase()
+}
+
+// ---------------------------------------------------------------------------
 // Accruals
 // ---------------------------------------------------------------------------
 
@@ -53,7 +73,7 @@ export function writeAccruals(attribution: Attribution, settleTxid: string): num
         row.pkg,
         row.version,
         row.role,
-        row.identity,
+        canonicalizeIdentity(row.identity),
         row.amountMicro,
         createdAt,
       )
@@ -104,7 +124,7 @@ export interface Earnings {
  * own data, never another identity's.
  */
 export function getEarningsForLogin(login: string): Earnings {
-  const identity = `github:${login}`
+  const identity = canonicalizeIdentity(`github:${login}`)
   const accrued = new Map<string, number>()
   for (const row of sumAccrualsByIdentityAndRole.all(identity)) accrued.set(row.role, row.total)
 
@@ -154,12 +174,12 @@ const selectClaim = db.prepare<[string], ClaimRow>('SELECT * FROM claims WHERE i
  */
 export function createClaim(identity: string, algorandAddress: string): { nonce: string } {
   const nonce = randomBytes(16).toString('hex')
-  upsertClaim.run(identity, algorandAddress, nonce, Date.now())
+  upsertClaim.run(canonicalizeIdentity(identity), algorandAddress, nonce, Date.now())
   return { nonce }
 }
 
 export function getClaim(identity: string): ClaimRow | undefined {
-  return selectClaim.get(identity)
+  return selectClaim.get(canonicalizeIdentity(identity))
 }
 
 export type ProofKind = 'well-known' | 'gist'
@@ -275,16 +295,20 @@ export async function verifyClaim(
   proof: ClaimProof,
   github: GithubClient,
 ): Promise<ClaimRow | null> {
-  requireProofOwnerMatchesIdentity(identity, proof)
+  // Canonicalise first: every write and lookup below must use the same
+  // stored form as createClaim, or a claim created as `github:Alice` would
+  // never find its own row here.
+  const canonicalIdentity = canonicalizeIdentity(identity)
+  requireProofOwnerMatchesIdentity(canonicalIdentity, proof)
 
-  const claim = getClaim(identity)
+  const claim = getClaim(canonicalIdentity)
   if (!claim) return null
 
   const ok = await proofContainsClaim(claim, proof, github)
   const status: ClaimStatus = ok ? 'verified' : 'failed'
   const proofRef = proof.kind === 'well-known' ? `${proof.owner}/${proof.repo}` : proof.owner
-  updateClaimStatus.run(status, proof.kind, proofRef, ok ? Date.now() : null, identity)
-  return getClaim(identity) ?? null
+  updateClaimStatus.run(status, proof.kind, proofRef, ok ? Date.now() : null, canonicalIdentity)
+  return getClaim(canonicalIdentity) ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -297,16 +321,24 @@ const insertPayout = db.prepare<[string, string, number, string, number]>(
    ON CONFLICT (identity, role, txid) DO NOTHING`,
 )
 
-/** Record a manual, human-checked payout (SPEC-v3.md 5.3 step 5). */
+/**
+ * Record a manual, human-checked payout (SPEC-v3.md 5.3 step 5).
+ *
+ * CAUTION: canonicalises `identity` on the way in, same as every other
+ * write in this module, so a manually-typed mixed-case identity still joins
+ * against the accruals this payout is settling.
+ */
 export function recordPayout(
   identity: string,
   role: string,
   amountMicro: number,
   txid: string,
 ): void {
-  insertPayout.run(identity, role, amountMicro, txid, Date.now())
+  insertPayout.run(canonicalizeIdentity(identity), role, amountMicro, txid, Date.now())
 }
 
 export function listPayoutsForIdentity(identity: string): PayoutRow[] {
-  return db.prepare<[string], PayoutRow>('SELECT * FROM payouts WHERE identity = ?').all(identity)
+  return db
+    .prepare<[string], PayoutRow>('SELECT * FROM payouts WHERE identity = ?')
+    .all(canonicalizeIdentity(identity))
 }

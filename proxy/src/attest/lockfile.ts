@@ -150,6 +150,16 @@ export function analyzeLockfile(
     integrityMismatch: 0,
   }
 
+  // A lockfile can list the same package at more than one node_modules depth
+  // (e.g. "node_modules/ms" and "node_modules/send/node_modules/ms"). Both
+  // entries name the same reviewed tarball. Dedup here, at the point the
+  // reviewed classification is decided — the earliest point that keeps
+  // summary.reviewed, packages[] (the signed statement), reviewedPackageRefs
+  // (the accrual split), and the per-package pro-rata share all consistent.
+  // Keyed on name@version, never on name alone: the same package at two
+  // different versions is two real entries and must stay two.
+  const reviewedSeen = new Map<string, { integrity: string | null }>()
+
   for (const [key, rawEntry] of entries) {
     if (typeof rawEntry !== 'object' || rawEntry === null) continue
     const entry = rawEntry as RawLockfileEntry
@@ -214,6 +224,36 @@ export function analyzeLockfile(
       continue
     }
 
+    const dedupeKey = `${name}\u0000${version}`
+    const seen = reviewedSeen.get(dedupeKey)
+    if (seen) {
+      if (seen.integrity === integrity) {
+        // A second node_modules entry for a name@version already accepted
+        // as reviewed, with the same raw lockfile integrity: the same
+        // tarball listed twice. Collapse it — never double-count, never
+        // double-list it in the signed statement, never double-pay it.
+        continue
+      }
+      // Same name@version, already accepted as reviewed, but this entry's
+      // raw integrity disagrees with the one already accepted. This is not
+      // a harmless duplicate — two node_modules paths claim two different
+      // tarballs for the identical name@version. Never merge this into the
+      // reviewed count; the attestation must say what it can actually back.
+      summary.integrityMismatch += 1
+      packages.push({
+        name,
+        version,
+        integrity,
+        tier: 'INTEGRITY_MISMATCH',
+        reviewer: reviewerIdentity(status),
+        reviewScope: null,
+        attestTxid: status.attest_txid,
+        integrityMatch: false,
+      })
+      continue
+    }
+
+    reviewedSeen.set(dedupeKey, { integrity })
     summary.reviewed += 1
     packages.push({
       name,
