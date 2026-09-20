@@ -2,6 +2,25 @@
 
 Use `/handoff <summary>` to append entries. Newest at top.
 
+## 2026-09-20 Handoff — ready for MainNet launch
+
+- **Changed**: Attestation routes, claims ledger, `spm verify`, MainNet MCP payer,
+  eager boot guard, published attestation keys route, Biome, invariant guard,
+  git hooks, CI, and a rewritten verification harness. Twelve spec corrections.
+  README rewritten for MainNet.
+- **Files**: `proxy/src/{app,config}.ts`, `proxy/src/{attest,claims,x402,routes}/*`,
+  `cli/src/verify.ts`, `contracts/.../contract.algo.ts`, `scripts/*`,
+  `SPEC-v3.md`, `README.md`, `STATUS.md`.
+- **State**: 147 proxy, 8 cli, 7 contracts, 5 mcp, 6 action tests pass.
+  Typecheck, guard and `biome ci` all clean. `scripts/verify.sh` exits 0 with
+  the e2e step SKIPPED, because this sandbox cannot reach the facilitator.
+- **Blocked**: Nothing buildable. What remains needs a chain, a domain, or a
+  human reviewer.
+- **Next**: Follow `docs/RUNBOOK-mainnet-launch.md`. WARNING: read its section 1
+  first. `distribute()` will not run below 100,000 microUSDC, so a single
+  $0.001 payment cannot produce the five inner transfers the qualification
+  checklist requires. Five lockfile calls, or a direct top-up, reach the floor.
+
 ## 2026-09-19 Contract artifacts stale — build needed on a Docker machine
 
 - **Changed**: `SplitRouter` reworked for the v3 MainNet spec. `pay()` removed;
