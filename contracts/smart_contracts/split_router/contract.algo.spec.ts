@@ -148,7 +148,7 @@ describe('SplitRouter', () => {
     // address here. An app account cannot be rekeyed.
     expect(() =>
       callInScope(contract, () => contract.releaseAuthority(someoneElse), { sender: creator }),
-    ).toThrow()
+    ).toThrow('payTo is the application address; an app account cannot be rekeyed')
   })
 
   test('setPayTo() rejects a non-admin sender', () => {
@@ -158,7 +158,7 @@ describe('SplitRouter', () => {
 
     expect(() =>
       callInScope(contract, () => contract.setPayTo(external), { sender: notCreator }),
-    ).toThrow()
+    ).toThrow('admin only')
   })
 
   test('setPayTo() rejects the application address', () => {
@@ -166,7 +166,9 @@ describe('SplitRouter', () => {
     const appRef = ctx.ledger.getApplicationForContract(contract)
     const appAddress = ctx.ledger.getAccount(appRef.address)
 
-    expect(() => callInScope(contract, () => contract.setPayTo(appAddress))).toThrow()
+    expect(() => callInScope(contract, () => contract.setPayTo(appAddress))).toThrow(
+      'use the default app-address path instead',
+    )
   })
 
   test('setPayTo() with an external address succeeds; setRecipients() then leaves it alone', () => {
@@ -199,7 +201,9 @@ describe('SplitRouter', () => {
 
     callInScope(contract, () => contract.setPayTo(first))
 
-    expect(() => callInScope(contract, () => contract.setPayTo(second))).toThrow()
+    expect(() => callInScope(contract, () => contract.setPayTo(second))).toThrow(
+      'payTo already set',
+    )
     expect(contract.payTo.value).toEqual(first.bytes)
   })
 
