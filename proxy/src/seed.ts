@@ -8,13 +8,17 @@ import { setStatus } from './status.js'
 // Clear existing demo entries
 db.exec(`DELETE FROM audit_status WHERE pkg IN ('lodash', 'express', 'chalk')`)
 
-// PAID: lodash 4.17.21 is community-reviewed
+// PAID: lodash 4.17.21 is community-reviewed. The integrity below is the
+// actual npm-registry integrity for this exact tarball — a seeded review is
+// a real review (CLAUDE.md), and a row with no stored integrity is treated
+// as UNREVIEWED (status.ts's isReviewedWithIntegrity()).
 setStatus(
   'lodash',
   '4.17.21',
   'COMMUNITY_REVIEWED',
   'AUDITOR_PLACEHOLDER_ADDR',
   'ATTEST_TXID_PLACEHOLDER',
+  'sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==',
 )
 
 // FREE: lodash 4.17.20 is unreviewed (demonstrates version bump resets status)

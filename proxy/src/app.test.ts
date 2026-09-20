@@ -14,6 +14,11 @@ const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 process.env.SPLIT_APP_ADDRESS = FAKE_APP_ADDRESS
 process.env.NETWORK = 'mainnet'
+// A 32-byte hex seed, not a real key — only the free attestation paths
+// (single-attest, zero-coverage lockfile) ever reach getAttestationSigningKey()
+// in this file; every paid path is blocked by the (stub, always-invalid)
+// facilitator before signing would run.
+process.env.ATTEST_SIGNING_KEY = 'fc982b5f02591ece632fde9d22879692daafd28398f928369c5f1c1f9ff0fd3a'
 
 const db = (await import('./db.js')).default
 const { setStatus } = await import('./status.js')
@@ -95,17 +100,47 @@ describe('x402 gate', () => {
     expect(res.status).toBe(200)
   })
 
-  test('POST /v1/attest/lockfile: 402 before the stub 501 handler runs', async () => {
+  // A zero-coverage lockfile (no reviewed packages) is free by design (the
+  // attestation-signing work item's lockfile pre-middleware answers it
+  // before the payment gate ever runs) — so this reaches the gate with a
+  // lockfile that has one reviewed package instead, to keep testing what it
+  // always tested: the gate fires before the real handler runs.
+  test('POST /v1/attest/lockfile: 402 before the real handler runs (nonzero coverage)', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-abc')
     const res = await app.request('/v1/attest/lockfile', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ lockfileVersion: 3, packages: {} }),
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: 'sha512-abc',
+          },
+        },
+      }),
     })
     expect(res.status).toBe(402)
   })
 
-  test('GET /v1/attest: 402 before the stub 501 handler runs', async () => {
+  test('GET /v1/attest: 402 before the real handler runs (reviewed, with stored integrity)', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-abc')
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
     expect(res.status).toBe(402)
+  })
+
+  test('GET /v1/attest: UNREVIEWED never returns 402, and sends no payment header', async () => {
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('GET /v1/attest: a reviewed row with no stored integrity is free, never 402 (honesty rule)', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
   })
 })

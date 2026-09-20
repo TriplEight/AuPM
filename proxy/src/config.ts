@@ -10,6 +10,7 @@ import {
   USDC_TESTNET_ASA_ID,
 } from '@x402-avm/avm'
 import type { Network, SupportedResponse } from '@x402-avm/core/types'
+import { loadSigningKey, type SigningKey } from './attest/keys.js'
 
 export type SupportedKind = SupportedResponse['kinds'][number]
 
@@ -59,4 +60,44 @@ export function resolveFeePayer(
     )
   }
   return feePayer
+}
+
+// ---------------------------------------------------------------------------
+// Attestation configuration: issuer, predicate types, signing key.
+// ---------------------------------------------------------------------------
+
+// ISSUER is `predicate.issuer` on every signed statement, and the base of
+// the predicate-type URLs below. Defaults to a placeholder so local dev and
+// the test suite never need it set; production sets SPM_ISSUER_URL to the
+// real HTTPS domain before the first MainNet attestation.
+export const ISSUER = process.env.SPM_ISSUER_URL ?? 'https://spm.dev'
+
+export const LOCKFILE_PREDICATE_TYPE = `${ISSUER}/attestation/lockfile/v1`
+export const SINGLE_PREDICATE_TYPE = `${ISSUER}/attestation/single/v1`
+
+// The SPM attestation signing key (DSSE, ed25519). Hot on the server by
+// necessity; never funded, never used on-chain, and separate from
+// payTo/admin/pool keys (CLAUDE.md). ATTEST_SIGNING_KEY is either a 25-word
+// Algorand mnemonic or a hex-encoded 32-byte seed. Loaded once and memoized
+// — callers use getAttestationSigningKey(), never process.env directly, so
+// the loading logic lives in exactly one place.
+//
+// CAUTION: this is lazy on purpose. Evaluating it at module-import time
+// would make every module that imports proxy/src/config.ts (including the
+// existing test suite, which never sets ATTEST_SIGNING_KEY) throw just by
+// importing it.
+let signingKeyPromise: Promise<SigningKey> | null = null
+
+export function getAttestationSigningKey(): Promise<SigningKey> {
+  if (!signingKeyPromise) {
+    const source = process.env.ATTEST_SIGNING_KEY
+    if (!source) {
+      throw new Error('ATTEST_SIGNING_KEY is not set: cannot sign attestations')
+    }
+    const mnemonicOrSeed = /^[0-9a-fA-F]{64}$/.test(source)
+      ? Uint8Array.from(Buffer.from(source, 'hex'))
+      : source
+    signingKeyPromise = loadSigningKey(mnemonicOrSeed)
+  }
+  return signingKeyPromise
 }
