@@ -101,6 +101,58 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 
+  // Defect pin, driven through the real app (Hono -> x402 route matcher ->
+  // onProtectedRequest hook -> proxy.ts passthrough): the route matcher in
+  // @x402-avm/core collapses a duplicate slash and strips a trailing slash
+  // before testing TARBALL_ROUTE_KEY, but normalizeTarballPath used to do
+  // neither. A `//` before `/-/` produced the bogus name "lodash/", which
+  // read UNREVIEWED and bypassed the paywall (served the tarball, 200, for
+  // free). A trailing `/` made isTarballPath return false, so the hook never
+  // ran and an unreviewed package was charged (402). Every spelling below
+  // must land on the same side as the canonical path.
+  describe.each([
+    ['canonical', '/lodash/-/lodash-4.17.21.tgz'],
+    ['duplicate slash before /-/', '/lodash//-/lodash-4.17.21.tgz'],
+    ['duplicate slash after /-/', '/lodash/-//lodash-4.17.21.tgz'],
+    ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
+    ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
+  ])('unscoped tarball path spelling: %s (reviewed)', (_label, path) => {
+    test('402, never 200, never tarball bytes', async () => {
+      setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path)
+      expect(res.status).toBe(402)
+    })
+  })
+
+  // Companion negative control, real (unreviewed) package: same spellings
+  // must never return 402, driven through a real upstream response.
+  describe.each([
+    ['canonical', '/ms/-/ms-2.1.3.tgz'],
+    ['duplicate slash before /-/', '/ms//-/ms-2.1.3.tgz'],
+    ['duplicate slash after /-/', '/ms/-//ms-2.1.3.tgz'],
+    ['leading double slash', '//ms/-/ms-2.1.3.tgz'],
+  ])('unscoped tarball path spelling: %s (unreviewed)', (_label, path) => {
+    test('200, no payment header, never 402', async () => {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      expect(res.status).not.toBe(402)
+      expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    })
+  })
+
+  // Trailing slash, unreviewed: proxy.ts's npm passthrough forwards the raw
+  // (untrimmed) path upstream, so this legitimately 404s at the registry —
+  // that literal URL is not a real npm tarball resource. The invariant this
+  // defect broke is narrower: the free-tier hook must classify it as a
+  // tarball path and grant access before the payment gate ever runs, so it
+  // is never charged (never 402), regardless of what the registry then
+  // does with it.
+  test('unscoped tarball path, trailing slash (unreviewed): never 402, no payment header', async () => {
+    const res = await app.request('/ms/-/ms-2.1.3.tgz/')
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
   test('402 body carries the asset id, the fee payer, and the tag', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
@@ -137,6 +189,14 @@ describe('x402 gate', () => {
     ['%2F-encoded separator only', '/@scope%2Fpkg/-/pkg-1.0.0.tgz'],
     ['%2f-encoded separator only (lowercase)', '/@scope%2fpkg/-/pkg-1.0.0.tgz'],
     ['both encoded', '/%40scope%2Fpkg/-/pkg-1.0.0.tgz'],
+    // Defect pin: duplicate-slash / trailing-slash spellings, each combined
+    // with an already-covered percent-encoding, must still return 402.
+    ['duplicate slash before /-/', '/@scope/pkg//-/pkg-1.0.0.tgz'],
+    ['duplicate slash after /-/', '/@scope/pkg/-//pkg-1.0.0.tgz'],
+    ['trailing slash', '/@scope/pkg/-/pkg-1.0.0.tgz/'],
+    ['leading double slash', '//@scope/pkg/-/pkg-1.0.0.tgz'],
+    ['duplicate slash combined with %40 scope encoding', '/%40scope/pkg//-/pkg-1.0.0.tgz'],
+    ['trailing slash combined with %2F separator encoding', '/@scope%2Fpkg/-/pkg-1.0.0.tgz/'],
   ])('scoped tarball path encoding: %s (reviewed)', (_label, path) => {
     test('402, regardless of encoding', async () => {
       setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
@@ -154,10 +214,33 @@ describe('x402 gate', () => {
     ['%2F-encoded separator only', '/@babel%2Fcore/-/core-7.25.2.tgz'],
     ['%2f-encoded separator only (lowercase)', '/@babel%2fcore/-/core-7.25.2.tgz'],
     ['both encoded', '/%40babel%2Fcore/-/core-7.25.2.tgz'],
+    // Defect pin: same duplicate-slash spellings, combined with an
+    // already-covered percent-encoding, for a real unreviewed package —
+    // must never return 402. (Trailing-slash variants are covered
+    // separately below: proxy.ts forwards the raw path upstream, so a
+    // literal trailing slash legitimately 404s at the registry.)
+    ['duplicate slash before /-/', '/@babel/core//-/core-7.25.2.tgz'],
+    ['duplicate slash after /-/', '/@babel/core/-//core-7.25.2.tgz'],
+    ['leading double slash', '//@babel/core/-/core-7.25.2.tgz'],
+    ['duplicate slash combined with %40 scope encoding', '/%40babel/core//-/core-7.25.2.tgz'],
   ])('scoped tarball path encoding: %s (unreviewed)', (_label, path) => {
     test('200, no payment header, regardless of encoding', async () => {
       const res = await app.request(path)
       expect(res.status).toBe(200)
+      expect(res.status).not.toBe(402)
+      expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    })
+  })
+
+  // Trailing slash, scoped + unreviewed: same narrower invariant as the
+  // unscoped case above — never charged (never 402), even though the raw
+  // trailing-slash URL legitimately 404s at the real npm registry.
+  describe.each([
+    ['trailing slash', '/@babel/core/-/core-7.25.2.tgz/'],
+    ['trailing slash combined with %2F separator encoding', '/@babel%2Fcore/-/core-7.25.2.tgz/'],
+  ])('scoped tarball path encoding: %s (unreviewed)', (_label, path) => {
+    test('never 402, no payment header', async () => {
+      const res = await app.request(path)
       expect(res.status).not.toBe(402)
       expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
     })

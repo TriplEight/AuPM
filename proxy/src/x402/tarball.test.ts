@@ -41,6 +41,24 @@ describe('isTarballPath', () => {
   test('matches a scoped tarball path with the /-/ separator itself percent-encoded', () => {
     expect(isTarballPath('/%40scope%2Fpkg%2F-%2Fpkg-1.0.0.tgz')).toBe(true)
   })
+
+  // Defect pin: normalizeTarballPath used to strip only the leading `/` and
+  // decode %40/%2f, so it never collapsed a duplicate slash or stripped a
+  // trailing slash. `@x402-avm/core`'s own route matcher does both, so the
+  // two disagreed on these spellings: a `//` produced a bogus name with a
+  // trailing slash (silently serving a reviewed tarball for free), and a
+  // trailing `/` made isTarballPath return false (charging for an
+  // unreviewed one). Fixed by mirroring the matcher's normalizePath exactly.
+  test.each([
+    ['duplicate slash before /-/', '/lodash//-/lodash-4.17.21.tgz'],
+    ['duplicate slash after /-/', '/lodash/-//lodash-4.17.21.tgz'],
+    ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
+    ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
+    ['duplicate slash combined with %40 scope encoding', '/%40scope//pkg/-/pkg-1.0.0.tgz'],
+    ['trailing slash combined with %2F separator encoding', '/@scope%2Fpkg/-/pkg-1.0.0.tgz/'],
+  ])('%s still matches as a tarball path', (_label, path) => {
+    expect(isTarballPath(path)).toBe(true)
+  })
 })
 
 describe('parseTarballPath', () => {
@@ -80,6 +98,19 @@ describe('parseTarballPath', () => {
     ['the /-/ separator itself also encoded', '/%40scope%2Fpkg%2F-%2Fpkg-1.0.0.tgz'],
   ])('%s resolves to the same name and version', (_label, path) => {
     expect(parseTarballPath(path)).toEqual({ name: '@scope/pkg', version: '1.0.0' })
+  })
+
+  // Defect pin (same as the isTarballPath table above): a duplicate slash or
+  // a trailing slash must resolve to the same name and version as the
+  // canonical path, never to a name with a stray slash in it.
+  test.each([
+    ['canonical', '/lodash/-/lodash-4.17.21.tgz'],
+    ['duplicate slash before /-/', '/lodash//-/lodash-4.17.21.tgz'],
+    ['duplicate slash after /-/', '/lodash/-//lodash-4.17.21.tgz'],
+    ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
+    ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
+  ])('%s resolves to name "lodash", version "4.17.21"', (_label, path) => {
+    expect(parseTarballPath(path)).toEqual({ name: 'lodash', version: '4.17.21' })
   })
 })
 
@@ -145,5 +176,34 @@ describe('tarballFreeTierHook', () => {
   test('is a no-op for non-tarball paths', async () => {
     const result = await tarballFreeTierHook(ctx('/lodash'), {} as never)
     expect(result).toBeUndefined()
+  })
+
+  // Defect pin, hook level: the same duplicate-slash and trailing-slash
+  // spellings that made isTarballPath/parseTarballPath disagree with the
+  // route matcher must resolve identically through the hook — a reviewed
+  // package never grants free access, in any spelling.
+  test.each([
+    ['canonical', '/lodash/-/lodash-4.17.21.tgz'],
+    ['duplicate slash before /-/', '/lodash//-/lodash-4.17.21.tgz'],
+    ['duplicate slash after /-/', '/lodash/-//lodash-4.17.21.tgz'],
+    ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
+    ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
+  ])('%s: a reviewed tarball never grants free access', async (_label, path) => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const result = await tarballFreeTierHook(ctx(path), {} as never)
+    expect(result).toBeUndefined()
+  })
+
+  // Companion negative control: the same spellings for an unreviewed
+  // package must still grant free access.
+  test.each([
+    ['canonical', '/lodash/-/lodash-4.17.21.tgz'],
+    ['duplicate slash before /-/', '/lodash//-/lodash-4.17.21.tgz'],
+    ['duplicate slash after /-/', '/lodash/-//lodash-4.17.21.tgz'],
+    ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
+    ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
+  ])('%s: an unreviewed tarball still grants free access', async (_label, path) => {
+    const result = await tarballFreeTierHook(ctx(path), {} as never)
+    expect(result).toEqual({ grantAccess: true })
   })
 })

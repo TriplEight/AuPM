@@ -19,27 +19,49 @@ import { getStatusOrUnreviewed, isFree } from '../status.js'
 export const TARBALL_ROUTE_KEY = 'GET /*/-/*'
 
 /**
- * The single definition of a tarball path's canonical form. Strips the
- * leading `/` and decodes `%40` and `%2f` case-insensitively to `@` and `/`.
- * Every function that classifies or parses a tarball path must call this —
- * never repeat its decoding rules.
+ * The single definition of a tarball path's canonical form. Every function
+ * that classifies or parses a tarball path must call this — never repeat
+ * its rules with a fresh `replace` call.
  *
- * WARNING: Hono's `c.req.path` (proxy/src/app.ts) does not decode `%2F` on
- * its own. This normalisation is load-bearing at runtime, not defensive: a
- * caller who percent-encodes the `/-/` separator itself (e.g.
- * `%2F-%2F`) still reaches the x402 framework's own route matcher, which
- * matches `TARBALL_ROUTE_KEY` regardless of that encoding. If
- * `isTarballPath` and `parseTarballPath` do not agree with that matcher on
- * what counts as a tarball path, an unreviewed package falls through to the
- * payment gate and returns 402 — a paywall-bypass in the other direction,
- * violating "unreviewed never returns 402" (CLAUDE.md invariant 4).
+ * This mirrors, step for step, the private `normalizePath` in the installed
+ * `@x402-avm/core@2.6.1` route matcher (dist/esm/chunk-L5XMR4QC.mjs):
+ * decode the whole path with `decodeURIComponent` (falling back to the raw
+ * path if decoding throws), then collapse duplicate slashes, then strip a
+ * trailing slash. The order is load-bearing: decoding first means a `%2F`
+ * that decodes to `/` still takes part in slash-collapsing and
+ * trailing-slash stripping, exactly as the matcher does. We additionally
+ * strip a single leading `/`, since this module's callers (unlike the
+ * matcher) work with the path name only.
  *
- * WARNING: decode before splitting on `/-/`, never after — splitting first
- * would miss a `%2F`-encoded separator, mis-resolve the package name, and
- * hand a reviewed, paid tarball out for free.
+ * WARNING: Hono's `c.req.path` (proxy/src/app.ts) does not decode `%2F`,
+ * collapse `//`, or strip a trailing `/` on its own. The x402 framework's
+ * own route matcher normalises the raw path before testing it against
+ * `TARBALL_ROUTE_KEY`. If `isTarballPath` and `parseTarballPath` do not
+ * apply the identical normalisation, they disagree with the matcher on what
+ * counts as a tarball path — in one direction that serves a reviewed
+ * tarball for free, in the other it charges an unreviewed one, violating
+ * "unreviewed never returns 402" (CLAUDE.md invariant 4).
+ *
+ * CAUTION: decode before collapsing slashes, never after — collapsing
+ * first would miss slash-runs created by decoding (e.g. a `%2F` landing
+ * next to a literal `/`), and decoding first can only ever reduce adjacent
+ * slash runs to fewer slashes. It cannot introduce the literal characters
+ * `/-/`, so collapsing can never merge a scope separator into the tarball
+ * filename separator.
  */
 export function normalizeTarballPath(urlPath: string): string {
-  return urlPath.replace(/^\//, '').replace(/%40/gi, '@').replace(/%2f/gi, '/')
+  const pathWithoutQuery = urlPath.split(/[?#]/)[0] ?? ''
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(pathWithoutQuery)
+  } catch {
+    decoded = pathWithoutQuery
+  }
+  const canonical = decoded
+    .replace(/\\/g, '/')
+    .replace(/\/+/g, '/')
+    .replace(/(.+?)\/+$/, '$1')
+  return canonical.replace(/^\//, '')
 }
 
 export function isTarballPath(path: string): boolean {
