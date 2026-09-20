@@ -6,7 +6,9 @@
 // inside the vitest worker.
 
 import { spawn } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import net from 'node:net'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
@@ -26,11 +28,19 @@ type RunResult = {
 // Runs `tsx proxy/src/index.ts` with the given env, killing it after
 // `timeoutMs` if it has not exited on its own. CAUTION: a hanging child
 // process is a failing test, not a slow one — always bound and always kill.
+//
+// CAUTION: the subprocess's index.ts statically imports app.js, which
+// reaches db.ts before boot() ever runs (and regardless of whether boot
+// fails) — so this child process gets its own SQLITE_PATH here, the same
+// trick as proxy/src/claims/ledger.test.ts, rather than opening the real
+// proxy/audit.db. Every call gets a fresh path unless the caller's `env`
+// overrides it.
 function runIndex(env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve, reject) => {
+    const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
     const child = spawn('pnpm', ['exec', 'tsx', INDEX_ENTRY], {
       cwd: PROXY_ROOT,
-      env: { ...process.env, ...env },
+      env: { ...process.env, SQLITE_PATH: sqlitePath, ...env },
     })
 
     let stdout = ''

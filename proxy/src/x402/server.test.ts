@@ -2,12 +2,24 @@
 //
 // CAUTION: every facilitator client here is a stub. No test in this file
 // performs a network call.
+//
+// CAUTION: this file also gets its own SQLite file via SQLITE_PATH, set
+// before the dynamic import of ./server.js below (same trick as
+// proxy/src/claims/ledger.test.ts). Without per-file isolation, vitest's
+// parallel test files race on the same physical database and writes from
+// one file can be wiped by another file's beforeEach mid-test.
 
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import type { FacilitatorClient } from '@x402-avm/core/server'
 import type { Network, SupportedResponse } from '@x402-avm/core/types'
 import { describe, expect, test } from 'vitest'
 import { CAIP2_NETWORK, resolveFeePayer } from '../config.js'
-import { boot, buildHttpServer } from './server.js'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-server-test-${randomUUID()}.db`)
+
+const { boot, buildHttpServer } = await import('./server.js')
 
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 

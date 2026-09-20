@@ -1,9 +1,20 @@
 // proxy/src/x402/routes.test.ts
-
+//
+// CAUTION: this file gets its own SQLite file via SQLITE_PATH, set before
+// the dynamic imports below (same trick as proxy/src/claims/ledger.test.ts).
+// Without per-file isolation, vitest's parallel test files race on the same
+// physical database and writes from one file can be wiped by another file's
+// beforeEach mid-test.
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
 import { validateDiscoveryExtension } from '@x402-avm/extensions'
 import { describe, expect, test } from 'vitest'
-import { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } from './routes.js'
-import { TARBALL_ROUTE_KEY } from './tarball.js'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-routes-test-${randomUUID()}.db`)
+
+const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } = await import('./routes.js')
+const { TARBALL_ROUTE_KEY } = await import('./tarball.js')
 
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
