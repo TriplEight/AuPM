@@ -82,6 +82,13 @@ export const ISSUER = process.env.SPM_ISSUER_URL ?? 'https://spm.dev'
 export const LOCKFILE_PREDICATE_TYPE = `${ISSUER}/attestation/lockfile/v1`
 export const SINGLE_PREDICATE_TYPE = `${ISSUER}/attestation/single/v1`
 
+// `validFrom` published on the configured attestation signing key's entry
+// at GET /.well-known/spm-keys.json (SPEC-v3.md 6.2). SPM_KEY_VALID_FROM
+// lets ops record the real provisioning date; the default is a placeholder,
+// same pattern as ISSUER above.
+export const ATTEST_SIGNING_KEY_VALID_FROM =
+  process.env.SPM_KEY_VALID_FROM ?? '2026-01-01T00:00:00Z'
+
 // The SPM attestation signing key (DSSE, ed25519). Hot on the server by
 // necessity; never funded, never used on-chain, and separate from
 // payTo/admin/pool keys (CLAUDE.md). ATTEST_SIGNING_KEY is either a 25-word

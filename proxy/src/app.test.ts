@@ -8,6 +8,7 @@
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402-avm/core/http'
 import type { FacilitatorClient } from '@x402-avm/core/server'
 import { beforeEach, describe, expect, test } from 'vitest'
+import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dsse.js'
 
 const FAKE_APP_ADDRESS = 'FAKEADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
@@ -24,7 +25,7 @@ const db = (await import('./db.js')).default
 const { setStatus } = await import('./status.js')
 const { createApp } = await import('./app.js')
 const { buildHttpServer } = await import('./x402/server.js')
-const { CAIP2_NETWORK, USDC_ASA_ID, TAG } = await import('./config.js')
+const { CAIP2_NETWORK, USDC_ASA_ID, TAG, getAttestationSigningKey } = await import('./config.js')
 
 function stubFacilitatorClient(): FacilitatorClient {
   return {
@@ -236,5 +237,71 @@ describe('claims ledger, wired into the real app', () => {
     const body = (await res.json()) as { nonce: string }
     expect(typeof body.nonce).toBe('string')
     expect(body.nonce.length).toBeGreaterThan(0)
+  })
+})
+
+// GET /.well-known/spm-keys.json publishes the attestation public key so a
+// third party can verify a DSSE envelope offline, without holding the key
+// out of band (see proxy/src/attest/keys.ts). Registered before the
+// payment gate in app.ts, so it must never require payment.
+describe('.well-known/spm-keys.json', () => {
+  test('200, never 402, no payment header, body carries exactly the four published fields', async () => {
+    const res = await app.request('/.well-known/spm-keys.json')
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+
+    const body = (await res.json()) as Array<Record<string, unknown>>
+    expect(body).toHaveLength(1)
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
+    const entry = body[0]!
+    expect(Object.keys(entry).sort()).toEqual(['keyid', 'publicKey', 'validFrom', 'validUntil'])
+
+    const configuredKey = await getAttestationSigningKey()
+    expect(entry.keyid).toBe(configuredKey.keyid)
+  })
+
+  test('sets content-type and a cache header', async () => {
+    const res = await app.request('/.well-known/spm-keys.json')
+    expect(res.headers.get('content-type')).toContain('application/json')
+    expect(res.headers.get('cache-control')).toBeTruthy()
+  })
+
+  test('never leaks the seed or the configured ATTEST_SIGNING_KEY value', async () => {
+    const res = await app.request('/.well-known/spm-keys.json')
+    const serialized = await res.text()
+    const configuredKey = await getAttestationSigningKey()
+
+    expect(serialized).not.toContain(process.env.ATTEST_SIGNING_KEY as string)
+    expect(serialized).not.toContain(Buffer.from(configuredKey.seed).toString('base64'))
+    expect(serialized).not.toContain(Buffer.from(configuredKey.seed).toString('hex'))
+  })
+
+  test('no signing key configured: a clear error, never a placeholder key', async () => {
+    const { httpServer: noKeyHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const noKeyApp = createApp(noKeyHttpServer, {
+      getSigningKey: async () => {
+        throw new Error('ATTEST_SIGNING_KEY is not set: cannot sign attestations')
+      },
+    })
+
+    const res = await noKeyApp.request('/.well-known/spm-keys.json')
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    const body = (await res.json()) as { error?: string }
+    expect(typeof body.error).toBe('string')
+    expect((body.error as string).length).toBeGreaterThan(0)
+  })
+
+  test('round trip: an envelope signed by the proxy verifies against only the fetched keys', async () => {
+    const signingKey = await getAttestationSigningKey()
+    const payload = new TextEncoder().encode(JSON.stringify({ hello: 'spm' }))
+    const envelope = await signEnvelope(payload, 'application/vnd.spm.test+json', signingKey)
+
+    const res = await app.request('/.well-known/spm-keys.json')
+    expect(res.status).toBe(200)
+    const fetchedKeys = (await res.json()) as VerificationKey[]
+
+    const verified = await verifyEnvelope(envelope, fetchedKeys)
+    expect(verified).toBe(true)
   })
 })

@@ -1,16 +1,22 @@
 // proxy/src/app.ts
 
+import * as ed from '@noble/ed25519'
 import type { x402HTTPResourceServer } from '@x402-avm/core/http'
 import { paymentMiddlewareFromHTTPServer } from '@x402-avm/hono'
 import { Hono } from 'hono'
 import type { Attribution } from './attest/attribution.js'
 import type { SigningKeyLike } from './attest/dsse.js'
+import { publishedKeys } from './attest/keys.js'
 import type { LockfileAnalysis } from './attest/lockfile.js'
 import type { RateLimiter } from './attest/ratelimit.js'
 import { createGithubClient } from './claims/github.js'
 import { claimsLedgerMiddleware } from './claims/middleware.js'
 import { createClaimsRouter } from './claims/routes.js'
-import { GITHUB_READONLY_TOKEN, getAttestationSigningKey } from './config.js'
+import {
+  ATTEST_SIGNING_KEY_VALID_FROM,
+  GITHUB_READONLY_TOKEN,
+  getAttestationSigningKey,
+} from './config.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
@@ -66,6 +72,26 @@ export function createApp(
   // before the payment gate so it terminates the request itself; it is also
   // absent from the x402 route table, so the gate would no-op on it anyway.
   app.route('/api/v1/status', statusRouter)
+
+  // Free, unauthenticated, never gated — the published attestation public
+  // keys (SPEC-v3.md 6.2). A verifier needs this to check a DSSE envelope
+  // offline; without it, offline verification only works for someone who
+  // already holds the key out of band. WARNING: this route must never
+  // return 402 — a verifier fetching a public key must never pay
+  // (CLAUDE.md). Registered before the payment gate for that reason.
+  app.get('/.well-known/spm-keys.json', async (c) => {
+    const getSigningKey = options.getSigningKey ?? getAttestationSigningKey
+    // Throws when no signing key is configured; app.onError above turns
+    // that into a clear { error } response, never a placeholder key.
+    const key = await getSigningKey()
+    const publicKey = await ed.getPublicKeyAsync(key.seed)
+    const keys = publishedKeys([
+      { keyid: key.keyid, publicKey, validFrom: ATTEST_SIGNING_KEY_VALID_FROM, validUntil: null },
+    ])
+    // The key list changes only on rotation, so it is safe to cache.
+    c.header('cache-control', 'public, max-age=3600')
+    return c.json(keys)
+  })
 
   // Claims ledger write path (SPEC-v3.md 5.2), registered *before* the
   // payment middleware below so it wraps that middleware's next() call and
