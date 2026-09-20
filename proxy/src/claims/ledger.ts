@@ -5,7 +5,7 @@
 // table creation in schema.ts.
 
 import { randomBytes } from 'node:crypto'
-import { type Attribution, buildAccrualInputs } from './attribution-rules.js'
+import { type Attribution, buildAccrualInputs, UNASSIGNED } from './attribution-rules.js'
 import db, { type AccrualRow, type ClaimRow, type ClaimStatus, type PayoutRow } from './schema.js'
 
 // ---------------------------------------------------------------------------
@@ -182,6 +182,55 @@ export interface GithubClient {
   getGistContent(login: string): Promise<string | null>
 }
 
+/**
+ * Thrown by `verifyClaim` when `proof.owner` does not bind to the identity
+ * being claimed. Callers (routes.ts) must reject the HTTP request on this
+ * error rather than record a `failed` claim — see the module-level defect
+ * note above `verifyClaim`.
+ */
+export class ClaimIdentityMismatchError extends Error {}
+
+/**
+ * `identity` has the form `github:<login>`. Returns the login, or throws
+ * `ClaimIdentityMismatchError` when `identity` does not parse, or is the
+ * literal `unassigned`, which is never claimable.
+ */
+function requireLoginFromIdentity(identity: string): string {
+  if (identity === UNASSIGNED) {
+    throw new ClaimIdentityMismatchError(`identity "${identity}" is never claimable`)
+  }
+  const match = /^github:(.+)$/.exec(identity)
+  if (!match?.[1]) {
+    throw new ClaimIdentityMismatchError(
+      `identity "${identity}" does not match the required form github:<login>`,
+    )
+  }
+  return match[1]
+}
+
+/**
+ * A proof must be published by the identity it claims to verify, or anyone
+ * could publish a proof for anyone else's claim and steal their payouts.
+ *
+ * WARNING: call this before any GitHub API read (`proofContainsClaim`) and
+ * before any database write. A mismatch must reject the request outright —
+ * never fall through to a stored `failed` claim status — so an attacker
+ * learns nothing about whether a claim exists and burns no GitHub quota.
+ *
+ * Login comparison is case-insensitive: GitHub logins are case-insensitive.
+ * This applies to both proof kinds — for 'well-known' the repository must
+ * belong to the claimed identity, exactly like the gist-owning login for
+ * 'gist'.
+ */
+function requireProofOwnerMatchesIdentity(identity: string, proof: ClaimProof): void {
+  const login = requireLoginFromIdentity(identity)
+  if (proof.owner.toLowerCase() !== login.toLowerCase()) {
+    throw new ClaimIdentityMismatchError(
+      `proof owner "${proof.owner}" does not match the identity being claimed ("${identity}")`,
+    )
+  }
+}
+
 async function proofContainsClaim(
   claim: ClaimRow,
   proof: ClaimProof,
@@ -213,12 +262,21 @@ const updateClaimStatus = db.prepare<[ClaimStatus, string, string, number | null
  * reads through `github` (SPEC-v3.md 5.3 steps 3-4). Sets `status=verified`
  * on success, `status=failed` when the nonce does not match or the proof is
  * missing. Returns null when no pending claim exists for `identity`.
+ *
+ * WARNING: throws `ClaimIdentityMismatchError` when `proof.owner` does not
+ * bind to `identity`, or when `identity` does not parse as `github:<login>`
+ * (including the literal `unassigned`). This check runs first, before the
+ * claim lookup and before any GitHub API read, so a hijack attempt — proving
+ * ownership of someone else's claim from an attacker-owned gist or repo —
+ * is rejected outright rather than recorded as a `failed` claim.
  */
 export async function verifyClaim(
   identity: string,
   proof: ClaimProof,
   github: GithubClient,
 ): Promise<ClaimRow | null> {
+  requireProofOwnerMatchesIdentity(identity, proof)
+
   const claim = getClaim(identity)
   if (!claim) return null
 

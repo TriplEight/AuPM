@@ -68,4 +68,35 @@ describe('reconcile', () => {
     const second = await reconcile('PAYTOADDR', indexer)
     expect(second.unmatchedLedgered).toBe(0)
   })
+
+  test('unmatchedLedgered counts only inflows actually written; a skipped non-multiple is reported separately', async () => {
+    const indexer = stubIndexerClient([
+      { txid: 'TXID-GOOD', amountMicro: 3000 },
+      { txid: 'TXID-BAD-NOT-MULTIPLE', amountMicro: 1500 },
+    ])
+    const result = await reconcile('PAYTOADDR', indexer)
+
+    expect(result.inflowsChecked).toBe(2)
+    expect(result.unmatchedLedgered).toBe(1)
+    expect(result.skipped).toHaveLength(1)
+    expect(result.skipped[0]?.inflow.txid).toBe('TXID-BAD-NOT-MULTIPLE')
+    expect(result.skipped[0]?.reason).toBe('not-a-multiple-of-1000-microusdc')
+
+    // The skipped inflow wrote no accrual row at all.
+    const rows = db
+      .prepare('SELECT * FROM accruals WHERE settle_txid = ?')
+      .all('TXID-BAD-NOT-MULTIPLE')
+    expect(rows).toHaveLength(0)
+  })
+
+  test('a skipped non-multiple is re-reported on every run, not silently dropped', async () => {
+    const indexer = stubIndexerClient([{ txid: 'TXID-STUCK', amountMicro: 1500 }])
+    const first = await reconcile('PAYTOADDR', indexer)
+    const second = await reconcile('PAYTOADDR', indexer)
+
+    expect(first.unmatchedLedgered).toBe(0)
+    expect(first.skipped.map((s) => s.inflow.txid)).toEqual(['TXID-STUCK'])
+    expect(second.unmatchedLedgered).toBe(0)
+    expect(second.skipped.map((s) => s.inflow.txid)).toEqual(['TXID-STUCK'])
+  })
 })

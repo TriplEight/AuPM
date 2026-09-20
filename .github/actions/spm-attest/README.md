@@ -12,7 +12,6 @@ Add this step to a workflow that triggers on `pull_request` or `push`.
   with:
     endpoint: ${{ vars.SPM_ENDPOINT }}
     lockfile: package-lock.json
-    wallet-secret: ${{ secrets.SPM_WALLET_SECRET }}
     fail-on-mismatch: 'false'
     output: spm-attestation.json
 ```
@@ -25,9 +24,12 @@ Upload the output file with `actions/upload-artifact` in a later step.
 | --- | --- | --- |
 | `endpoint` | (required) | URL of the SPM attestation server. |
 | `lockfile` | `package-lock.json` | Path to the lockfile the action posts. |
-| `wallet-secret` | (empty) | Wallet secret used to retry a paid attestation. |
 | `fail-on-mismatch` | `false` | Set to `true` to fail the step on `INTEGRITY_MISMATCH`. |
 | `output` | `spm-attestation.json` | Path where the action writes the signed envelope. |
+
+This action takes no wallet or secret input. It cannot pay for an
+attestation, and it never asks a caller for a credential it cannot use
+safely. See "Paid attestation" below.
 
 ## Behavior
 
@@ -36,15 +38,30 @@ It never parses or re-serializes the lockfile. The server signs a digest of
 the exact request body. A re-serialized body breaks that digest.
 
 A lockfile with zero reviewed packages is free. The server returns 200
-without a 402. The action needs no wallet secret for this case.
+without a 402. This is the only case this action can attest.
 
-A lockfile with reviewed packages triggers a 402 response. The action
-retries the request exactly once. It adds a payment header built from
-`wallet-secret` on that one retry.
+## Paid attestation
 
-CAUTION: the action never retries a 402 more than once. The facilitator
-classifies repeating retries as `DEV` traffic. `DEV` traffic does not count
-toward review funding.
+A lockfile with reviewed packages triggers a 402 response. **This action
+does not pay it.** It logs a `::warning::` naming the paid route and exits
+0.
+
+Paying for an attestation needs a signed x402 payment payload, built by a
+signer holding a funded key. This action is dependency-free, runs in
+arbitrary third-party CI, and holds no such signer or key.
+
+WARNING: never configure a wallet secret, mnemonic, or private key for this
+action. It has no input that accepts one and no way to use one safely — a
+raw secret sent as a header is not a signed payment, and is also a
+credential leaked to whatever `endpoint` is configured.
+
+Use paid attestation from a trusted, local context instead:
+
+- the `spm` CLI (`spm verify` / the attest command), or
+- the MCP server's `install_audited_package` tool.
+
+Both sign the payment locally with `@x402-avm/fetch` before any network
+call, so only the signed payload — never the key — crosses the network.
 
 ## Fail-open policy
 
@@ -73,7 +90,6 @@ Run the script directly with Node. Pass flags in place of workflow inputs.
 node attest.mjs \
   --endpoint https://spm.example.com \
   --lockfile package-lock.json \
-  --wallet-secret "$WALLET_SECRET" \
   --output spm-attestation.json
 ```
 
@@ -88,5 +104,6 @@ node --test attest.test.mjs
 ```
 
 The tests start local stub HTTP servers with `node:http`. They cover the
-free-lockfile path, a 5xx response, the single 402 retry, both
-`fail-on-mismatch` outcomes, and exact-byte-equality of the posted body.
+free-lockfile path, a 5xx response, the no-retry 402 warning, both
+`fail-on-mismatch` outcomes, exact-byte-equality of the posted body, and
+that no secret-shaped value ever reaches a request header, body, or URL.

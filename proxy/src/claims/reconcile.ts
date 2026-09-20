@@ -46,15 +46,27 @@ export function findUnmatchedInflows(inflows: UsdcInflow[]): UsdcInflow[] {
   return inflows.filter((inflow) => (accrualExistsForTxid.get(inflow.txid)?.n ?? 0) === 0)
 }
 
+/** Why `ledgerUnassignedInflow` declined to ledger an inflow. */
+export type SkipReason = 'not-a-multiple-of-1000-microusdc' | 'non-positive-amount'
+
+export interface SkippedInflow {
+  inflow: UsdcInflow
+  reason: SkipReason
+}
+
 /**
  * Ledger one unmatched inflow as `unassigned` across the three ledgered
  * roles, using the same integer role-share split as a normal payment
  * (CLAUDE.md: money is always integer micro-units). route is recorded as
  * "unassigned" since no attribution data exists for a direct deposit or a
  * crash between settle and write.
+ *
+ * Returns the skip reason when the inflow was not ledgered (so the caller
+ * can report it), or null when it was ledgered.
  */
-function ledgerUnassignedInflow(inflow: UsdcInflow): void {
-  if (inflow.amountMicro <= 0 || inflow.amountMicro % 1000 !== 0) return
+function ledgerUnassignedInflow(inflow: UsdcInflow): SkipReason | null {
+  if (inflow.amountMicro <= 0) return 'non-positive-amount'
+  if (inflow.amountMicro % 1000 !== 0) return 'not-a-multiple-of-1000-microusdc'
   const createdAt = Date.now()
   const runAll = db.transaction(() => {
     for (const role of ROLES) {
@@ -72,17 +84,29 @@ function ledgerUnassignedInflow(inflow: UsdcInflow): void {
     }
   })
   runAll()
+  return null
 }
 
 export interface ReconcileResult {
   inflowsChecked: number
+  /** Count of unmatched inflows actually written to the ledger this pass. */
   unmatchedLedgered: number
+  /** Unmatched inflows this pass declined to ledger, with the reason why. */
+  skipped: SkippedInflow[]
 }
 
 /** Run one reconciliation pass. Idempotent: a re-run over the same inflows ledgers nothing new. */
 export async function reconcile(payTo: string, indexer: IndexerClient): Promise<ReconcileResult> {
   const inflows = await indexer.listUsdcInflows(payTo)
   const unmatched = findUnmatchedInflows(inflows)
-  for (const inflow of unmatched) ledgerUnassignedInflow(inflow)
-  return { inflowsChecked: inflows.length, unmatchedLedgered: unmatched.length }
+
+  let unmatchedLedgered = 0
+  const skipped: SkippedInflow[] = []
+  for (const inflow of unmatched) {
+    const reason = ledgerUnassignedInflow(inflow)
+    if (reason === null) unmatchedLedgered += 1
+    else skipped.push({ inflow, reason })
+  }
+
+  return { inflowsChecked: inflows.length, unmatchedLedgered, skipped }
 }

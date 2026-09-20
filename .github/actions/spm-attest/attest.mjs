@@ -40,13 +40,20 @@ export function parseArgs(argv) {
   return out
 }
 
-/** Merge CLI args and environment variables into a single options object. */
+/**
+ * Merge CLI args and environment variables into a single options object.
+ *
+ * CAUTION: this action never reads a wallet secret. It cannot perform an
+ * x402 payment (that needs a signed payment payload, not a bare secret), so
+ * it does not accept one. Any leftover WALLET_SECRET / INPUT_WALLET_SECRET /
+ * --wallet-secret from an old workflow is intentionally ignored here — see
+ * README.md "Paid attestation".
+ */
 export function resolveOptions(argv, env) {
   const cli = parseArgs(argv)
   return {
     endpoint: cli.endpoint ?? env.ENDPOINT ?? env.INPUT_ENDPOINT ?? '',
     lockfile: cli.lockfile ?? env.LOCKFILE ?? env.INPUT_LOCKFILE ?? DEFAULT_LOCKFILE,
-    walletSecret: cli['wallet-secret'] ?? env.WALLET_SECRET ?? env.INPUT_WALLET_SECRET ?? '',
     failOnMismatch:
       cli['fail-on-mismatch'] ?? env.FAIL_ON_MISMATCH ?? env.INPUT_FAIL_ON_MISMATCH ?? 'false',
     output: cli.output ?? env.OUTPUT ?? env.INPUT_OUTPUT ?? DEFAULT_OUTPUT,
@@ -56,8 +63,12 @@ export function resolveOptions(argv, env) {
 /**
  * POST raw bytes to an endpoint once. Never parses or re-serialises the
  * body — the server signs a digest of the exact bytes it receives.
+ *
+ * CAUTION: this takes no extra-headers parameter on purpose. This action
+ * has no credential it is safe to put in a request header. Do not add one
+ * back without re-reading the "Paid attestation" section of README.md.
  */
-export function postOnce(endpoint, bodyBytes, extraHeaders = {}) {
+export function postOnce(endpoint, bodyBytes) {
   return new Promise((resolve, reject) => {
     let target
     try {
@@ -71,7 +82,6 @@ export function postOnce(endpoint, bodyBytes, extraHeaders = {}) {
     const headers = {
       'content-type': 'application/json',
       'content-length': Buffer.byteLength(bodyBytes),
-      ...extraHeaders,
     }
 
     const req = requester(target, { method: 'POST', headers }, (res) => {
@@ -102,7 +112,6 @@ export async function run(options) {
   const {
     endpoint,
     lockfile = DEFAULT_LOCKFILE,
-    walletSecret = '',
     failOnMismatch = false,
     output = DEFAULT_OUTPUT,
   } = options
@@ -130,18 +139,15 @@ export async function run(options) {
     }
 
     if (response.statusCode === 402) {
-      if (!walletSecret) {
-        warn('server returned 402 but no wallet-secret is configured; skipping')
-        return 0
-      }
-      // CAUTION: retry exactly once. A retry storm is classified as DEV
-      // traffic by the facilitator and is discarded.
-      try {
-        response = await postOnce(endpoint, bytes, { 'x-payment': walletSecret })
-      } catch (err) {
-        warn(`retry request to ${endpoint} failed: ${err.message}`)
-        return 0
-      }
+      // This action never pays. Paying needs a signed x402 payment payload,
+      // not a bare secret, and this action has no signer. Sending a secret
+      // as a header would only leak it to whatever `endpoint` is configured
+      // to — see README.md "Paid attestation" for the CLI / MCP path.
+      warn(
+        `paid route (${endpoint}) returned 402; this action does not pay. ` +
+          'Use the spm CLI or the MCP server for paid attestation. Skipping.',
+      )
+      return 0
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {

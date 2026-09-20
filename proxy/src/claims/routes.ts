@@ -12,7 +12,12 @@
 
 import { Hono } from 'hono'
 import type { GithubClient, ProofKind } from './ledger.js'
-import { createClaim, getEarningsForLogin, verifyClaim } from './ledger.js'
+import {
+  ClaimIdentityMismatchError,
+  createClaim,
+  getEarningsForLogin,
+  verifyClaim,
+} from './ledger.js'
 
 /**
  * Build the claims router. `github` is the injectable GitHub client used by
@@ -51,7 +56,19 @@ export function createClaimsRouter(github: GithubClient): Hono {
     if (!identity || !kind || !owner) {
       return c.json({ error: 'identity, proofKind, and owner are required' }, 400)
     }
-    const claim = await verifyClaim(identity, { kind, owner, repo }, github)
+    // WARNING: a proof owner that does not bind to `identity` is rejected
+    // outright (400) — never recorded as a failed claim. Otherwise an
+    // attacker could hijack another identity's claim by publishing a proof
+    // they own themselves. See ledger.ts's verifyClaim.
+    let claim: Awaited<ReturnType<typeof verifyClaim>>
+    try {
+      claim = await verifyClaim(identity, { kind, owner, repo }, github)
+    } catch (err) {
+      if (err instanceof ClaimIdentityMismatchError) {
+        return c.json({ error: err.message }, 400)
+      }
+      throw err
+    }
     if (!claim) return c.json({ error: `no pending claim for identity ${identity}` }, 404)
     return c.json(claim)
   })

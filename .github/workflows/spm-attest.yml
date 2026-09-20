@@ -24,7 +24,6 @@ jobs:
         with:
           endpoint: ${{ vars.SPM_ENDPOINT }}
           lockfile: package-lock.json
-          wallet-secret: ${{ secrets.SPM_WALLET_SECRET }}
           fail-on-mismatch: 'false'
           output: spm-attestation.json
 

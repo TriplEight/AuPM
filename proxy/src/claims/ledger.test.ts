@@ -16,6 +16,7 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-ledger-test-${rando
 const { default: db } = await import('./schema.js')
 const {
   accrualCountForTxid,
+  ClaimIdentityMismatchError,
   createClaim,
   getAccrualsForTxid,
   getClaim,
@@ -192,5 +193,117 @@ describe('claims', () => {
     const github: GithubClient = { getFile: async () => null, getGistContent: async () => null }
     const claim = await verifyClaim('github:nobody', { kind: 'gist', owner: 'nobody' }, github)
     expect(claim).toBeNull()
+  })
+
+  // Counting stub: records whether verifyClaim ever calls out to GitHub, so
+  // the hijack-rejection test can assert zero network calls, not merely a
+  // failed outcome.
+  function countingGithubClient(gistByLogin: Record<string, string> = {}): GithubClient & {
+    calls: number
+  } {
+    const client = {
+      calls: 0,
+      getFile: async () => {
+        client.calls += 1
+        return null
+      },
+      getGistContent: async (login: string) => {
+        client.calls += 1
+        return gistByLogin[login] ?? null
+      },
+    }
+    return client
+  }
+
+  test('THE hijack is rejected: a proof owned by attacker cannot verify a claim for github:victim', async () => {
+    const { nonce } = createClaim('github:victim', 'VICTIM-ADDR')
+    // The attacker publishes the victim's nonce in a gist the attacker owns.
+    const github = countingGithubClient({ attacker: `spm-claim:VICTIM-ADDR:${nonce}` })
+
+    await expect(
+      verifyClaim('github:victim', { kind: 'gist', owner: 'attacker' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    // The claim must remain pending, not become verified and not even
+    // become failed — the request was rejected outright.
+    const claim = getClaim('github:victim')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.verified_at).toBeNull()
+  })
+
+  test('a mismatched proof owner performs no GitHub call', async () => {
+    createClaim('github:victim', 'VICTIM-ADDR-2')
+    const github = countingGithubClient({ attacker: 'anything' })
+
+    await expect(
+      verifyClaim('github:victim', { kind: 'gist', owner: 'attacker' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    expect(github.calls).toBe(0)
+  })
+
+  test('a mismatched well-known proof owner is rejected and performs no GitHub call', async () => {
+    createClaim('github:victim', 'VICTIM-ADDR-3')
+    const github = countingGithubClient()
+
+    await expect(
+      verifyClaim(
+        'github:victim',
+        { kind: 'well-known', owner: 'attacker', repo: 'evil-repo' },
+        github,
+      ),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    expect(github.calls).toBe(0)
+  })
+
+  test('a gist proof owned by the claimed login still verifies', async () => {
+    const { nonce } = createClaim('github:carol', 'CAROL-ADDR')
+    const github = countingGithubClient({ carol: `spm-claim:CAROL-ADDR:${nonce}` })
+
+    const claim = await verifyClaim('github:carol', { kind: 'gist', owner: 'carol' }, github)
+    expect(claim?.status).toBe('verified')
+    expect(github.calls).toBe(1)
+  })
+
+  test('a well-known proof in a repository owned by the claimed login still verifies', async () => {
+    const { nonce } = createClaim('github:dave', 'DAVE-ADDR')
+    const github: GithubClient = {
+      getFile: async (owner, repo, path) =>
+        owner === 'dave' && repo === 'dave-repo' && path === '.well-known/spm-claim.json'
+          ? JSON.stringify({ algorand: 'DAVE-ADDR', nonce })
+          : null,
+      getGistContent: async () => null,
+    }
+    const claim = await verifyClaim(
+      'github:dave',
+      { kind: 'well-known', owner: 'dave', repo: 'dave-repo' },
+      github,
+    )
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('login comparison is case-insensitive: DAVE proof owner matches dave identity', async () => {
+    const { nonce } = createClaim('github:dave', 'DAVE-ADDR-2')
+    const github = countingGithubClient({ DAVE: `spm-claim:DAVE-ADDR-2:${nonce}` })
+
+    const claim = await verifyClaim('github:dave', { kind: 'gist', owner: 'DAVE' }, github)
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('identity "unassigned" is rejected outright', async () => {
+    const github = countingGithubClient()
+    await expect(
+      verifyClaim('unassigned', { kind: 'gist', owner: 'unassigned' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    expect(github.calls).toBe(0)
+  })
+
+  test('an identity not matching github:<login> is rejected outright', async () => {
+    const github = countingGithubClient()
+    await expect(
+      verifyClaim('npm:some-package', { kind: 'gist', owner: 'some-package' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    expect(github.calls).toBe(0)
   })
 })

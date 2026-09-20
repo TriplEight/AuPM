@@ -122,4 +122,21 @@ describe('POST /api/v1/claims/verify', () => {
     })
     expect(res.status).toBe(404)
   })
+
+  test('400 when the proof owner does not match the claimed identity (hijack attempt)', async () => {
+    const createApp = createClaimsRouter(stubGithubClient())
+    await createApp.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:victim', algorandAddress: 'VICTIM-ADDR' }),
+    })
+
+    const app = createClaimsRouter(stubGithubClient({ attacker: 'placeholder' }))
+    const res = await app.request('/api/v1/claims/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:victim', proofKind: 'gist', owner: 'attacker' }),
+    })
+    expect(res.status).toBe(400)
+  })
 })

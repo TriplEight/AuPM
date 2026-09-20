@@ -8,10 +8,6 @@ inputs:
     description: 'Path to the lockfile to post.'
     required: false
     default: 'package-lock.json'
-  wallet-secret:
-    description: 'Wallet secret used to retry a paid attestation after a 402 response.'
-    required: false
-    default: ''
   fail-on-mismatch:
     description: 'Set to "true" to fail the step when the summary reports integrityMismatch above zero.'
     required: false
@@ -32,7 +28,6 @@ runs:
       env:
         ENDPOINT: ${{ inputs.endpoint }}
         LOCKFILE: ${{ inputs.lockfile }}
-        WALLET_SECRET: ${{ inputs.wallet-secret }}
         FAIL_ON_MISMATCH: ${{ inputs.fail-on-mismatch }}
         OUTPUT: ${{ inputs.output }}
       run: node "${{ github.action_path }}/attest.mjs"
