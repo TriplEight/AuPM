@@ -168,13 +168,42 @@ const upsertClaim = db.prepare<[string, string, string, number]>(
 const selectClaim = db.prepare<[string], ClaimRow>('SELECT * FROM claims WHERE identity = ?')
 
 /**
+ * Thrown by `createClaim` when a `verified` claim already exists for the
+ * identity. `POST /api/v1/claims` is unauthenticated, so anyone who knows a
+ * contributor's identity string could otherwise reset a verified claim back
+ * to `pending`, replace the stored Algorand address with their own, and
+ * block `scripts/payout.ts` (which pays only `status='verified'` rows)
+ * indefinitely. Callers (routes.ts) must reject the HTTP request on this
+ * error rather than silently reopen the claim.
+ *
+ * A `pending` or `failed` claim is still freely re-issuable — that is the
+ * legitimate retry path for a claimant who lost their nonce. A verified
+ * claimant who genuinely needs to move to a new Algorand address is not
+ * served by this endpoint; that requires a manual, human-checked database
+ * update (see the operator runbook), the same trust boundary
+ * `recordPayout` already relies on.
+ */
+export class ClaimAlreadyVerifiedError extends Error {}
+
+/**
  * Register a pending claim and return its nonce. A repeat POST for the same
  * identity issues a fresh nonce and resets it to pending (SPEC-v3.md 5.3
  * step 2) — the claimant re-proves with the new nonce.
+ *
+ * WARNING: throws `ClaimAlreadyVerifiedError` when the stored claim for this
+ * identity is already `verified`. A verified claim is not reopened through
+ * this endpoint — see the class doc above.
  */
 export function createClaim(identity: string, algorandAddress: string): { nonce: string } {
+  const canonicalIdentity = canonicalizeIdentity(identity)
+  const existing = selectClaim.get(canonicalIdentity)
+  if (existing?.status === 'verified') {
+    throw new ClaimAlreadyVerifiedError(
+      `identity "${canonicalIdentity}" is already verified; it cannot be re-claimed through this endpoint`,
+    )
+  }
   const nonce = randomBytes(16).toString('hex')
-  upsertClaim.run(canonicalizeIdentity(identity), algorandAddress, nonce, Date.now())
+  upsertClaim.run(canonicalIdentity, algorandAddress, nonce, Date.now())
   return { nonce }
 }
 

@@ -13,6 +13,7 @@
 import { Hono } from 'hono'
 import type { GithubClient, ProofKind } from './ledger.js'
 import {
+  ClaimAlreadyVerifiedError,
   ClaimIdentityMismatchError,
   createClaim,
   getEarningsForLogin,
@@ -42,7 +43,18 @@ export function createClaimsRouter(github: GithubClient): Hono {
     if (!identity || !algorandAddress) {
       return c.json({ error: 'identity and algorandAddress are required' }, 400)
     }
-    const { nonce } = createClaim(identity, algorandAddress)
+    // WARNING: a verified claim is not reopened by an unauthenticated
+    // request — otherwise anyone who knows a contributor's identity string
+    // could block their payouts forever. See ledger.ts's createClaim.
+    let nonce: string
+    try {
+      ;({ nonce } = createClaim(identity, algorandAddress))
+    } catch (err) {
+      if (err instanceof ClaimAlreadyVerifiedError) {
+        return c.json({ error: err.message }, 409)
+      }
+      throw err
+    }
     return c.json({ identity, nonce, status: 'pending' })
   })
 

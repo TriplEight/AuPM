@@ -16,6 +16,7 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-ledger-test-${rando
 const { default: db } = await import('./schema.js')
 const {
   accrualCountForTxid,
+  ClaimAlreadyVerifiedError,
   ClaimIdentityMismatchError,
   createClaim,
   getAccrualsForTxid,
@@ -305,6 +306,87 @@ describe('claims', () => {
       verifyClaim('npm:some-package', { kind: 'gist', owner: 'some-package' }, github),
     ).rejects.toThrow(ClaimIdentityMismatchError)
     expect(github.calls).toBe(0)
+  })
+})
+
+describe('createClaim: a verified claim is not reset (H2)', () => {
+  function stubGithubClient(gistContentByLogin: Record<string, string>): GithubClient {
+    return {
+      getFile: async () => null,
+      getGistContent: async (login) => gistContentByLogin[login] ?? null,
+    }
+  }
+
+  test('a pending claim can be re-issued: the nonce changes', () => {
+    const first = createClaim('github:pending-user', 'ADDR-1')
+    const second = createClaim('github:pending-user', 'ADDR-2')
+    expect(second.nonce).not.toBe(first.nonce)
+    const claim = getClaim('github:pending-user')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.nonce).toBe(second.nonce)
+    expect(claim?.algorand_address).toBe('ADDR-2')
+  })
+
+  test('a failed claim can be re-issued', async () => {
+    const { nonce } = createClaim('github:failed-user', 'ADDR-3')
+    const github = stubGithubClient({ 'failed-user': 'spm-claim:ADDR-3:WRONGNONCE' })
+    await verifyClaim('github:failed-user', { kind: 'gist', owner: 'failed-user' }, github)
+    expect(getClaim('github:failed-user')?.status).toBe('failed')
+
+    const reissued = createClaim('github:failed-user', 'ADDR-4')
+    expect(reissued.nonce).not.toBe(nonce)
+    const claim = getClaim('github:failed-user')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.algorand_address).toBe('ADDR-4')
+  })
+
+  test('a verified claim is not reset: status, address, and nonce are unchanged', async () => {
+    const { nonce } = createClaim('github:verified-user', 'ADDR-5')
+    const github = stubGithubClient({ 'verified-user': `spm-claim:ADDR-5:${nonce}` })
+    await verifyClaim('github:verified-user', { kind: 'gist', owner: 'verified-user' }, github)
+    expect(getClaim('github:verified-user')?.status).toBe('verified')
+
+    expect(() => createClaim('github:verified-user', 'ATTACKER-ADDR')).toThrow(
+      ClaimAlreadyVerifiedError,
+    )
+
+    const claim = getClaim('github:verified-user')
+    expect(claim?.status).toBe('verified')
+    expect(claim?.nonce).toBe(nonce)
+    expect(claim?.algorand_address).toBe('ADDR-5')
+  })
+
+  test('after a rejected reset attempt, earnings and payout eligibility are unaffected', async () => {
+    const { nonce } = createClaim('github:earner', 'ADDR-6')
+    const github = stubGithubClient({ earner: `spm-claim:ADDR-6:${nonce}` })
+    await verifyClaim('github:earner', { kind: 'gist', owner: 'earner' }, github)
+
+    const attribution: Attribution = {
+      route: 'single-attest',
+      priceMicro: 1000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:earner', maintainer: null }],
+    }
+    writeAccruals(attribution, 'TXID-EARNER-DOS')
+
+    const before = getEarningsForLogin('earner')
+    expect(before.claimStatus).toBe('verified')
+
+    expect(() => createClaim('github:earner', 'ATTACKER-ADDR-2')).toThrow(ClaimAlreadyVerifiedError)
+
+    const after = getEarningsForLogin('earner')
+    expect(after.claimStatus).toBe('verified')
+    expect(after.totalAccruedMicro).toBe(before.totalAccruedMicro)
+    expect(getClaim('github:earner')?.algorand_address).toBe('ADDR-6')
+  })
+
+  test('a verified claim for one identity does not block creating a claim for a different identity', async () => {
+    const { nonce } = createClaim('github:verified-other', 'ADDR-7')
+    const github = stubGithubClient({ 'verified-other': `spm-claim:ADDR-7:${nonce}` })
+    await verifyClaim('github:verified-other', { kind: 'gist', owner: 'verified-other' }, github)
+
+    const { nonce: newNonce } = createClaim('github:fresh-user', 'ADDR-8')
+    expect(newNonce).toBeTruthy()
+    expect(getClaim('github:fresh-user')?.status).toBe('pending')
   })
 })
 

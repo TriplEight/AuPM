@@ -152,6 +152,73 @@ describe('verifyLockfileDigest', () => {
   })
 })
 
+describe('runVerify argument parsing (value-taking flags with no value)', () => {
+  async function runAndCapture(argv: string[]): Promise<{ code: number; output: string }> {
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      const code = await runVerify(argv)
+      return { code, output: logs.join('\n') }
+    } finally {
+      console.log = originalLog
+    }
+  }
+
+  test('--lockfile with no value exits non-zero, prints a usage message, and never prints PASS', async () => {
+    const { code, output } = await runAndCapture([
+      join(FIXTURES_DIR, 'attestation.json'),
+      '--keys',
+      join(FIXTURES_DIR, 'spm-keys.json'),
+      '--lockfile',
+    ])
+    expect(code).not.toBe(0)
+    expect(output).toContain('usage error')
+    expect(output).toContain('--lockfile requires a value')
+    expect(output).not.toContain('verify: PASS')
+  })
+
+  test('--key with no value exits non-zero, prints a usage message, and never prints PASS', async () => {
+    const { code, output } = await runAndCapture([join(FIXTURES_DIR, 'attestation.json'), '--key'])
+    expect(code).not.toBe(0)
+    expect(output).toContain('usage error')
+    expect(output).toContain('--key requires a value')
+    expect(output).not.toContain('verify: PASS')
+  })
+
+  test('--keys with no value exits non-zero, prints a usage message, and never prints PASS', async () => {
+    const { code, output } = await runAndCapture([join(FIXTURES_DIR, 'attestation.json'), '--keys'])
+    expect(code).not.toBe(0)
+    expect(output).toContain('usage error')
+    expect(output).toContain('--keys requires a value')
+    expect(output).not.toContain('verify: PASS')
+  })
+
+  test('--lockfile <path> still verifies the digest and reaches PASS', async () => {
+    const { code, output } = await runAndCapture([
+      join(FIXTURES_DIR, 'attestation.json'),
+      '--keys',
+      join(FIXTURES_DIR, 'spm-keys.json'),
+      '--lockfile',
+      join(FIXTURES_DIR, 'package-lock.json'),
+    ])
+    expect(code).toBe(0)
+    expect(output).toContain('lockfile digest: OK (sha256 matches)')
+    expect(output).toContain('verify: PASS')
+  })
+
+  test('a run with no --lockfile behaves exactly as before: no digest line, still PASS', async () => {
+    const { code, output } = await runAndCapture([
+      join(FIXTURES_DIR, 'attestation.json'),
+      '--keys',
+      join(FIXTURES_DIR, 'spm-keys.json'),
+    ])
+    expect(code).toBe(0)
+    expect(output).not.toContain('lockfile digest')
+    expect(output).toContain('verify: PASS')
+  })
+})
+
 describe('runVerify (end to end, exit code)', () => {
   test('exits 0 when the golden fixture verifies against the correct key and lockfile', async () => {
     const logs: string[] = []

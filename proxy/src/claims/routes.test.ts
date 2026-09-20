@@ -90,6 +90,35 @@ describe('POST /api/v1/claims', () => {
   })
 })
 
+describe('POST /api/v1/claims: verified claim reset protection (H2)', () => {
+  test('409 when re-claiming an already-verified identity, and the stored claim is unchanged', async () => {
+    const createApp = createClaimsRouter(stubGithubClient())
+    const createRes = await createApp.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:verified', algorandAddress: 'ADDR-1' }),
+    })
+    const { nonce } = (await createRes.json()) as { nonce: string }
+
+    const verifyingApp = createClaimsRouter(
+      stubGithubClient({ verified: `spm-claim:ADDR-1:${nonce}` }),
+    )
+    await verifyingApp.request('/api/v1/claims/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:verified', proofKind: 'gist', owner: 'verified' }),
+    })
+
+    const resetApp = createClaimsRouter(stubGithubClient())
+    const res = await resetApp.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:verified', algorandAddress: 'ATTACKER-ADDR' }),
+    })
+    expect(res.status).toBe(409)
+  })
+})
+
 describe('POST /api/v1/claims/verify', () => {
   test('verifies a gist-backed claim end to end through the router', async () => {
     const app = createClaimsRouter(stubGithubClient({ alice: 'placeholder' }))

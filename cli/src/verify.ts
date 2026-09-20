@@ -230,20 +230,44 @@ interface ParsedArgs {
   keysPath?: string
 }
 
+/**
+ * Thrown by parseArgv when a value-taking flag (--lockfile, --key, --keys)
+ * is the final argv element and has no value. This is a usage error, not a
+ * skip: the caller must reject it and never fall through to verification.
+ */
+export class ArgvUsageError extends Error {}
+
+/**
+ * Parses argv. Every value-taking flag (--lockfile, --key, --keys) requires
+ * a following element. A flag with no following element throws
+ * ArgvUsageError instead of silently leaving the field undefined — the
+ * caller must reject the run, not skip the check it names.
+ */
 function parseArgv(argv: string[]): ParsedArgs {
   const result: ParsedArgs = { keyArgs: [] }
   let index = 0
   while (index < argv.length) {
     const arg = argv[index]
     if (arg === '--lockfile') {
-      result.lockfilePath = argv[index + 1]
+      const value = argv[index + 1]
+      if (value === undefined) {
+        throw new ArgvUsageError('--lockfile requires a value: <path>')
+      }
+      result.lockfilePath = value
       index += 2
     } else if (arg === '--key') {
-      const keyArg = argv[index + 1]
-      if (keyArg !== undefined) result.keyArgs.push(keyArg)
+      const value = argv[index + 1]
+      if (value === undefined) {
+        throw new ArgvUsageError('--key requires a value: <keyid>:<base64pubkey>')
+      }
+      result.keyArgs.push(value)
       index += 2
     } else if (arg === '--keys') {
-      result.keysPath = argv[index + 1]
+      const value = argv[index + 1]
+      if (value === undefined) {
+        throw new ArgvUsageError('--keys requires a value: <path>')
+      }
+      result.keysPath = value
       index += 2
     } else if (result.envelopePath === undefined && arg !== undefined && !arg.startsWith('--')) {
       result.envelopePath = arg
@@ -261,7 +285,19 @@ function parseArgv(argv: string[]): ParsedArgs {
  * Exit 0 only when every check passes.
  */
 export async function runVerify(argv: string[]): Promise<number> {
-  const args = parseArgv(argv)
+  let args: ParsedArgs
+  try {
+    args = parseArgv(argv)
+  } catch (error) {
+    if (error instanceof ArgvUsageError) {
+      console.log(`usage error: ${error.message}`)
+      console.log(
+        'Usage: spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+      )
+      return 1
+    }
+    throw error
+  }
   if (!args.envelopePath) {
     console.log(
       'Usage: spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
