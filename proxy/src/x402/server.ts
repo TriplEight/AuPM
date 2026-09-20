@@ -45,15 +45,18 @@ export function buildHttpServer(
  * payer for the configured network's "exact" scheme, logs it, and wires
  * the full HTTP resource server.
  *
- * WARNING: this performs a network call (getSupported()). Never invoke it
- * from module-load / import-time code that tests also import — call it
- * lazily, on first request, from proxy/src/app.ts.
+ * WARNING: this performs a network call (getSupported()). Call it once, at
+ * startup, from proxy/src/index.ts, before the server starts listening.
+ * Never call it at module-import time — that would make every module that
+ * imports proxy/src/app.ts (including the test suite) perform a network
+ * call just by importing it.
  */
 export async function boot(facilitatorClient?: FacilitatorClient): Promise<BootResult> {
   const client = facilitatorClient ?? new HTTPFacilitatorClient({ url: FACILITATOR_URL })
   const supported = await client.getSupported()
   const feePayer = resolveFeePayer(supported, CAIP2_NETWORK)
-  // biome-ignore lint/suspicious/noConsole: boot-time diagnostic, required by spec (log the resolved feePayer)
+  // The spec requires the resolved feePayer in the boot log, so this line
+  // logs deliberately rather than by omission.
   console.log(`[x402] resolved feePayer for ${CAIP2_NETWORK}: ${feePayer}`)
 
   const { httpServer, resourceServer } = buildHttpServer(client, feePayer)

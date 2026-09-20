@@ -5,7 +5,6 @@ import { paymentMiddlewareFromHTTPServer } from '@x402-avm/hono'
 import { Hono } from 'hono'
 import { proxyToNpm } from './proxy.js'
 import statusRouter from './routes/status.js'
-import { boot } from './x402/server.js'
 
 type AppVariables = {
   settlementTxid?: string
@@ -55,22 +54,3 @@ export function createApp(httpServer: x402HTTPResourceServer): Hono<{ Variables:
 
   return app
 }
-
-// Production entrypoint, imported by proxy/src/index.ts (`app.fetch`).
-//
-// The facilitator boot (HTTPFacilitatorClient.getSupported(), a network
-// call) is deferred to the first incoming request rather than run at
-// module-load time. That keeps `import './app.js'` network-free, which is
-// what lets proxy/src/app.test.ts and proxy/src/x402/*.test.ts import this
-// module and use createApp() with a stubbed facilitator client without ever
-// touching the network.
-let bootPromise: ReturnType<typeof boot> | undefined
-
-const app = new Hono<{ Variables: AppVariables }>()
-app.use('*', async (c) => {
-  bootPromise ??= boot()
-  const { httpServer } = await bootPromise
-  return createApp(httpServer).fetch(c.req.raw)
-})
-
-export default app

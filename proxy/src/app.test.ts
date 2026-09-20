@@ -109,12 +109,3 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 })
-
-describe('app default export (production wiring)', () => {
-  test('the default export does not perform a network call at import time', async () => {
-    // Importing proxy/src/app.js above (transitively, via createApp) must not
-    // have thrown or hung — the facilitator boot is deferred to first request.
-    const mod = await import('./app.js')
-    expect(mod.default).toBeDefined()
-  })
-})
