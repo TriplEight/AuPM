@@ -12,7 +12,7 @@
 import { createHash } from 'node:crypto'
 import algosdk from 'algosdk'
 import { Hono } from 'hono'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import type { Attribution } from '../attest/attribution.js'
 import type { Envelope, Statement } from '../attest/dsse.js'
 import { verifyEnvelope } from '../attest/dsse.js'
@@ -309,9 +309,40 @@ describe('POST /v1/attest/lockfile', () => {
     expect(attribution).toBeDefined()
     expect(attribution?.route).toBe('lockfile')
     expect(attribution?.priceMicro).toBe(20_000)
+    // No `reviewer` login stored on the row (only the on-chain `auditor_addr`
+    // was set): the auditor identity must be null, never the Algorand
+    // address — the ledger keys strictly on `github:<login>` and could never
+    // find it under an address (defect: a stranded, unmatchable accrual).
     expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'AUDITOR_ADDR', maintainer: null },
+      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
     ])
+  })
+
+  test('attribution.auditor is "github:<login>" from the reviewer column, never the auditor_addr', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3') },
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const attribution = getAttribution()
+    expect(attribution?.packages).toEqual([
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null },
+    ])
+    // predicate.packages[].reviewer must carry the same identity, never a
+    // raw Algorand address — SPEC-v3 §6.3's lockfile statement shape.
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
+    expect(predicate.packages[0]?.reviewer).toBe('github:alice')
+    expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
   })
 })
 
@@ -342,9 +373,29 @@ describe('GET /v1/attest', () => {
     const attribution = getAttribution()
     expect(attribution?.route).toBe('single-attest')
     expect(attribution?.priceMicro).toBe(1_000)
+    // No `reviewer` login stored (only auditor_addr): auditor must be null,
+    // never the Algorand address the ledger cannot key on.
     expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'AUDITOR_ADDR', maintainer: null },
+      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
     ])
+  })
+
+  test('attribution.auditor and predicate.reviewer are "github:<login>", never the auditor_addr', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'bob')
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const attribution = getAttribution()
+    expect(attribution?.packages).toEqual([
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:bob', maintainer: null },
+    ])
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
+    expect(predicate.packages[0]?.reviewer).toBe('github:bob')
+    expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
   })
 
   test('the subject digest equals the lowercase hex decoding of the stored integrity, computed independently', async () => {
@@ -403,6 +454,69 @@ describe('GET /v1/attest', () => {
 
     const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
       headers: { 'x-forwarded-for': '203.0.113.10' },
+    })
+    expect(second.status).toBe(429)
+  })
+})
+
+// Boundary test between this route and the free-tier rate limiter: a
+// spoofable HTTP header must never be able to raise the cap. Pins the
+// TRUST_PROXY gate (defect: X-Forwarded-For trusted unconditionally, so an
+// attacker sending a fresh value on every request defeated the limiter that
+// is the stated control against using the free path as an unpriced signing
+// oracle).
+describe('free-path rate limit: X-Forwarded-For trust boundary', () => {
+  afterEach(() => {
+    delete process.env.TRUST_PROXY
+  })
+
+  test('TRUST_PROXY unset: a different X-Forwarded-For on every request never raises the cap', async () => {
+    delete process.env.TRUST_PROXY
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 2 }) })
+
+    const spoofedIps = ['198.51.100.1', '198.51.100.2', '198.51.100.3']
+    const statuses: number[] = []
+    for (const ip of spoofedIps) {
+      const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+        headers: { 'x-forwarded-for': ip },
+      })
+      statuses.push(res.status)
+    }
+
+    // All three requests collapse onto the same (untrusted) bucket, so the
+    // cap of 2 is enforced regardless of the spoofed header value.
+    expect(statuses).toEqual([200, 200, 429])
+  })
+
+  test('TRUST_PROXY=true: distinct trusted client IPs get independent caps', async () => {
+    process.env.TRUST_PROXY = 'true'
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+
+    const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.50' },
+    })
+    const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.51' },
+    })
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+  })
+
+  test('TRUST_PROXY=true: a multi-hop header takes the rightmost (proxy-appended) entry, never the leftmost', async () => {
+    process.env.TRUST_PROXY = 'true'
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+
+    // The leftmost entry is attacker-supplied; only the last hop was
+    // appended by the trusted proxy itself.
+    const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': 'attacker-controlled, 203.0.113.99' },
+    })
+    expect(first.status).toBe(200)
+
+    // A second request with a different attacker-supplied leftmost entry,
+    // but the same trusted rightmost hop, must hit the same bucket.
+    const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': 'different-attacker-value, 203.0.113.99' },
     })
     expect(second.status).toBe(429)
   })

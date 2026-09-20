@@ -32,7 +32,7 @@ import {
   type RateLimiter,
 } from '../attest/ratelimit.js'
 import { CAIP2_NETWORK, ISSUER, LOCKFILE_PREDICATE_TYPE, SINGLE_PREDICATE_TYPE } from '../config.js'
-import { getStatusOrUnreviewed, isReviewedWithIntegrity } from '../status.js'
+import { getStatusOrUnreviewed, isReviewedWithIntegrity, reviewerIdentity } from '../status.js'
 
 type AttestContext = Context<{ Variables: AppVariables }>
 
@@ -47,9 +47,44 @@ const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 // AppVariables in app.ts.
 const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
 
+/**
+ * True only when TRUST_PROXY says this server runs behind a known reverse
+ * proxy. Read fresh on every call, never cached — tests toggle it per case.
+ * Default: not trusted, so an unset TRUST_PROXY never trusts a caller
+ * header.
+ */
+function isTrustProxyEnabled(): boolean {
+  const raw = (process.env.TRUST_PROXY ?? '').trim().toLowerCase()
+  return raw === '1' || raw === 'true'
+}
+
+/**
+ * Resolves the caller's IP for the free-path rate limiter.
+ *
+ * WARNING: `X-Forwarded-For` is attacker-controlled input unless a known
+ * reverse proxy sits in front of this server. Trusting it unconditionally
+ * lets a caller defeat the free-path rate limit — the stated control
+ * against using SPM as an unpriced signing oracle (SPEC-v3 §6.3) — by
+ * sending a different value on every request. Only trust it when
+ * TRUST_PROXY says so.
+ */
 function clientIp(c: AttestContext): string {
-  const forwarded = c.req.header('x-forwarded-for')
-  if (forwarded && forwarded.length > 0) return (forwarded.split(',')[0] ?? '').trim()
+  if (isTrustProxyEnabled()) {
+    const forwarded = c.req.header('x-forwarded-for')
+    if (forwarded && forwarded.length > 0) {
+      // Single trusted hop: this server sits behind exactly one reverse
+      // proxy, which appends the connecting client's own address as the
+      // last entry before forwarding the request on. Every entry to the
+      // left of it came from the client (or further upstream) and is not
+      // to be trusted — never take the leftmost entry.
+      const hops = forwarded
+        .split(',')
+        .map((hop) => hop.trim())
+        .filter((hop) => hop.length > 0)
+      const lastHop = hops[hops.length - 1]
+      if (lastHop) return lastHop
+    }
+  }
   return c.req.header('x-real-ip') ?? 'unknown'
 }
 
@@ -289,7 +324,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
             version,
             integrity: status.integrity,
             tier: status.status,
-            reviewer: status.auditor_addr,
+            reviewer: reviewerIdentity(status),
             reviewScope: null,
             attestTxid: status.attest_txid,
             integrityMatch: true,
@@ -302,7 +337,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
 
     const packages: AttributionEntry[] = [
-      { pkg: name, version, auditor: status.auditor_addr, maintainer: null },
+      { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
     ]
     c.set('attribution', {
       route: 'single-attest',

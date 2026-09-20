@@ -150,4 +150,90 @@ describe('SplitRouter', () => {
       callInScope(contract, () => contract.releaseAuthority(someoneElse), { sender: creator }),
     ).toThrow()
   })
+
+  test('setPayTo() rejects a non-admin sender', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const notCreator = ctx.any.account()
+    const external = ctx.any.account()
+
+    expect(() =>
+      callInScope(contract, () => contract.setPayTo(external), { sender: notCreator }),
+    ).toThrow()
+  })
+
+  test('setPayTo() rejects the application address', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const appRef = ctx.ledger.getApplicationForContract(contract)
+    const appAddress = ctx.ledger.getAccount(appRef.address)
+
+    expect(() => callInScope(contract, () => contract.setPayTo(appAddress))).toThrow()
+  })
+
+  test('setPayTo() with an external address succeeds; setRecipients() then leaves it alone', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+    expect(contract.payTo.value).toEqual(external.bytes)
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    // setRecipients' `if (!this.payTo.hasValue)` guard must leave the
+    // already-set external payTo untouched.
+    expect(contract.payTo.value).toEqual(external.bytes)
+  })
+
+  test('setPayTo() is write-once: a second call is rejected after the first succeeds', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const first = ctx.any.account()
+    const second = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(first))
+
+    expect(() => callInScope(contract, () => contract.setPayTo(second))).toThrow()
+    expect(contract.payTo.value).toEqual(first.bytes)
+  })
+
+  test('default path: setRecipients() alone leaves payTo at the app address', () => {
+    const { contract, appRef } = setupFull()
+
+    expect(contract.payTo.value).toEqual(appRef.address.bytes)
+  })
+
+  test('variant B: releaseAuthority() succeeds once payTo is an external, rekeyed account', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const creator = ctx.defaultSender
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    const releaseTo = ctx.any.account()
+    callInScope(contract, () => contract.releaseAuthority(releaseTo), { sender: creator })
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+    expect(rekeyTxn.sender).toEqual(external)
+    expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+  })
 })

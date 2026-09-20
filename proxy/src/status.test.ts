@@ -1,7 +1,13 @@
 // proxy/src/status.test.ts
 import { beforeEach, describe, expect, test } from 'vitest'
 import db from './db.js'
-import { getStatusOrUnreviewed, isFree, isReviewedWithIntegrity, setStatus } from './status.js'
+import {
+  getStatusOrUnreviewed,
+  isFree,
+  isReviewedWithIntegrity,
+  reviewerIdentity,
+  setStatus,
+} from './status.js'
 
 beforeEach(() => {
   db.exec('DELETE FROM audit_status')
@@ -77,5 +83,39 @@ describe('status store', () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'aud', 'tx', 'sha512-known-good')
     const row = getStatusOrUnreviewed('lodash', '4.17.21')
     expect(isReviewedWithIntegrity(row)).toBe(true)
+  })
+
+  // Defect pin: the reviewer (GitHub login) column is a fact distinct from
+  // auditor_addr (the on-chain attesting address). Mixing the two strands
+  // the auditor's revenue share under an identity the ledger cannot match.
+  test('a fresh unknown row has no stored reviewer login', () => {
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.reviewer).toBeNull()
+  })
+
+  test('setStatus persists and reads back a reviewer login, independent of auditor_addr', () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'ONCHAIN_ADDR', 'tx', 'sha512-x', 'alice')
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.reviewer).toBe('alice')
+    expect(row.auditor_addr).toBe('ONCHAIN_ADDR')
+  })
+
+  test('setStatus without a reviewer argument stores null, not a placeholder', () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'ONCHAIN_ADDR', 'tx', 'sha512-x')
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.reviewer).toBeNull()
+  })
+
+  test('reviewerIdentity: "github:<login>" when a reviewer login is stored', () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'ONCHAIN_ADDR', 'tx', 'sha512-x', 'alice')
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(reviewerIdentity(row)).toBe('github:alice')
+  })
+
+  test('reviewerIdentity: null when no reviewer login is stored, never the auditor_addr', () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'ONCHAIN_ADDR', 'tx', 'sha512-x')
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(reviewerIdentity(row)).toBeNull()
+    expect(reviewerIdentity(row)).not.toBe('ONCHAIN_ADDR')
   })
 })

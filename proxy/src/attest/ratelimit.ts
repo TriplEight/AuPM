@@ -22,6 +22,14 @@ export const DEFAULT_FREE_LOCKFILE_RATE_LIMIT: RateLimiterConfig = {
   max: 20,
 }
 
+// A key is pruned from the map once every PRUNE_INTERVAL calls, not on
+// every call — a full-map sweep on every request would cost O(distinct
+// keys) each time. This still bounds growth to at most PRUNE_INTERVAL
+// extra, stale keys between sweeps, so memory never grows for as long as
+// the process runs (WARNING this fixes: an unpruned map grows one entry
+// per distinct caller forever).
+const PRUNE_INTERVAL = 200
+
 /**
  * Builds an in-memory sliding-window rate limiter. `now` is injectable so
  * tests can control time without real sleeps, and `config` is injectable so
@@ -32,10 +40,25 @@ export function createRateLimiter(
   now: () => number = Date.now,
 ): RateLimiter {
   const hits = new Map<string, number[]>()
+  let callsSincePrune = 0
+
+  function pruneExpired(nowMs: number): void {
+    const windowStart = nowMs - config.windowMs
+    for (const [key, timestamps] of hits) {
+      const recent = timestamps.filter((t) => t > windowStart)
+      if (recent.length === 0) hits.delete(key)
+      else hits.set(key, recent)
+    }
+  }
 
   return {
     attempt(key: string): boolean {
       const nowMs = now()
+      callsSincePrune += 1
+      if (callsSincePrune >= PRUNE_INTERVAL) {
+        callsSincePrune = 0
+        pruneExpired(nowMs)
+      }
       const windowStart = nowMs - config.windowMs
       const recent = (hits.get(key) ?? []).filter((t) => t > windowStart)
       if (recent.length >= config.max) {

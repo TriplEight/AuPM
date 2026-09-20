@@ -79,7 +79,11 @@ describe('analyzeLockfile — classification', () => {
   })
 
   test('excludes the unreviewed majority: 1 reviewed + 200 unreviewed', () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc')
+    // AUDITOR_ADDR is the on-chain attesting address — a different fact
+    // from the reviewer's GitHub login (7th argument). reviewedPackageRefs'
+    // `auditor` must carry the "github:<login>" identity the ledger keys
+    // on, never this address.
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
     const packages: Record<string, unknown> = { 'node_modules/ms': npmEntry('2.1.3') }
     for (let i = 0; i < 200; i++) {
       packages[`node_modules/unreviewed-pkg-${i}`] = npmEntry('1.0.0')
@@ -94,7 +98,7 @@ describe('analyzeLockfile — classification', () => {
     expect(result.analysis.packages[0]?.name).toBe('ms')
     expect(result.analysis.packages[0]?.tier).toBe('COMMUNITY_REVIEWED')
     expect(result.analysis.reviewedPackageRefs).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'AUDITOR_ADDR' },
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
     ])
   })
 

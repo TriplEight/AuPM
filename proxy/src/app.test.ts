@@ -51,7 +51,7 @@ const { getAccrualsForTxid } = await import('./claims/ledger.js')
 const { httpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
 const app = createApp(httpServer)
 
-function stubSuccessFacilitatorClient(): FacilitatorClient {
+function stubSuccessFacilitatorClient(transaction = 'INTEGRATION-TX-1'): FacilitatorClient {
   return {
     getSupported: async () => ({
       kinds: [
@@ -63,7 +63,7 @@ function stubSuccessFacilitatorClient(): FacilitatorClient {
     verify: async () => ({ isValid: true }),
     settle: async () => ({
       success: true,
-      transaction: 'INTEGRATION-TX-1',
+      transaction,
       network: CAIP2_NETWORK,
     }),
   }
@@ -113,6 +113,44 @@ describe('x402 gate', () => {
     setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz')
     expect(res.status).toBe(402)
+  })
+
+  // Paywall-bypass regression, driven through the *real* app (the x402
+  // gate's onProtectedRequest hook, proxy/src/x402/tarball.ts's path parser,
+  // and the SQLite status store together) — every accepted encoding of a
+  // reviewed scoped package's tarball path must return 402. WARNING: never
+  // relax this; a defect here hands a reviewed tarball out for free
+  // (mcp/src/tools/install.ts requests the %2F-encoded form).
+  describe.each([
+    ['literal slash', '/@scope/pkg/-/pkg-1.0.0.tgz'],
+    ['%40-encoded scope only', '/%40scope/pkg/-/pkg-1.0.0.tgz'],
+    ['%2F-encoded separator only', '/@scope%2Fpkg/-/pkg-1.0.0.tgz'],
+    ['%2f-encoded separator only (lowercase)', '/@scope%2fpkg/-/pkg-1.0.0.tgz'],
+    ['both encoded', '/%40scope%2Fpkg/-/pkg-1.0.0.tgz'],
+  ])('scoped tarball path encoding: %s (reviewed)', (_label, path) => {
+    test('402, regardless of encoding', async () => {
+      setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path)
+      expect(res.status).toBe(402)
+    })
+  })
+
+  // Companion case, same encodings, for a real published (unreviewed)
+  // package's tarball — a real request/response pair so "200" is asserted
+  // against an actual upstream response, not just "not 402".
+  describe.each([
+    ['literal slash', '/@babel/core/-/core-7.25.2.tgz'],
+    ['%40-encoded scope only', '/%40babel/core/-/core-7.25.2.tgz'],
+    ['%2F-encoded separator only', '/@babel%2Fcore/-/core-7.25.2.tgz'],
+    ['%2f-encoded separator only (lowercase)', '/@babel%2fcore/-/core-7.25.2.tgz'],
+    ['both encoded', '/%40babel%2Fcore/-/core-7.25.2.tgz'],
+  ])('scoped tarball path encoding: %s (unreviewed)', (_label, path) => {
+    test('200, no payment header, regardless of encoding', async () => {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      expect(res.status).not.toBe(402)
+      expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    })
   })
 
   test('/api/v1/status is free and unauthenticated regardless of tier', async () => {
@@ -173,7 +211,21 @@ describe('x402 gate', () => {
 // @x402-avm/core's own header codecs and this file's stub run.
 describe('claims ledger, wired into the real app', () => {
   test('a settled paid request writes an accrual, and the earnings route reports it for free', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'github:alice', null, 'sha512-abc')
+    // auditor_addr is a plain Algorand address — a different fact from the
+    // reviewer's GitHub login (the 7th argument). Defect pin: the ledger
+    // must key on `github:<login>` (from `reviewer`), never on this address
+    // — writing the accrual under the address would strand the auditor's
+    // share under an identity no lookup, including the earnings endpoint
+    // below, can ever find.
+    setStatus(
+      'ms',
+      '2.1.3',
+      'COMMUNITY_REVIEWED',
+      'ONCHAIN_ATTESTING_ADDR',
+      null,
+      'sha512-abc',
+      'alice',
+    )
 
     const { httpServer: paidHttpServer } = buildHttpServer(
       stubSuccessFacilitatorClient(),
@@ -216,6 +268,54 @@ describe('claims ledger, wired into the real app', () => {
     }
     const auditorEarnings = earnings.roles.find((r) => r.role === 'auditor')
     expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(500)
+  })
+
+  // Defect pin: the paid tarball route never set `attribution`, so
+  // claimsLedgerMiddleware wrote no accrual for any tarball payment —
+  // tarball revenue accrued on chain with no record of who was owed it.
+  test('a settled paid tarball request writes a tarball accrual', async () => {
+    setStatus(
+      'lodash',
+      '4.17.21',
+      'COMMUNITY_REVIEWED',
+      'ONCHAIN_ATTESTING_ADDR',
+      null,
+      'sha512-abc',
+      'carol',
+    )
+
+    const { httpServer: paidHttpServer } = buildHttpServer(
+      stubSuccessFacilitatorClient('INTEGRATION-TX-TARBALL'),
+      FEE_PAYER,
+    )
+    const paidApp = createApp(paidHttpServer)
+
+    const unpaidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz')
+    expect(unpaidRes.status).toBe(402)
+    const requiredHeader = unpaidRes.headers.get('PAYMENT-REQUIRED')
+    const paymentRequired = decodePaymentRequiredHeader(requiredHeader as string) as unknown as {
+      accepts: Array<Record<string, unknown>>
+    }
+    const accepted = paymentRequired.accepts[0]
+
+    const paymentSignature = encodePaymentSignatureHeader({
+      x402Version: 2,
+      accepted,
+      payload: {},
+    } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
+
+    const paidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'PAYMENT-SIGNATURE': paymentSignature },
+    })
+    expect(paidRes.status).toBe(200)
+    expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()
+
+    const accruals = getAccrualsForTxid('INTEGRATION-TX-TARBALL')
+    expect(accruals.length).toBeGreaterThan(0)
+    expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
+    const auditorRow = accruals.find((row) => row.role === 'auditor')
+    expect(auditorRow?.identity).toBe('github:carol')
+    expect(auditorRow?.amount_micro).toBe(500)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {

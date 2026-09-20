@@ -17,8 +17,23 @@ export function getStatusOrUnreviewed(pkg: string, version: string): StatusRow {
       attest_txid: null,
       ts: null,
       integrity: null,
+      reviewer: null,
     }
   )
+}
+
+/**
+ * "github:<login>" from the stored `reviewer` column, or null when no
+ * reviewer login is recorded on this row.
+ *
+ * WARNING: never derive this from `auditor_addr` — that column is the
+ * on-chain attesting Algorand address, a different fact. The ledger, the
+ * earnings endpoint, and the payout script all key on `github:<login>`; an
+ * Algorand address written into `AttributionEntry.auditor` can never be
+ * looked up there, and the revenue accrued under it is stranded.
+ */
+export function reviewerIdentity(row: StatusRow): string | null {
+  return row.reviewer ? `github:${row.reviewer}` : null
 }
 
 /**
@@ -41,6 +56,8 @@ export function setStatus(
   auditorAddr: string | null = null,
   attestTxid: string | null = null,
   integrity: string | null = null,
+  /** Bare GitHub login of the human reviewer (e.g. "alice"), never "github:alice". */
+  reviewer: string | null = null,
 ): void {
-  upsertStatus.run(pkg, version, status, auditorAddr, attestTxid, Date.now(), integrity)
+  upsertStatus.run(pkg, version, status, auditorAddr, attestTxid, Date.now(), integrity, reviewer)
 }

@@ -28,6 +28,17 @@ if (!existingColumns.some((column) => column.name === 'integrity')) {
   db.exec('ALTER TABLE audit_status ADD COLUMN integrity TEXT')
 }
 
+// Upgrade guard: an existing audit.db predates the `reviewer` column. Add it
+// in place, same pattern as `integrity` above. `reviewer` is the human
+// reviewer's bare GitHub login (e.g. "alice") — never "github:alice" and
+// never an Algorand address. `auditor_addr` records a different fact (the
+// on-chain attesting address) and stays untouched (CLAUDE.md). Without this
+// column, the auditor revenue share has no GitHub identity to accrue
+// against and is stranded.
+if (!existingColumns.some((column) => column.name === 'reviewer')) {
+  db.exec('ALTER TABLE audit_status ADD COLUMN reviewer TEXT')
+}
+
 export type StatusRow = {
   pkg: string
   version: string
@@ -39,6 +50,10 @@ export type StatusRow = {
    * when no independent integrity has been stored — see status.ts's
    * isReviewedWithIntegrity(). Never fabricated. */
   integrity: string | null
+  /** Bare GitHub login of the human reviewer (e.g. "alice"), or null when
+   * unknown. Never "github:alice" here — status.ts's reviewerIdentity()
+   * applies that prefix. Never an Algorand address; see auditor_addr. */
+  reviewer: string | null
 }
 
 export const getStatus = db.prepare<[string, string], StatusRow>(
@@ -46,16 +61,26 @@ export const getStatus = db.prepare<[string, string], StatusRow>(
 )
 
 export const upsertStatus = db.prepare<
-  [string, string, string, string | null, string | null, number | null, string | null]
+  [
+    string,
+    string,
+    string,
+    string | null,
+    string | null,
+    number | null,
+    string | null,
+    string | null,
+  ]
 >(
-  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts, integrity)
-   VALUES (?, ?, ?, ?, ?, ?, ?)
+  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts, integrity, reviewer)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(pkg, version) DO UPDATE SET
      status       = excluded.status,
      auditor_addr = excluded.auditor_addr,
      attest_txid  = excluded.attest_txid,
      ts           = excluded.ts,
-     integrity    = excluded.integrity`,
+     integrity    = excluded.integrity,
+     reviewer     = excluded.reviewer`,
 )
 
 export default db

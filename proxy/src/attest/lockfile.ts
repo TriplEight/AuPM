@@ -9,7 +9,7 @@
 // hashing — the digest must match the file bytes on the caller's disk.
 
 import { createHash } from 'node:crypto'
-import { getStatusOrUnreviewed, isFree } from '../status.js'
+import { getStatusOrUnreviewed, isFree, reviewerIdentity } from '../status.js'
 
 export const LOCKFILE_MAX_BYTES = 5 * 1024 * 1024
 export const LOCKFILE_MAX_ENTRIES = 10_000
@@ -20,7 +20,8 @@ export interface LockfilePackageEntry {
   version: string
   integrity: string | null
   tier: string
-  /** Whatever identity the status store holds for this review — never fabricated. */
+  /** "github:<login>" for the human reviewer (status.ts's reviewerIdentity()),
+   * or null when unknown. Never an on-chain address — never fabricated. */
   reviewer: string | null
   reviewScope: string | null
   attestTxid: string | null
@@ -40,6 +41,7 @@ export interface LockfileSummary {
 export interface ReviewedPackageRef {
   pkg: string
   version: string
+  /** "github:<login>", or null when the row carries no reviewer login. */
   auditor: string | null
 }
 
@@ -204,7 +206,7 @@ export function analyzeLockfile(
         version,
         integrity,
         tier: 'INTEGRITY_MISMATCH',
-        reviewer: status.auditor_addr,
+        reviewer: reviewerIdentity(status),
         reviewScope: null,
         attestTxid: status.attest_txid,
         integrityMatch: false,
@@ -218,12 +220,12 @@ export function analyzeLockfile(
       version,
       integrity,
       tier: status.status,
-      reviewer: status.auditor_addr,
+      reviewer: reviewerIdentity(status),
       reviewScope: null,
       attestTxid: status.attest_txid,
       integrityMatch: true,
     })
-    reviewedPackageRefs.push({ pkg: name, version, auditor: status.auditor_addr })
+    reviewedPackageRefs.push({ pkg: name, version, auditor: reviewerIdentity(status) })
   }
 
   const sha256 = createHash('sha256').update(rawBody).digest('hex')

@@ -21,6 +21,8 @@ import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
 import statusRouter from './routes/status.js'
+import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
+import { isTarballPath, parseTarballPath, TARBALL_PRICE_MICRO } from './x402/tarball.js'
 
 export type AppVariables = {
   settlementTxid?: string
@@ -130,8 +132,34 @@ export function createApp(
   app.post('/v1/attest/lockfile', attest.lockfileHandler)
   app.get('/v1/attest', attest.singleAttestHandler)
 
-  // npm passthrough — reached only once payment (or the free-tier grant) clears.
-  app.all('*', (c) => proxyToNpm(c))
+  // npm passthrough — reached only once payment (or the free-tier grant)
+  // clears. A tarball path reaching here is either the free-tier grant (an
+  // unreviewed version, via proxy/src/x402/tarball.ts's onProtectedRequest
+  // hook) or a cleared payment (a reviewed version) — never an unpaid,
+  // reviewed request; the x402 gate above never calls next() for that case.
+  // Set attribution here so claimsLedgerMiddleware, which wraps the gate's
+  // next() call, can write the tarball route's accruals (CLAUDE.md: every
+  // paid request is ledgered; the free path sets priceMicro: 0, per the
+  // Attribution contract in proxy/src/attest/attribution.ts).
+  app.all('*', (c) => {
+    if (isTarballPath(c.req.path)) {
+      const { name, version } = parseTarballPath(c.req.path)
+      const status = getStatusOrUnreviewed(name, version)
+      c.set(
+        'attribution',
+        isFree(status.status)
+          ? { route: 'tarball', priceMicro: 0, packages: [] }
+          : {
+              route: 'tarball',
+              priceMicro: TARBALL_PRICE_MICRO,
+              packages: [
+                { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
+              ],
+            },
+      )
+    }
+    return proxyToNpm(c)
+  })
 
   return app
 }

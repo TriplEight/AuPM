@@ -47,6 +47,19 @@ export class SplitRouter extends Contract {
 
   attests = BoxMap<string, bytes>({ keyPrefix: 'attest:' })
 
+  // Admin-only. Sets payTo to an external account, bootstrapping variant B.
+  // Write-once: fails if payTo already has a value. This is the sole
+  // protection for the leaderboard key. Call before setRecipients.
+  public setPayTo(addr: Account): void {
+    assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    assert(!this.payTo.hasValue, 'payTo already set')
+    assert(
+      addr.bytes !== Global.currentApplicationAddress.bytes,
+      'use the default app-address path instead',
+    )
+    this.payTo.value = addr.bytes
+  }
+
   public setRecipients(
     auditor: Account,
     maintainer: Account,
