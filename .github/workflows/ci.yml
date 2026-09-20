@@ -48,3 +48,9 @@ jobs:
 
       - name: Test mcp
         run: pnpm -C mcp test
+
+      - name: Test cli
+        run: pnpm -C cli test
+
+      - name: Test spm-attest action
+        run: node --test .github/actions/spm-attest/attest.test.mjs
