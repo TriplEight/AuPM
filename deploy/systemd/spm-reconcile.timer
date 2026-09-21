@@ -1,0 +1,15 @@
+# Schedules spm-reconcile.service nightly. Install alongside it — see
+# docs/RUNBOOK-mainnet-launch.md section 6.
+
+[Unit]
+Description=Run SPM claims-ledger reconciliation nightly
+
+[Timer]
+# Off-peak UTC time. Persistent=true runs a missed pass at the next boot,
+# so a host reboot around this time does not skip a night.
+OnCalendar=*-*-* 03:17:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
