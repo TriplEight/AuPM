@@ -3,12 +3,12 @@ import { checkTool } from './check.js'
 
 describe('check_audit_status', () => {
   beforeEach(() => {
-    process.env['SPM_PROXY_URL'] = 'http://localhost:4873'
+    process.env.SPM_PROXY_URL = 'http://localhost:4873'
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env['SPM_PROXY_URL']
+    delete process.env.SPM_PROXY_URL
   })
 
   it('returns status without making a payment request', async () => {
@@ -32,6 +32,7 @@ describe('check_audit_status', () => {
     expect(result.pkg).toBe('lodash')
     // Exactly one fetch call — no retry, no payment
     expect(mockFetch).toHaveBeenCalledTimes(1)
+    // biome-ignore lint/style/noNonNullAssertion: call count asserted above
     const [url, options] = mockFetch.mock.calls[0]! as [string, RequestInit | undefined]
     expect(url).toContain('/api/v1/status/lodash/4.17.21')
     // No request options means no payment header
@@ -65,19 +66,21 @@ describe('check_audit_status', () => {
   it('encodes scoped packages correctly', async () => {
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({
-        pkg: '@scope/pkg',
-        version: '1.0.0',
-        status: 'UNREVIEWED',
-        auditor_addr: null,
-        attest_txid: null,
-        ts: null,
-      }),
+      json: () =>
+        Promise.resolve({
+          pkg: '@scope/pkg',
+          version: '1.0.0',
+          status: 'UNREVIEWED',
+          auditor_addr: null,
+          attest_txid: null,
+          ts: null,
+        }),
     })
     vi.stubGlobal('fetch', mockFetch)
 
     await checkTool.handler({ pkg: '@scope/pkg', version: '1.0.0' })
 
+    // biome-ignore lint/style/noNonNullAssertion: the awaited handler call above makes exactly one fetch call
     const [url] = mockFetch.mock.calls[0]! as [string]
     expect(url).toContain('%40scope')
     expect(url).not.toContain('@')

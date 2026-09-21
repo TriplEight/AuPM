@@ -1,102 +1,165 @@
 // proxy/src/app.ts
+
+import * as ed from '@noble/ed25519'
+import type { x402HTTPResourceServer } from '@x402-avm/core/http'
+import { paymentMiddlewareFromHTTPServer } from '@x402-avm/hono'
 import { Hono } from 'hono'
-import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { ALGORAND_TESTNET_CAIP2, USDC_TESTNET_ASA_ID } from '@x402-avm/avm'
-import statusRouter from './routes/status.js'
+import type { Attribution } from './attest/attribution.js'
+import type { SigningKeyLike } from './attest/dsse.js'
+import { publishedKeys } from './attest/keys.js'
+import type { LockfileAnalysis } from './attest/lockfile.js'
+import type { RateLimiter } from './attest/ratelimit.js'
+import { createGithubClient } from './claims/github.js'
+import { claimsLedgerMiddleware } from './claims/middleware.js'
+import { createClaimsRouter } from './claims/routes.js'
+import {
+  ATTEST_SIGNING_KEY_VALID_FROM,
+  GITHUB_READONLY_TOKEN,
+  getAttestationSigningKey,
+} from './config.js'
 import { proxyToNpm } from './proxy.js'
-import { getStatusOrUnreviewed, isFree } from './status.js'
-import { settle } from './settle.js'
+import type { AttestRoutesOptions } from './routes/attest.js'
+import { buildAttestRoutes } from './routes/attest.js'
+import statusRouter from './routes/status.js'
+import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
+import { isTarballPath, parseTarballPath, TARBALL_PRICE_MICRO } from './x402/tarball.js'
 
-type AppVariables = {
-  paymentHeader?: string
+export type AppVariables = {
   settlementTxid?: string
+  // Set on every paid attest response, before returning (see
+  // proxy/src/attest/attribution.ts). claimsLedgerMiddleware reads this off
+  // the context after next(), from a middleware registered outside (before,
+  // in app.use() order) the payment gate — so it still wraps the gate's own
+  // next() call and observes the settled response.
+  attribution?: Attribution
+  // Internal: the lockfile pre-middleware's parsed classification, handed
+  // to the paid handler once payment clears, so the request body — already
+  // consumed while computing this — is never re-read or re-parsed.
+  spmLockfileAnalysis?: LockfileAnalysis
 }
 
-const app = new Hono<{ Variables: AppVariables }>()
-
-app.route('/api/v1/status', statusRouter)
-
-function isTarball(path: string): boolean {
-  return path.includes('/-/') && path.endsWith('.tgz')
+export interface CreateAppOptions {
+  /** Loads the SPM attestation signing key. Defaults to config.ts's env-backed loader. */
+  getSigningKey?: () => Promise<SigningKeyLike>
+  /** Rate limiter for the free (zero-coverage) lockfile path. Injectable for tests. */
+  rateLimiter?: RateLimiter
+  /** Known-good tarball integrity lookup for reviewed packages. Injectable for tests. */
+  integrityLookup?: AttestRoutesOptions['integrityLookup']
 }
 
-function parseTarballPath(urlPath: string): { pkg: string; version: string } {
-  // Examples:
-  //   /lodash/-/lodash-4.17.21.tgz      → pkg=lodash, ver=4.17.21
-  //   /@scope/pkg/-/pkg-1.0.0.tgz       → pkg=@scope/pkg, ver=1.0.0
-  const parts = urlPath.replace(/^\//, '').split('/-/')
-  const pkg = (parts[0] ?? '').replace(/%40/g, '@')
-  const filename = parts[1] ?? ''
-  // Extract version: everything after the last hyphen before .tgz that looks like semver
-  const match = filename.match(/^.+?-(\d+\.\d+\.\d+.*)\.tgz$/)
-  const version = match?.[1] ?? 'unknown'
-  return { pkg, version }
-}
+/**
+ * Build the Hono app from an already-wired x402HTTPResourceServer. Pure
+ * wiring, no I/O — this is what tests call directly with a stub-backed
+ * httpServer so no test ever reaches the network.
+ */
+export function createApp(
+  httpServer: x402HTTPResourceServer,
+  options: CreateAppOptions = {},
+): Hono<{ Variables: AppVariables }> {
+  const app = new Hono<{ Variables: AppVariables }>()
 
-// x402 gate middleware
-app.use('*', async (c, next) => {
-  if (!isTarball(c.req.path)) return next()
+  // Fails cleanly on a thrown error (e.g. claim-proof verification with no
+  // GITHUB_READONLY_TOKEN configured) instead of an opaque crash. WARNING:
+  // never let this leak a secret; it returns only `err.message`, and the
+  // GitHub client (proxy/src/claims/github.ts) never puts a token in one.
+  app.onError((err, c) => c.json({ error: err.message }, 500))
 
-  const { pkg, version } = parseTarballPath(c.req.path)
-  const row = getStatusOrUnreviewed(pkg, version)
+  const attest = buildAttestRoutes({
+    getSigningKey: options.getSigningKey ?? getAttestationSigningKey,
+    rateLimiter: options.rateLimiter,
+    integrityLookup: options.integrityLookup,
+  })
 
-  if (isFree(row.status)) return next()
+  // Free, unauthenticated, never gated — the audit-status API. Registered
+  // before the payment gate so it terminates the request itself; it is also
+  // absent from the x402 route table, so the gate would no-op on it anyway.
+  app.route('/api/v1/status', statusRouter)
 
-  // Paid tier — check for payment header (PAYMENT-SIGNATURE = USDC, X-PAYMENT = EURD bridge)
-  const paymentHeader = c.req.header('PAYMENT-SIGNATURE') ?? c.req.header('X-PAYMENT')
-  if (!paymentHeader) {
-    const accepts: object[] = [
-      {
-        scheme: 'exact',
-        network: ALGORAND_TESTNET_CAIP2,
-        payTo: process.env['SPLIT_APP_ADDRESS'] ?? '',
-        asset: String(USDC_TESTNET_ASA_ID),
-        maxAmountRequired: '1000',
-        maxTimeoutSeconds: 60,
-        extra: {
-          name: 'USDC',
-          decimals: 6,
-          appMethod: 'pay',
-          args: [pkg, version],
-        },
-      },
-    ]
-    // EURD bonus: advertise Quantoz bridge path when configured
-    const eurdAsaId = process.env['EURD_MAINNET_ASA_ID']
-    const eurdPayTo = process.env['EURD_PAY_TO']
-    if (eurdAsaId && eurdPayTo) {
-      accepts.push({
-        scheme: 'exact',
-        network: 'algorand:mainnet',
-        payTo: eurdPayTo,
-        asset: eurdAsaId,
-        maxAmountRequired: '1', // 1 atomic EURD = €0.01 (2 decimals)
-        maxTimeoutSeconds: 120,
-        extra: { name: 'EURD', decimals: 2 },
-      })
+  // Free, unauthenticated, never gated — the published attestation public
+  // keys (SPEC.md 6.2). A verifier needs this to check a DSSE envelope
+  // offline; without it, offline verification only works for someone who
+  // already holds the key out of band. WARNING: this route must never
+  // return 402 — a verifier fetching a public key must never pay
+  // (CLAUDE.md). Registered before the payment gate for that reason.
+  app.get('/.well-known/spm-keys.json', async (c) => {
+    const getSigningKey = options.getSigningKey ?? getAttestationSigningKey
+    // Throws when no signing key is configured; app.onError above turns
+    // that into a clear { error } response, never a placeholder key.
+    const key = await getSigningKey()
+    const publicKey = await ed.getPublicKeyAsync(key.seed)
+    const keys = publishedKeys([
+      { keyid: key.keyid, publicKey, validFrom: ATTEST_SIGNING_KEY_VALID_FROM, validUntil: null },
+    ])
+    // The key list changes only on rotation, so it is safe to cache.
+    c.header('cache-control', 'public, max-age=3600')
+    return c.json(keys)
+  })
+
+  // Claims ledger write path (SPEC.md 5.2), registered *before* the
+  // payment middleware below so it wraps that middleware's next() call and
+  // can read PAYMENT-RESPONSE off the settled response on the way out.
+  // CAUTION: order matters — after the payment middleware it never sees the
+  // settlement header (see proxy/src/claims/middleware.ts).
+  app.use('*', claimsLedgerMiddleware)
+
+  // Claims read/write API — free, never gated. An unpaid contributor must
+  // always be able to see what they are owed (CLAUDE.md). Mounted before
+  // the payment gate, alongside /api/v1/status above.
+  app.route('/', createClaimsRouter(createGithubClient(GITHUB_READONLY_TOKEN)))
+
+  // Pre-payment validation and the lockfile route's zero-coverage free
+  // path. Both run — and can fully answer the request — *before* the x402
+  // payment gate below, so a malformed lockfile (400) or a zero-coverage
+  // lockfile (free 200) never reaches, and is never charged by, the
+  // facilitator (CLAUDE.md: unreviewed never returns 402; a caller must
+  // never pay for a malformed lockfile).
+  app.post('/v1/attest/lockfile', attest.lockfilePreMiddleware)
+  app.get('/v1/attest', attest.singleAttestPreMiddleware)
+
+  // x402 payment gate, registered *before* the paid attest handlers and the
+  // npm passthrough below: for a configured paid route, the middleware
+  // returns 402 (or grants access via the tarball free-tier hook in
+  // proxy/src/x402/tarball.ts) and only calls next() once that clears — the
+  // handler after it never runs for an unpaid request. Routes outside the
+  // x402 route table (status, and anything the proxy passes through) are
+  // untouched: requiresPayment() is false for them, so the gate is a no-op.
+  app.use('*', paymentMiddlewareFromHTTPServer(httpServer))
+
+  // Paid attest handlers — reached only once payment clears. The lockfile
+  // pre-middleware above only calls next() (reaching the gate, then this
+  // handler) when the lockfile has at least one reviewed package; it
+  // answers the zero-coverage case itself, earlier in the chain.
+  app.post('/v1/attest/lockfile', attest.lockfileHandler)
+  app.get('/v1/attest', attest.singleAttestHandler)
+
+  // npm passthrough — reached only once payment (or the free-tier grant)
+  // clears. A tarball path reaching here is either the free-tier grant (an
+  // unreviewed version, via proxy/src/x402/tarball.ts's onProtectedRequest
+  // hook) or a cleared payment (a reviewed version) — never an unpaid,
+  // reviewed request; the x402 gate above never calls next() for that case.
+  // Set attribution here so claimsLedgerMiddleware, which wraps the gate's
+  // next() call, can write the tarball route's accruals (CLAUDE.md: every
+  // paid request is ledgered; the free path sets priceMicro: 0, per the
+  // Attribution contract in proxy/src/attest/attribution.ts).
+  app.all('*', (c) => {
+    if (isTarballPath(c.req.path)) {
+      const { name, version } = parseTarballPath(c.req.path)
+      const status = getStatusOrUnreviewed(name, version)
+      c.set(
+        'attribution',
+        isFree(status.status)
+          ? { route: 'tarball', priceMicro: 0, packages: [] }
+          : {
+              route: 'tarball',
+              priceMicro: TARBALL_PRICE_MICRO,
+              packages: [
+                { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
+              ],
+            },
+      )
     }
-    return c.json({ x402Version: 2, accepts }, 402)
-  }
+    return proxyToNpm(c)
+  })
 
-  // Has payment header — settle the payment before proxying
-  const result = await settle(paymentHeader)
-  if (!result.success) {
-    return c.json({ error: result.error }, 402 as ContentfulStatusCode)
-  }
-  c.set('settlementTxid', result.txid)
-  return next()
-})
-
-// Proxy handler
-app.all('*', async (c) => {
-  const response = await proxyToNpm(c)
-  const txid = c.get('settlementTxid') as string | undefined
-  if (txid) {
-    const headers = new Headers(response.headers)
-    headers.set('X-AUDIT-ATTESTATION', txid)
-    return new Response(response.body, { status: response.status, headers })
-  }
-  return response
-})
-
-export default app
+  return app
+}

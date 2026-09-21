@@ -2,8 +2,6 @@ import { TestExecutionContext } from '@algorandfoundation/algorand-typescript-te
 import { afterEach, describe, expect, test } from 'vitest'
 import { SplitRouter } from './contract.algo'
 
-const UNIT = 1000n
-
 describe('SplitRouter', () => {
   const ctx = new TestExecutionContext()
 
@@ -11,12 +9,17 @@ describe('SplitRouter', () => {
     ctx.reset()
   })
 
+  // appId MUST be set on the scoped txn: Global.currentApplicationAddress (used
+  // by setRecipients' payTo default and by distribute()) only resolves against
+  // the txn's own appId, not the contract under test implicitly.
   const callInScope = <T>(
+    contract: SplitRouter,
     fn: () => T,
-    options?: { sender?: ReturnType<typeof ctx.any.account> },
+    options?: { sender?: ReturnType<typeof ctx.any.account>; fee?: bigint },
   ): T => {
     const sender = options?.sender ?? ctx.defaultSender
-    const txn = ctx.any.txn.applicationCall({ sender })
+    const fee = options?.fee ?? 1000n
+    const txn = ctx.any.txn.applicationCall({ sender, fee, appId: contract })
     return ctx.txn.createScope([txn], 0).execute(fn)
   }
 
@@ -31,7 +34,7 @@ describe('SplitRouter', () => {
     const ops = ctx.any.account()
     const mockUsdc = ctx.any.asset()
 
-    callInScope(() =>
+    callInScope(contract, () =>
       contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
     )
 
@@ -39,108 +42,281 @@ describe('SplitRouter', () => {
     return { contract, creator, auditor, maintainer, adversarial, treasury, ops, mockUsdc, appRef }
   }
 
-  test('split sum: 5 inner transfers sum to UNIT and have correct amounts', () => {
-    const { contract, creator, auditor, maintainer, adversarial, treasury, ops, mockUsdc, appRef } =
+  test('distribute(): 5-way split of the divisible balance, dust carries to the next call', () => {
+    const { contract, auditor, maintainer, adversarial, treasury, ops, mockUsdc, appRef } =
       setupFull()
 
-    const paymentTxn = ctx.any.txn.assetTransfer({
-      sender: creator,
-      assetReceiver: appRef.address,
-      xferAsset: mockUsdc,
-      assetAmount: UNIT,
-    })
-    const appCallTxn = ctx.any.txn.applicationCall({ sender: creator, appId: contract })
+    // Stage 1: fund payTo (the app address) with 777,700 microUSDC.
+    ctx.ledger.updateAssetHolding(appRef.address, mockUsdc, 777_700n)
 
-    ctx.txn.createScope([paymentTxn, appCallTxn], 1).execute(() => {
-      contract.pay(paymentTxn, 'lodash', '4.17.21')
-    })
+    callInScope(contract, () => contract.distribute(), { fee: 6000n })
 
-    // submitGroup creates 5 separate itxnGroups (one per txn)
-    const payGroup = ctx.txn.lastGroup
-    expect(payGroup.itxnGroups).toHaveLength(5)
+    const group1 = ctx.txn.lastGroup
+    expect(group1.itxnGroups).toHaveLength(5)
 
-    const amounts = payGroup.itxnGroups.map((g) => g.getAssetTransferInnerTxn(0).assetAmount)
-    expect(amounts).toEqual([500n, 200n, 150n, 100n, 50n])
+    const amounts1 = group1.itxnGroups.map((g) => g.getAssetTransferInnerTxn(0).assetAmount)
+    expect(amounts1).toEqual([388_500n, 155_400n, 116_550n, 77_700n, 38_850n])
+    const distributed1 = amounts1.reduce((a: bigint, b: bigint) => a + b, 0n)
+    expect(distributed1).toEqual(777_000n)
+    // dust: the emulator does not auto-debit itxn amounts from ledger balances,
+    // so the untouched remainder is the funded balance minus what distribute()
+    // actually moved.
+    expect(777_700n - distributed1).toEqual(700n)
 
-    const total = amounts.reduce((a: bigint, b: bigint) => a + b, 0n)
-    expect(total).toEqual(UNIT)
+    const senders1 = group1.itxnGroups.map((g) => g.getAssetTransferInnerTxn(0).sender)
+    for (const s of senders1) {
+      expect(s).toEqual(appRef.address)
+    }
 
-    const receivers = payGroup.itxnGroups.map(
-      (g) => g.getAssetTransferInnerTxn(0).assetReceiver,
-    )
-    expect(receivers[0]).toEqual(auditor)
-    expect(receivers[1]).toEqual(maintainer)
-    expect(receivers[2]).toEqual(adversarial)
-    expect(receivers[3]).toEqual(treasury)
-    expect(receivers[4]).toEqual(ops)
+    const receivers1 = group1.itxnGroups.map((g) => g.getAssetTransferInnerTxn(0).assetReceiver)
+    expect(receivers1[0]).toEqual(auditor)
+    expect(receivers1[1]).toEqual(maintainer)
+    expect(receivers1[2]).toEqual(adversarial)
+    expect(receivers1[3]).toEqual(treasury)
+    expect(receivers1[4]).toEqual(ops)
+
+    // Stage 2: add 99,300 to the 700 dust -> balance is exactly 100,000, the
+    // MIN_DISTRIBUTE boundary.
+    ctx.ledger.updateAssetHolding(appRef.address, mockUsdc, 100_000n)
+
+    callInScope(contract, () => contract.distribute(), { fee: 6000n })
+
+    const group2 = ctx.txn.lastGroup
+    expect(group2.itxnGroups).toHaveLength(5)
+
+    const amounts2 = group2.itxnGroups.map((g) => g.getAssetTransferInnerTxn(0).assetAmount)
+    expect(amounts2).toEqual([50_000n, 20_000n, 15_000n, 10_000n, 5_000n])
+    const distributed2 = amounts2.reduce((a: bigint, b: bigint) => a + b, 0n)
+    expect(distributed2).toEqual(100_000n)
+    expect(100_000n - distributed2).toEqual(0n)
   })
 
-  test('attest() writes box and only auditor can call it', () => {
-    const { contract, creator, auditor } = setupFull()
+  test('distribute() rejects a balance below MIN_DISTRIBUTE (100,000 microUSDC)', () => {
+    const { contract, mockUsdc, appRef } = setupFull()
+    // 99,999 floors to a divisible portion of 99,000 (1000-unit granularity),
+    // which is below the 100,000 gate.
+    ctx.ledger.updateAssetHolding(appRef.address, mockUsdc, 99_999n)
 
-    callInScope(() => contract.attest('lodash', '4.17.21', 2n), { sender: auditor })
+    expect(() => callInScope(contract, () => contract.distribute(), { fee: 6000n })).toThrow()
+  })
+
+  test('distribute() rejects an outer fee below 6000 microALGO', () => {
+    const { contract, mockUsdc, appRef } = setupFull()
+    ctx.ledger.updateAssetHolding(appRef.address, mockUsdc, 500_000n)
+
+    expect(() => callInScope(contract, () => contract.distribute(), { fee: 5_999n })).toThrow()
+  })
+
+  test('attest() rejects a non-auditor sender', () => {
+    const { contract, creator } = setupFull()
+
+    expect(() =>
+      callInScope(contract, () => contract.attest('lodash', '4.17.21', 2n, 'sha512-abc123=='), {
+        sender: creator,
+      }),
+    ).toThrow()
+  })
+
+  test('attest() from the auditor writes the integrity string into the box', () => {
+    const { contract, auditor } = setupFull()
+    const integrity = 'sha512-Zx9F+deadbeef=='
+
+    callInScope(contract, () => contract.attest('lodash', '4.17.21', 2n, integrity), {
+      sender: auditor,
+    })
 
     const boxValue = contract.attests('lodash@4.17.21').value
-    expect(boxValue.length).toEqual(80n)
+    // Pack layout: auditor(32) + txId(32) + status(8) + ts(8) + integrity(variable)
+    const tail = boxValue.slice(80).toString()
+    expect(tail).toEqual(integrity)
+  })
+
+  test('releaseAuthority() rejects a non-admin sender', () => {
+    const { contract, auditor } = setupFull()
+    const someoneElse = ctx.any.account()
 
     expect(() =>
-      callInScope(() => contract.attest('lodash', '4.17.21', 2n), { sender: creator }),
+      callInScope(contract, () => contract.releaseAuthority(someoneElse), { sender: auditor }),
     ).toThrow()
   })
 
-  test('pay() rejects wrong asset', () => {
-    const { contract, creator, appRef } = setupFull()
-    const wrongAsset = ctx.any.asset()
+  test('releaseAuthority() rejects when payTo is still the application address', () => {
+    const { contract, creator } = setupFull()
+    const someoneElse = ctx.any.account()
 
-    const badPayment = ctx.any.txn.assetTransfer({
-      sender: creator,
-      assetReceiver: appRef.address,
-      xferAsset: wrongAsset,
-      assetAmount: UNIT,
-    })
-    const appCallTxn = ctx.any.txn.applicationCall({ sender: creator, appId: contract })
-
+    // setupFull() never overrides payTo, so it still defaults to the app
+    // address here. An app account cannot be rekeyed.
     expect(() =>
-      ctx.txn.createScope([badPayment, appCallTxn], 1).execute(() => {
-        contract.pay(badPayment, 'lodash', '4.17.21')
-      }),
-    ).toThrow()
+      callInScope(contract, () => contract.releaseAuthority(someoneElse), { sender: creator }),
+    ).toThrow('payTo is the application address; an app account cannot be rekeyed')
   })
 
-  test('pay() rejects wrong amount', () => {
-    const { contract, creator, mockUsdc, appRef } = setupFull()
-
-    const badPayment = ctx.any.txn.assetTransfer({
-      sender: creator,
-      assetReceiver: appRef.address,
-      xferAsset: mockUsdc,
-      assetAmount: 999n,
-    })
-    const appCallTxn = ctx.any.txn.applicationCall({ sender: creator, appId: contract })
+  test('setPayTo() rejects a non-admin sender', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const notCreator = ctx.any.account()
+    const external = ctx.any.account()
 
     expect(() =>
-      ctx.txn.createScope([badPayment, appCallTxn], 1).execute(() => {
-        contract.pay(badPayment, 'lodash', '4.17.21')
-      }),
-    ).toThrow()
+      callInScope(contract, () => contract.setPayTo(external), { sender: notCreator }),
+    ).toThrow('admin only')
   })
 
-  test('pay() rejects wrong receiver', () => {
-    const { contract, creator, mockUsdc } = setupFull()
-    const wrongReceiver = ctx.any.account()
+  test('setPayTo() rejects the application address', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const appRef = ctx.ledger.getApplicationForContract(contract)
+    const appAddress = ctx.ledger.getAccount(appRef.address)
 
-    const badPayment = ctx.any.txn.assetTransfer({
-      sender: creator,
-      assetReceiver: wrongReceiver,
-      xferAsset: mockUsdc,
-      assetAmount: UNIT,
-    })
-    const appCallTxn = ctx.any.txn.applicationCall({ sender: creator, appId: contract })
+    expect(() => callInScope(contract, () => contract.setPayTo(appAddress))).toThrow(
+      'use the default app-address path instead',
+    )
+  })
 
-    expect(() =>
-      ctx.txn.createScope([badPayment, appCallTxn], 1).execute(() => {
-        contract.pay(badPayment, 'lodash', '4.17.21')
-      }),
-    ).toThrow()
+  test('setPayTo() with an external address succeeds; setRecipients() then leaves it alone', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+    expect(contract.payTo.value).toEqual(external.bytes)
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    // setRecipients' `if (!this.payTo.hasValue)` guard must leave the
+    // already-set external payTo untouched.
+    expect(contract.payTo.value).toEqual(external.bytes)
+  })
+
+  test('setPayTo() succeeds a second time while the current payTo holds a zero balance', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const first = ctx.any.account()
+    const second = ctx.any.account()
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () => contract.setPayTo(first))
+    // setRecipients stores assetId, so setPayTo's balance check now runs.
+    // `first` never opted into mockUsdc: op.AssetHolding.assetBalance
+    // returns exists=false, which the contract treats as a zero balance.
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    callInScope(contract, () => contract.setPayTo(second))
+    expect(contract.payTo.value).toEqual(second.bytes)
+  })
+
+  test('setPayTo() rejects a second call once the current payTo holds a non-zero balance', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+    const replacement = ctx.any.account()
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () => contract.setPayTo(external))
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    // The harness does not mutate ledger balances by running inner
+    // transactions through the AVM emulator; distribute()'s tests above
+    // already rely on this same direct patch. It stages a real non-zero
+    // holding for `external`, so this test proves the rejection, not just
+    // the code path.
+    ctx.ledger.updateAssetHolding(external, mockUsdc, 1n)
+
+    expect(() => callInScope(contract, () => contract.setPayTo(replacement))).toThrow(
+      'payTo already holds revenue',
+    )
+    expect(contract.payTo.value).toEqual(external.bytes)
+  })
+
+  test('default path: setRecipients() alone leaves payTo at the app address', () => {
+    const { contract, appRef } = setupFull()
+
+    expect(contract.payTo.value).toEqual(appRef.address.bytes)
+  })
+
+  test('variant B: releaseAuthority() succeeds once payTo is an external, rekeyed account', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const creator = ctx.defaultSender
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    const releaseTo = ctx.any.account()
+    callInScope(contract, () => contract.releaseAuthority(releaseTo), { sender: creator })
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+    expect(rekeyTxn.sender).toEqual(external)
+    expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+  })
+
+  test('optInToAsset(): variant A opts in the app address when payTo defaults to it', () => {
+    const { contract, mockUsdc, appRef } = setupFull()
+
+    callInScope(contract, () => contract.optInToAsset(mockUsdc))
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+    expect(inner.sender).toEqual(appRef.address)
+    expect(inner.assetReceiver).toEqual(appRef.address)
+  })
+
+  test('optInToAsset(): variant B opts in payTo when it is an external, rekeyed account', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    callInScope(contract, () => contract.optInToAsset(mockUsdc))
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+    expect(inner.sender).toEqual(external)
+    expect(inner.assetReceiver).toEqual(external)
   })
 })

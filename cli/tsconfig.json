@@ -8,7 +8,8 @@
     "skipLibCheck": true,
     "paths": {
       "../../mcp/src/tools/check.js": ["../../mcp/src/tools/check.ts"],
-      "../../mcp/src/tools/install.js": ["../../mcp/src/tools/install.ts"]
+      "../../mcp/src/tools/install.js": ["../../mcp/src/tools/install.ts"],
+      "../../mcp/src/tools/attest.js": ["../../mcp/src/tools/attest.ts"]
     }
   },
   "include": ["src/**/*.ts"]

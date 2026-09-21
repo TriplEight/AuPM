@@ -4,7 +4,7 @@ import { defineConfig } from 'vitest/config'
 // Load puya-ts transformer using createRequire to avoid ESM issues
 const req = createRequire(import.meta.url)
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: @algorandfoundation/algorand-typescript-testing's vitest transformer ships no types
 let puyaTsTransformer: any
 
 const getTransformer = async () => {

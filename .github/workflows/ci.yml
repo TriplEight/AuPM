@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1, pinned to a full commit SHA.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+
+      - name: Setup pnpm and Node
+        # pnpm/setup v3.0.0, pinned to a full commit SHA. pnpm 11 and later
+        # need Node 22 or later.
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024
+        with:
+          version: 12.5.1
+          runtime: node@22
+          cache: true
+          install: false
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run invariant guard
+        run: bash scripts/guard.sh
+
+      - name: Run Biome
+        run: pnpm exec biome ci .
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test proxy
+        run: pnpm -C proxy test
+
+      - name: Test contracts
+        run: pnpm -C contracts test
+
+      - name: Test mcp
+        run: pnpm -C mcp test
+
+      - name: Test cli
+        run: pnpm -C cli test
+
+      - name: Test spm-attest action
+        run: node --test .github/actions/spm-attest/attest.test.mjs

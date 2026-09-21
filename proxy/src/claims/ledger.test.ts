@@ -1,0 +1,441 @@
+// proxy/src/claims/ledger.test.ts
+//
+// CAUTION: this file gets its own SQLite file via SQLITE_PATH, set before
+// the dynamic import below (same trick as proxy/src/app.test.ts). The
+// claims tables are shared across several test files in this directory;
+// without per-file isolation, vitest's parallel test files race on the
+// same physical database and writes from one file can be wiped by another
+// file's beforeEach mid-test.
+import { randomUUID } from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
+import { beforeEach, describe, expect, test } from 'vitest'
+
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-ledger-test-${randomUUID()}.db`)
+
+const { default: db } = await import('./schema.js')
+const {
+  accrualCountForTxid,
+  ClaimAlreadyVerifiedError,
+  ClaimIdentityMismatchError,
+  createClaim,
+  getAccrualsForTxid,
+  getClaim,
+  getEarningsForLogin,
+  recordPayout,
+  verifyClaim,
+  writeAccruals,
+} = await import('./ledger.js')
+type Attribution = import('./attribution-rules.js').Attribution
+type GithubClient = import('./ledger.js').GithubClient
+
+beforeEach(() => {
+  db.exec('DELETE FROM accruals')
+  db.exec('DELETE FROM claims')
+  db.exec('DELETE FROM payouts')
+})
+
+const LOCKFILE_ATTRIBUTION: Attribution = {
+  route: 'lockfile',
+  priceMicro: 20000,
+  packages: [
+    { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
+    { pkg: 'lodash', version: '4.17.21', auditor: 'github:bob', maintainer: null },
+    { pkg: 'chalk', version: '5.3.0', auditor: 'github:alice', maintainer: 'github:chalk-owner' },
+  ],
+}
+
+describe('writeAccruals', () => {
+  test('a paid lockfile call of 20,000 microUSDC accrues exactly 10,000 / 4,000 / 3,000 across the three roles', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1')
+    const rows = getAccrualsForTxid('TXID-1')
+
+    const byRole = new Map<string, number>()
+    for (const row of rows) byRole.set(row.role, (byRole.get(row.role) ?? 0) + row.amount_micro)
+
+    expect(byRole.get('auditor')).toBe(10000)
+    expect(byRole.get('maintainer')).toBe(4000)
+    expect(byRole.get('reviewer')).toBe(3000)
+
+    const total = rows.reduce((s, r) => s + r.amount_micro, 0)
+    expect(total).toBe(17000) // 10,000 + 4,000 + 3,000; the ledgered 850/1000 of 20,000
+  })
+
+  test('replaying the same settle_txid writes no second accrual: row count and total unchanged', () => {
+    const firstWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
+    expect(firstWritten).toBe(9) // 3 roles x 3 packages
+
+    const before = getAccrualsForTxid('TXID-REPLAY')
+    const totalBefore = before.reduce((s, r) => s + r.amount_micro, 0)
+    expect(before).toHaveLength(9)
+
+    const secondWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
+    expect(secondWritten).toBe(0)
+
+    const after = getAccrualsForTxid('TXID-REPLAY')
+    const totalAfter = after.reduce((s, r) => s + r.amount_micro, 0)
+    expect(after).toHaveLength(9)
+    expect(totalAfter).toBe(totalBefore)
+    expect(accrualCountForTxid('TXID-REPLAY')).toBe(9)
+  })
+
+  test('a free request (priceMicro 0) writes no accrual at all', () => {
+    const freeAttribution: Attribution = { route: 'lockfile', priceMicro: 0, packages: [] }
+    const written = writeAccruals(freeAttribution, 'TXID-FREE')
+    expect(written).toBe(0)
+    expect(getAccrualsForTxid('TXID-FREE')).toHaveLength(0)
+  })
+
+  test('single-attest route: 100% goes to that one package, identity github:alice for auditor', () => {
+    const attribution: Attribution = {
+      route: 'single-attest',
+      priceMicro: 1000,
+      packages: [
+        { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
+      ],
+    }
+    writeAccruals(attribution, 'TXID-SINGLE')
+    const rows = getAccrualsForTxid('TXID-SINGLE')
+    const auditorRow = rows.find((r) => r.role === 'auditor')
+    expect(auditorRow?.identity).toBe('github:alice')
+    expect(auditorRow?.amount_micro).toBe(500)
+  })
+})
+
+describe('getEarningsForLogin', () => {
+  test('reports accrued totals per role for a login', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN')
+    const earnings = getEarningsForLogin('alice')
+    expect(earnings.identity).toBe('github:alice')
+    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
+    // alice audited ms and chalk: 2 of the 3 packages' auditor shares
+    expect(auditorRole?.accruedMicro).toBeGreaterThan(0)
+    expect(earnings.totalAccruedMicro).toBe(auditorRole?.accruedMicro)
+    expect(earnings.totalClaimedMicro).toBe(0)
+  })
+
+  test("never exposes another identity's data: querying alice does not return bob's accrual", () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-2')
+    // alice audited 2 of the 3 packages (ms, chalk); bob audited 1 (lodash).
+    const alice = getEarningsForLogin('alice')
+    const bob = getEarningsForLogin('bob')
+    const aliceAuditor = alice.roles.find((r) => r.role === 'auditor')?.accruedMicro ?? 0
+    const bobAuditor = bob.roles.find((r) => r.role === 'auditor')?.accruedMicro ?? 0
+    expect(aliceAuditor).toBeGreaterThan(0)
+    expect(bobAuditor).toBeGreaterThan(0)
+    expect(aliceAuditor).not.toBe(bobAuditor)
+    expect(aliceAuditor + bobAuditor).toBe(10000) // the whole auditor share, split between only these two
+  })
+
+  test('claimed totals reflect recorded payouts', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-3')
+    recordPayout('github:alice', 'auditor', 1000, 'PAYOUT-TX-1')
+    const earnings = getEarningsForLogin('alice')
+    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
+    expect(auditorRole?.claimedMicro).toBe(1000)
+  })
+})
+
+describe('claims', () => {
+  test('createClaim returns a nonce and records a pending claim', () => {
+    const { nonce } = createClaim(
+      'github:alice',
+      'ALGOADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+    )
+    expect(nonce).toBeTruthy()
+    const claim = getClaim('github:alice')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.nonce).toBe(nonce)
+  })
+
+  function stubGithubClient(gistContentByLogin: Record<string, string>): GithubClient {
+    return {
+      getFile: async () => null,
+      getGistContent: async (login) => gistContentByLogin[login] ?? null,
+    }
+  }
+
+  test('claim verification succeeds against a stubbed gist containing the nonce', async () => {
+    const { nonce } = createClaim('github:alice', 'ALGOADDR1')
+    const github = stubGithubClient({ alice: `spm-claim:ALGOADDR1:${nonce}` })
+
+    const claim = await verifyClaim('github:alice', { kind: 'gist', owner: 'alice' }, github)
+    expect(claim?.status).toBe('verified')
+    expect(claim?.verified_at).not.toBeNull()
+  })
+
+  test('claim verification fails when the nonce does not match', async () => {
+    createClaim('github:bob', 'ALGOADDR2')
+    const github = stubGithubClient({ bob: 'spm-claim:ALGOADDR2:WRONGNONCE' })
+
+    const claim = await verifyClaim('github:bob', { kind: 'gist', owner: 'bob' }, github)
+    expect(claim?.status).toBe('failed')
+    expect(claim?.verified_at).toBeNull()
+  })
+
+  test('verifying a maintainer claim via the well-known file, through getFile', async () => {
+    const { nonce } = createClaim('github:owner', 'ALGOADDR3')
+    const github: GithubClient = {
+      getFile: async (owner, repo, path) =>
+        owner === 'owner' && repo === 'repo' && path === '.well-known/spm-claim.json'
+          ? JSON.stringify({ algorand: 'ALGOADDR3', nonce })
+          : null,
+      getGistContent: async () => null,
+    }
+    const claim = await verifyClaim(
+      'github:owner',
+      { kind: 'well-known', owner: 'owner', repo: 'repo' },
+      github,
+    )
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('verifying an unknown identity returns null', async () => {
+    const github: GithubClient = { getFile: async () => null, getGistContent: async () => null }
+    const claim = await verifyClaim('github:nobody', { kind: 'gist', owner: 'nobody' }, github)
+    expect(claim).toBeNull()
+  })
+
+  // Counting stub: records whether verifyClaim ever calls out to GitHub, so
+  // the hijack-rejection test can assert zero network calls, not merely a
+  // failed outcome.
+  function countingGithubClient(gistByLogin: Record<string, string> = {}): GithubClient & {
+    calls: number
+  } {
+    const client = {
+      calls: 0,
+      getFile: async () => {
+        client.calls += 1
+        return null
+      },
+      getGistContent: async (login: string) => {
+        client.calls += 1
+        return gistByLogin[login] ?? null
+      },
+    }
+    return client
+  }
+
+  test('THE hijack is rejected: a proof owned by attacker cannot verify a claim for github:victim', async () => {
+    const { nonce } = createClaim('github:victim', 'VICTIM-ADDR')
+    // The attacker publishes the victim's nonce in a gist the attacker owns.
+    const github = countingGithubClient({ attacker: `spm-claim:VICTIM-ADDR:${nonce}` })
+
+    await expect(
+      verifyClaim('github:victim', { kind: 'gist', owner: 'attacker' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    // The claim must remain pending, not become verified and not even
+    // become failed — the request was rejected outright.
+    const claim = getClaim('github:victim')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.verified_at).toBeNull()
+  })
+
+  test('a mismatched proof owner performs no GitHub call', async () => {
+    createClaim('github:victim', 'VICTIM-ADDR-2')
+    const github = countingGithubClient({ attacker: 'anything' })
+
+    await expect(
+      verifyClaim('github:victim', { kind: 'gist', owner: 'attacker' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    expect(github.calls).toBe(0)
+  })
+
+  test('a mismatched well-known proof owner is rejected and performs no GitHub call', async () => {
+    createClaim('github:victim', 'VICTIM-ADDR-3')
+    const github = countingGithubClient()
+
+    await expect(
+      verifyClaim(
+        'github:victim',
+        { kind: 'well-known', owner: 'attacker', repo: 'evil-repo' },
+        github,
+      ),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+
+    expect(github.calls).toBe(0)
+  })
+
+  test('a gist proof owned by the claimed login still verifies', async () => {
+    const { nonce } = createClaim('github:carol', 'CAROL-ADDR')
+    const github = countingGithubClient({ carol: `spm-claim:CAROL-ADDR:${nonce}` })
+
+    const claim = await verifyClaim('github:carol', { kind: 'gist', owner: 'carol' }, github)
+    expect(claim?.status).toBe('verified')
+    expect(github.calls).toBe(1)
+  })
+
+  test('a well-known proof in a repository owned by the claimed login still verifies', async () => {
+    const { nonce } = createClaim('github:dave', 'DAVE-ADDR')
+    const github: GithubClient = {
+      getFile: async (owner, repo, path) =>
+        owner === 'dave' && repo === 'dave-repo' && path === '.well-known/spm-claim.json'
+          ? JSON.stringify({ algorand: 'DAVE-ADDR', nonce })
+          : null,
+      getGistContent: async () => null,
+    }
+    const claim = await verifyClaim(
+      'github:dave',
+      { kind: 'well-known', owner: 'dave', repo: 'dave-repo' },
+      github,
+    )
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('login comparison is case-insensitive: DAVE proof owner matches dave identity', async () => {
+    const { nonce } = createClaim('github:dave', 'DAVE-ADDR-2')
+    const github = countingGithubClient({ DAVE: `spm-claim:DAVE-ADDR-2:${nonce}` })
+
+    const claim = await verifyClaim('github:dave', { kind: 'gist', owner: 'DAVE' }, github)
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('identity "unassigned" is rejected outright', async () => {
+    const github = countingGithubClient()
+    await expect(
+      verifyClaim('unassigned', { kind: 'gist', owner: 'unassigned' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    expect(github.calls).toBe(0)
+  })
+
+  test('an identity not matching github:<login> is rejected outright', async () => {
+    const github = countingGithubClient()
+    await expect(
+      verifyClaim('npm:some-package', { kind: 'gist', owner: 'some-package' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    expect(github.calls).toBe(0)
+  })
+})
+
+describe('createClaim: a verified claim is not reset (H2)', () => {
+  function stubGithubClient(gistContentByLogin: Record<string, string>): GithubClient {
+    return {
+      getFile: async () => null,
+      getGistContent: async (login) => gistContentByLogin[login] ?? null,
+    }
+  }
+
+  test('a pending claim can be re-issued: the nonce changes', () => {
+    const first = createClaim('github:pending-user', 'ADDR-1')
+    const second = createClaim('github:pending-user', 'ADDR-2')
+    expect(second.nonce).not.toBe(first.nonce)
+    const claim = getClaim('github:pending-user')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.nonce).toBe(second.nonce)
+    expect(claim?.algorand_address).toBe('ADDR-2')
+  })
+
+  test('a failed claim can be re-issued', async () => {
+    const { nonce } = createClaim('github:failed-user', 'ADDR-3')
+    const github = stubGithubClient({ 'failed-user': 'spm-claim:ADDR-3:WRONGNONCE' })
+    await verifyClaim('github:failed-user', { kind: 'gist', owner: 'failed-user' }, github)
+    expect(getClaim('github:failed-user')?.status).toBe('failed')
+
+    const reissued = createClaim('github:failed-user', 'ADDR-4')
+    expect(reissued.nonce).not.toBe(nonce)
+    const claim = getClaim('github:failed-user')
+    expect(claim?.status).toBe('pending')
+    expect(claim?.algorand_address).toBe('ADDR-4')
+  })
+
+  test('a verified claim is not reset: status, address, and nonce are unchanged', async () => {
+    const { nonce } = createClaim('github:verified-user', 'ADDR-5')
+    const github = stubGithubClient({ 'verified-user': `spm-claim:ADDR-5:${nonce}` })
+    await verifyClaim('github:verified-user', { kind: 'gist', owner: 'verified-user' }, github)
+    expect(getClaim('github:verified-user')?.status).toBe('verified')
+
+    expect(() => createClaim('github:verified-user', 'ATTACKER-ADDR')).toThrow(
+      ClaimAlreadyVerifiedError,
+    )
+
+    const claim = getClaim('github:verified-user')
+    expect(claim?.status).toBe('verified')
+    expect(claim?.nonce).toBe(nonce)
+    expect(claim?.algorand_address).toBe('ADDR-5')
+  })
+
+  test('after a rejected reset attempt, earnings and payout eligibility are unaffected', async () => {
+    const { nonce } = createClaim('github:earner', 'ADDR-6')
+    const github = stubGithubClient({ earner: `spm-claim:ADDR-6:${nonce}` })
+    await verifyClaim('github:earner', { kind: 'gist', owner: 'earner' }, github)
+
+    const attribution: Attribution = {
+      route: 'single-attest',
+      priceMicro: 1000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:earner', maintainer: null }],
+    }
+    writeAccruals(attribution, 'TXID-EARNER-DOS')
+
+    const before = getEarningsForLogin('earner')
+    expect(before.claimStatus).toBe('verified')
+
+    expect(() => createClaim('github:earner', 'ATTACKER-ADDR-2')).toThrow(ClaimAlreadyVerifiedError)
+
+    const after = getEarningsForLogin('earner')
+    expect(after.claimStatus).toBe('verified')
+    expect(after.totalAccruedMicro).toBe(before.totalAccruedMicro)
+    expect(getClaim('github:earner')?.algorand_address).toBe('ADDR-6')
+  })
+
+  test('a verified claim for one identity does not block creating a claim for a different identity', async () => {
+    const { nonce } = createClaim('github:verified-other', 'ADDR-7')
+    const github = stubGithubClient({ 'verified-other': `spm-claim:ADDR-7:${nonce}` })
+    await verifyClaim('github:verified-other', { kind: 'gist', owner: 'verified-other' }, github)
+
+    const { nonce: newNonce } = createClaim('github:fresh-user', 'ADDR-8')
+    expect(newNonce).toBeTruthy()
+    expect(getClaim('github:fresh-user')?.status).toBe('pending')
+  })
+})
+
+describe('identity canonicalisation', () => {
+  const MIXED_CASE_ATTRIBUTION: Attribution = {
+    route: 'single-attest',
+    priceMicro: 1000,
+    packages: [
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
+    ],
+  }
+
+  function stubGithubClient(gistContentByLogin: Record<string, string>): GithubClient {
+    return {
+      getFile: async () => null,
+      getGistContent: async (login) => gistContentByLogin[login] ?? null,
+    }
+  }
+
+  test('a claim created as github:Alice and an accrual for reviewer alice resolve to the same identity; earnings reports the exact accrued amount', () => {
+    createClaim('github:Alice', 'ALGOADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA')
+    // The accrual identity is built from a reviewer login stored elsewhere
+    // as `github:alice` — lower-case, as `resolveAuditorIdentity` resolves it.
+    writeAccruals(MIXED_CASE_ATTRIBUTION, 'TXID-CANON-1')
+
+    const earnings = getEarningsForLogin('Alice')
+    expect(earnings.identity).toBe('github:alice')
+    expect(earnings.claimStatus).toBe('pending')
+    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
+    expect(auditorRole?.accruedMicro).toBe(500)
+    expect(earnings.totalAccruedMicro).toBe(500)
+  })
+
+  test('a proof owner differing only in case still verifies', async () => {
+    const { nonce } = createClaim('github:Alice', 'ALGOADDR-CANON-2')
+    const github = stubGithubClient({ alice: `spm-claim:ALGOADDR-CANON-2:${nonce}` })
+
+    const claim = await verifyClaim('github:Alice', { kind: 'gist', owner: 'alice' }, github)
+    expect(claim?.status).toBe('verified')
+  })
+
+  test('a proof owner that is a genuinely different login is still rejected', async () => {
+    createClaim('github:Alice', 'ALGOADDR-CANON-3')
+    const github = stubGithubClient({ mallory: 'anything' })
+
+    await expect(
+      verifyClaim('github:Alice', { kind: 'gist', owner: 'mallory' }, github),
+    ).rejects.toThrow(ClaimIdentityMismatchError)
+    const claim = getClaim('github:alice')
+    expect(claim?.status).toBe('pending')
+  })
+})

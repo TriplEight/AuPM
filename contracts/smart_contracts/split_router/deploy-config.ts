@@ -1,7 +1,7 @@
+import path from 'node:path'
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
 import algosdk from 'algosdk'
 import dotenv from 'dotenv'
-import path from 'node:path'
 import { SplitRouterFactory } from '../artifacts/split_router/SplitRouterClient'
 
 // Load root .env first, then override with contracts-level .env if present
@@ -20,12 +20,9 @@ export async function deploy() {
   console.log('=== Deploying SplitRouter ===')
 
   const algorand = AlgorandClient.fromEnvironment()
-  const deployer = loadAccount('PAYER_MNEMONIC')
+  const deployer = loadAccount('SPM_DONOR_MNEMONIC')
 
-  algorand.setSigner(
-    deployer.addr,
-    algosdk.makeBasicAccountTransactionSigner(deployer),
-  )
+  algorand.setSigner(deployer.addr, algosdk.makeBasicAccountTransactionSigner(deployer))
   algorand.setDefaultSigner(algosdk.makeBasicAccountTransactionSigner(deployer))
 
   const recipients = {

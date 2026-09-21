@@ -1,8 +1,9 @@
 // proxy/src/db.ts
-import BetterSqlite3 from 'better-sqlite3'
-import path from 'node:path'
 
-const DB_PATH = process.env['SQLITE_PATH'] ?? path.join(process.cwd(), 'audit.db')
+import path from 'node:path'
+import BetterSqlite3 from 'better-sqlite3'
+
+const DB_PATH = process.env.SQLITE_PATH ?? path.join(process.cwd(), 'audit.db')
 
 const db = new BetterSqlite3(DB_PATH)
 
@@ -18,6 +19,26 @@ db.exec(`
   )
 `)
 
+// Upgrade guard: an existing audit.db predates the `integrity` column. Add
+// it in place rather than recreating the table, so a deployed database
+// upgrades without losing its rows. Safe to run on every boot — it only
+// runs the ALTER when the column is still missing.
+const existingColumns = db.prepare('PRAGMA table_info(audit_status)').all() as { name: string }[]
+if (!existingColumns.some((column) => column.name === 'integrity')) {
+  db.exec('ALTER TABLE audit_status ADD COLUMN integrity TEXT')
+}
+
+// Upgrade guard: an existing audit.db predates the `reviewer` column. Add it
+// in place, same pattern as `integrity` above. `reviewer` is the human
+// reviewer's bare GitHub login (e.g. "alice") — never "github:alice" and
+// never an Algorand address. `auditor_addr` records a different fact (the
+// on-chain attesting address) and stays untouched (CLAUDE.md). Without this
+// column, the auditor revenue share has no GitHub identity to accrue
+// against and is stranded.
+if (!existingColumns.some((column) => column.name === 'reviewer')) {
+  db.exec('ALTER TABLE audit_status ADD COLUMN reviewer TEXT')
+}
+
 export type StatusRow = {
   pkg: string
   version: string
@@ -25,6 +46,14 @@ export type StatusRow = {
   auditor_addr: string | null
   attest_txid: string | null
   ts: number | null
+  /** The known-good npm `integrity` string for the reviewed tarball, or null
+   * when no independent integrity has been stored — see status.ts's
+   * isReviewedWithIntegrity(). Never fabricated. */
+  integrity: string | null
+  /** Bare GitHub login of the human reviewer (e.g. "alice"), or null when
+   * unknown. Never "github:alice" here — status.ts's reviewerIdentity()
+   * applies that prefix. Never an Algorand address; see auditor_addr. */
+  reviewer: string | null
 }
 
 export const getStatus = db.prepare<[string, string], StatusRow>(
@@ -32,15 +61,26 @@ export const getStatus = db.prepare<[string, string], StatusRow>(
 )
 
 export const upsertStatus = db.prepare<
-  [string, string, string, string | null, string | null, number | null]
+  [
+    string,
+    string,
+    string,
+    string | null,
+    string | null,
+    number | null,
+    string | null,
+    string | null,
+  ]
 >(
-  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts)
-   VALUES (?, ?, ?, ?, ?, ?)
+  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts, integrity, reviewer)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(pkg, version) DO UPDATE SET
      status       = excluded.status,
      auditor_addr = excluded.auditor_addr,
      attest_txid  = excluded.attest_txid,
-     ts           = excluded.ts`,
+     ts           = excluded.ts,
+     integrity    = excluded.integrity,
+     reviewer     = excluded.reviewer`,
 )
 
 export default db

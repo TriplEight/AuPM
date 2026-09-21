@@ -1,9 +1,9 @@
 #!/usr/bin/env node
+import fs from 'node:fs'
 // Completes remaining setup: opts treasury and ops into USDC, verifies app state.
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../mcp/package.json', import.meta.url))
@@ -15,23 +15,25 @@ if (fs.existsSync(envPath)) {
   const lines = fs.readFileSync(envPath, 'utf8').split('\n')
   for (const line of lines) {
     const m = line.match(/^([A-Z_]+)="?([^"]*)"?$/)
-    if (m) { if (!process.env[m[1]]) process.env[m[1]] = m[2] }
+    if (m) {
+      if (!process.env[m[1]]) process.env[m[1]] = m[2]
+    }
   }
 }
 
 const USDC_ASA_ID = 10458941
 const algod = new algosdk.Algodv2(
-  process.env['ALGOD_TOKEN'] ?? '',
-  process.env['ALGOD_SERVER'] ?? 'https://testnet-api.algonode.cloud',
-  Number(process.env['ALGOD_PORT'] ?? 443),
+  process.env.ALGOD_TOKEN ?? '',
+  process.env.ALGOD_SERVER ?? 'https://testnet-api.algonode.cloud',
+  Number(process.env.ALGOD_PORT ?? 443),
 )
 
 async function optInIfNeeded(name, mnemonic) {
   const acct = algosdk.mnemonicToSecretKey(mnemonic)
   const info = await algod.accountInformation(acct.addr.toString()).do()
-  const optedIn = (info.assets ?? []).some(a => Number(a.assetId) === USDC_ASA_ID)
+  const optedIn = (info.assets ?? []).some((a) => Number(a.assetId) === USDC_ASA_ID)
   if (optedIn) {
-    console.log(`${name} (${acct.addr.toString().substring(0,8)}...) already opted into USDC.`)
+    console.log(`${name} (${acct.addr.toString().substring(0, 8)}...) already opted into USDC.`)
     return
   }
   console.log(`Opting ${name} into USDC...`)
@@ -50,11 +52,11 @@ async function optInIfNeeded(name, mnemonic) {
 }
 
 console.log('== Finishing USDC opt-ins for treasury and ops ==')
-await optInIfNeeded('treasury', process.env['TREASURY_MNEMONIC'])
-await optInIfNeeded('ops', process.env['OPS_MNEMONIC'])
+await optInIfNeeded('treasury', process.env.TREASURY_MNEMONIC)
+await optInIfNeeded('ops', process.env.OPS_MNEMONIC)
 
 // Verify app state
-const APP_ID = Number(process.env['SPLIT_APP_ID'])
+const APP_ID = Number(process.env.SPLIT_APP_ID)
 if (APP_ID) {
   const appInfo = await algod.getApplicationByID(APP_ID).do()
   const gs = appInfo.params?.globalState ?? []
@@ -62,12 +64,12 @@ if (APP_ID) {
 }
 
 // Check if PAYER has enough ALGO for the demo tx
-const payerMnemonic = process.env['PAYER_MNEMONIC']
+const payerMnemonic = process.env.SPM_DONOR_MNEMONIC
 if (payerMnemonic) {
   const payer = algosdk.mnemonicToSecretKey(payerMnemonic)
   const info = await algod.accountInformation(payer.addr.toString()).do()
   const available = Number(info.amount) - Number(info['min-balance'])
-  const usdc = (info.assets ?? []).find(a => Number(a.assetId) === USDC_ASA_ID)
+  const usdc = (info.assets ?? []).find((a) => Number(a.assetId) === USDC_ASA_ID)
   console.log(`\nPAYER available ALGO: ${available} µALGO`)
   console.log(`PAYER USDC balance: ${usdc ? usdc.amount : 'not opted in'} µUSDC`)
   if (available < 10000) {

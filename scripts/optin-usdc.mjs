@@ -1,10 +1,10 @@
 #!/usr/bin/env node
+import fs from 'node:fs'
 // Opts the PAYER account into USDC (ASA 10458941) on TestNet.
 // Must run AFTER PAYER has at least 0.3 ALGO, BEFORE funding PAYER with USDC.
 import { createRequire } from 'node:module'
-import { fileURLToPath } from 'node:url'
 import path from 'node:path'
-import fs from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../mcp/package.json', import.meta.url))
@@ -24,20 +24,23 @@ if (fs.existsSync(envPath)) {
 }
 
 const USDC_ASA_ID = 10458941
-const mnemonic = process.env['PAYER_MNEMONIC']
-if (!mnemonic) { console.error('PAYER_MNEMONIC not set in .env'); process.exit(1) }
+const mnemonic = process.env.SPM_DONOR_MNEMONIC
+if (!mnemonic) {
+  console.error('SPM_DONOR_MNEMONIC not set in .env')
+  process.exit(1)
+}
 
 const payer = algosdk.mnemonicToSecretKey(mnemonic)
 const algod = new algosdk.Algodv2(
-  process.env['ALGOD_TOKEN'] ?? '',
-  process.env['ALGOD_SERVER'] ?? 'https://testnet-api.algonode.cloud',
-  Number(process.env['ALGOD_PORT'] ?? 443),
+  process.env.ALGOD_TOKEN ?? '',
+  process.env.ALGOD_SERVER ?? 'https://testnet-api.algonode.cloud',
+  Number(process.env.ALGOD_PORT ?? 443),
 )
 
 // Check if already opted in
 const acctInfo = await algod.accountInformation(payer.addr.toString()).do()
 // algosdk v3 uses camelCase: assetId (bigint)
-const alreadyOptedIn = (acctInfo.assets ?? []).some(a => Number(a.assetId) === USDC_ASA_ID)
+const alreadyOptedIn = (acctInfo.assets ?? []).some((a) => Number(a.assetId) === USDC_ASA_ID)
 if (alreadyOptedIn) {
   console.log(`PAYER already opted into USDC (ASA ${USDC_ASA_ID}). Nothing to do.`)
   process.exit(0)

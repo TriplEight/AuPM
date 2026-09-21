@@ -2,14 +2,25 @@
   "name": "spm",
   "version": "1.0.0",
   "type": "module",
-  "workspaces": ["contracts", "proxy", "mcp", "cli"],
+  "workspaces": [
+    "contracts",
+    "proxy",
+    "mcp",
+    "cli"
+  ],
   "scripts": {
-    "test": "pnpm --filter './proxy' test && pnpm --filter './contracts' test",
-    "typecheck": "pnpm run --filter './contracts' check-types && pnpm -C proxy exec tsc --noEmit && pnpm -C mcp exec tsc --noEmit && pnpm -C cli exec tsc --noEmit"
+    "test": "pnpm -C proxy test && pnpm -C contracts test && pnpm -C mcp test && pnpm -C cli test && node --test .github/actions/spm-attest/attest.test.mjs",
+    "typecheck": "pnpm run --filter './contracts' check-types && pnpm -C proxy exec tsc --noEmit && pnpm -C mcp exec tsc --noEmit && pnpm -C cli exec tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "guard": "bash scripts/guard.sh"
   },
   "repository": {
     "type": "git",
     "url": "ssh://git@ssh.github.com:443/tripleight/spm.git"
   },
-  "license": "ISC"
+  "license": "ISC",
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14"
+  }
 }

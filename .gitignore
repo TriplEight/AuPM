@@ -3,3 +3,12 @@ dist/
 *.db
 .env
 .env.local
+.DS_Store
+*.log
+.rtk/cache
+
+# Personal Claude Code settings. Biome reads only this file, not the global git ignore.
+.claude/settings.local.json
+
+# Subagent git worktrees.
+.claude/worktrees/

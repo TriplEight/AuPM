@@ -1,11 +1,38 @@
-// cli/src/index.ts
-const [, , command, pkg, version] = process.argv
+const argv = process.argv.slice(2)
+const [command] = argv
+
+const USAGE_LINES = [
+  'Usage:',
+  '  spm status <pkg> <version>',
+  '  spm install <pkg> <version> [--donate]',
+  '  spm attest <lockfile> [--donate] [--out <path>]',
+  '  spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+]
+
+/** Splits --donate out of the remaining positional args, wherever it appears. */
+function extractDonateFlag(args: string[]): { allowDonation: boolean; rest: string[] } {
+  const rest = args.filter((arg) => arg !== '--donate')
+  return { allowDonation: rest.length !== args.length, rest }
+}
 
 async function main(): Promise<void> {
+  if (command === 'verify') {
+    const { runVerify } = await import('./verify.js')
+    const exitCode = await runVerify(argv.slice(1))
+    process.exit(exitCode)
+  }
+
+  if (command === 'attest') {
+    const { runAttest } = await import('./attest.js')
+    const exitCode = await runAttest(argv.slice(1))
+    process.exit(exitCode)
+  }
+
+  const { allowDonation, rest } = extractDonateFlag(argv.slice(1))
+  const [pkg, version] = rest
+
   if (!command || !pkg || !version) {
-    console.log('Usage:')
-    console.log('  spm status <pkg> <version>')
-    console.log('  spm install <pkg> <version>')
+    for (const line of USAGE_LINES) console.log(line)
     process.exit(1)
   }
 
@@ -15,8 +42,11 @@ async function main(): Promise<void> {
     console.log(JSON.stringify(result, null, 2))
   } else if (command === 'install') {
     const { installTool } = await import('../../mcp/src/tools/install.js')
-    const result = await installTool.handler({ pkg, version })
+    const result = await installTool.handler({ pkg, version, allowDonation })
     console.log(JSON.stringify(result, null, 2))
+    if (result.status === 'donation_required') {
+      process.exit(2)
+    }
     if (result.loraUrl) console.log('\nLora:', result.loraUrl)
   } else {
     console.error('Unknown command:', command)

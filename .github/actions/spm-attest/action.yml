@@ -1,0 +1,68 @@
+name: 'spm-attest'
+description: 'Posts a lockfile to the SPM attestation server and writes the signed envelope for upload as a build artifact.'
+inputs:
+  endpoint:
+    description: 'URL of the SPM attestation server.'
+    required: true
+  lockfile:
+    description: 'Path to the lockfile to post.'
+    required: false
+    default: 'package-lock.json'
+  fail-on-mismatch:
+    description: 'Set to "true" to fail the step when the summary reports integrityMismatch above zero.'
+    required: false
+    default: 'false'
+  output:
+    description: 'Path to write the signed attestation envelope.'
+    required: false
+    default: 'spm-attestation.json'
+  donate:
+    description: 'Set to "true" to pay for a reviewed lockfile attestation. Off by default.'
+    required: false
+    default: 'false'
+  donor-mnemonic:
+    description: 'A funded MainNet donor mnemonic, from a GitHub secret. Read only when donate is "true".'
+    required: false
+    default: ''
+outputs:
+  output-path:
+    description: 'Path to the written attestation envelope file.'
+    value: ${{ inputs.output }}
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup pnpm and Node
+      # pnpm/setup v3.0.0, pinned to a full commit SHA. Matches ci.yml.
+      id: setup-pnpm
+      continue-on-error: true
+      uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024
+      with:
+        version: 12.5.1
+        runtime: node@22
+        cache: false
+        install: false
+
+    - name: Install spm CLI dependencies
+      # Runs in the action's own repository checkout, not the caller's, so
+      # cli/ and mcp/ resolve even when this action is called from a
+      # third-party repo. Never redden the caller's CI: continue-on-error
+      # here, and the run step below checks setup-ok before spawning.
+      id: install-deps
+      if: steps.setup-pnpm.outcome == 'success'
+      continue-on-error: true
+      shell: bash
+      working-directory: ${{ github.action_path }}/../../..
+      run: pnpm install --frozen-lockfile --filter spm-cli... --filter spm-mcp...
+
+    - name: Run spm-attest
+      shell: bash
+      env:
+        ENDPOINT: ${{ inputs.endpoint }}
+        LOCKFILE: ${{ inputs.lockfile }}
+        FAIL_ON_MISMATCH: ${{ inputs.fail-on-mismatch }}
+        OUTPUT: ${{ inputs.output }}
+        DONATE: ${{ inputs.donate }}
+        # WARNING: only set when donate is 'true'. Never argv, never a log line.
+        DONOR_MNEMONIC: ${{ inputs.donate == 'true' && inputs.donor-mnemonic || '' }}
+        SETUP_OK: ${{ steps.setup-pnpm.outcome == 'success' && steps.install-deps.outcome == 'success' }}
+      run: node "${{ github.action_path }}/attest.mjs"

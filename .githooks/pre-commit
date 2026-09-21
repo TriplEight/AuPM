@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# .githooks/pre-commit
+#
+# Wired with: git config core.hooksPath .githooks
+# No dependency needed: a plain hooks path replaces husky/lint-staged, both
+# of which add postinstall scripts. Postinstall scripts are blocked here.
+#
+# Runs, in order: the invariant guard, Biome, then the workspace
+# typecheck. Fails the commit when any step fails.
+#
+# Biome runs `ci .` (the whole repo), the same command CI runs. A staged-
+# files-only `check` can pass here and still fail CI, which trained
+# everyone to distrust the hook. Running the exact CI command is the only
+# way a passing commit is guaranteed to pass CI's lint step too. A full
+# run takes well under a second on this repo, so scope is not a cost.
+
+set -u
+
+repo_root="$(git rev-parse --show-toplevel)" || exit 1
+cd "$repo_root" || exit 1
+
+echo "pre-commit: running scripts/guard.sh"
+bash scripts/guard.sh
+guard_status=$?
+if [ "$guard_status" -ne 0 ]; then
+  echo "pre-commit: guard.sh failed. Fix the invariant violation above."
+  exit 1
+fi
+
+echo "pre-commit: running biome ci . (same command CI runs)"
+pnpm exec biome ci .
+biome_status=$?
+if [ "$biome_status" -ne 0 ]; then
+  echo "pre-commit: biome ci failed. Fix the findings above."
+  exit 1
+fi
+
+echo "pre-commit: running pnpm typecheck"
+pnpm typecheck
+typecheck_status=$?
+if [ "$typecheck_status" -ne 0 ]; then
+  echo "pre-commit: typecheck failed. Fix the errors above."
+  exit 1
+fi
+
+echo "pre-commit: all checks passed"
+exit 0
