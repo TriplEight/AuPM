@@ -70,3 +70,34 @@ Use `/handoff <summary>` to append entries. Newest at top.
 - **Key answer**: Hono middleware DOES discard the handler body on settlement failure (returns a new Response built from the settlement error, not the handler's body) — `hono/dist/esm/index.mjs:176-182`.
 - **Key answer**: Middleware skips settlement entirely when handler status >= 400 — `hono/dist/esm/index.mjs:164-166`.
 - **Next**: Feed these findings into the proxy's x402 gate implementation (spm-x402-flow skill).
+
+## 2026-09-21 — handoff to the Docker / AlgoKit / MainNet session
+
+Branch `claude/spm-spec-orchestration-dlhhe2`, 35 commits, all pushed.
+
+Implementation of SPEC-v3 is complete except the contract artifacts, which
+need Docker and the AlgoKit CLI. Three code reviews ran after implementation
+and found 25 defects the test suite did not. All are fixed except that one.
+
+State: proxy 306, contracts 16, mcp 8, cli 16, Action 9. `pnpm typecheck`
+passes, `scripts/guard.sh` is clean, `biome ci .` exits 0 with no warnings,
+`scripts/verify.sh` prints `VERIFY: PASS` with an honest e2e SKIP, because the
+facilitator is unreachable from this sandbox.
+
+Read `docs/HANDOFF-next-session.md` first. Step 1 is regenerating the contract
+artifacts; nothing else should happen before it. The committed ARC-56 spec
+still lists the deleted `pay` and lacks `setPayTo`, `distribute` and
+`releaseAuthority`.
+
+Two decisions recorded this session:
+- `payTo` may be corrected while it holds no USDC, and is immutable once any
+  arrives. This replaced a write-once rule that made a typo unrecoverable.
+- The CI Action no longer sends a wallet credential. That narrows spec §9 C3;
+  third-party paid volume now comes from the CLI or the MCP server.
+
+The defect worth carrying forward: the tarball path check broke four times.
+The first three were spelling variants closed by adding decoder rules, and each
+left the next one open. The fourth was structural, two predicates of different
+width deciding the same question. `normalizeTarballPath` now replicates the
+installed matcher's own steps and `isTarballRouteScope` mirrors the route key.
+Any change to the route key must change both.
