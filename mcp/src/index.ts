@@ -2,6 +2,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { attestLockfileTool } from './tools/attest.js'
 import { checkTool } from './tools/check.js'
 import { installTool } from './tools/install.js'
 
@@ -40,6 +41,30 @@ server.tool(
       {
         type: 'text' as const,
         text: JSON.stringify(await installTool.handler({ pkg, version, allowDonation }), null, 2),
+      },
+    ],
+  }),
+)
+
+server.tool(
+  attestLockfileTool.name,
+  attestLockfileTool.description,
+  {
+    lockfilePath: z.string().describe('Path to a package-lock.json on disk'),
+    allowDonation: z
+      .boolean()
+      .optional()
+      .describe('Opt in to donating for a 402. Off by default — a 402 never signs otherwise.'),
+  },
+  async ({ lockfilePath, allowDonation }) => ({
+    content: [
+      {
+        type: 'text' as const,
+        text: JSON.stringify(
+          await attestLockfileTool.handler({ lockfilePath, allowDonation }),
+          null,
+          2,
+        ),
       },
     ],
   }),

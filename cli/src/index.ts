@@ -5,6 +5,7 @@ const USAGE_LINES = [
   'Usage:',
   '  spm status <pkg> <version>',
   '  spm install <pkg> <version> [--donate]',
+  '  spm attest <lockfile> [--donate] [--out <path>]',
   '  spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
 ]
 
@@ -18,6 +19,12 @@ async function main(): Promise<void> {
   if (command === 'verify') {
     const { runVerify } = await import('./verify.js')
     const exitCode = await runVerify(argv.slice(1))
+    process.exit(exitCode)
+  }
+
+  if (command === 'attest') {
+    const { runAttest } = await import('./attest.js')
+    const exitCode = await runAttest(argv.slice(1))
     process.exit(exitCode)
   }
 
