@@ -2,6 +2,19 @@
 
 Use `/handoff <summary>` to append entries. Newest at top.
 
+## 2026-09-21 Donation opt-in on every client; SPEC.md renamed; STATUS.md retired
+
+- **Changed**: donation opt-in on every client — CLI `spm attest [--donate]`,
+  MCP `attest_lockfile` with `allowDonation`, Action `donate` /
+  `donor-mnemonic` inputs, shared client `mcp/src/donor.ts`. The Action now
+  installs `spm-cli` and runs `spm attest` instead of posting only.
+- **Decisions**: "donor"/"donate" replace "payer" (except literal
+  `cat=payers`, `feePayer`). `SPM_DONOR_MNEMONIC` replaces `PAYER_MNEMONIC`.
+  Spend cap 20,000 microUSDC, USDC ASA only, no config knob. `SPEC-v3.md` is
+  now `SPEC.md`; `STATUS.md` is deleted in favour of
+  `docs/HANDOFF-next-session.md`.
+- **Next**: schedule `pnpm -C proxy reconcile` on the host.
+
 ## 2026-09-21 Contract artifacts regenerated; toolchain on pnpm 12
 
 - **Changed**: SplitRouter artifacts regenerated with `puya-ts` 1.1.0 and `puya`

@@ -110,6 +110,29 @@ curl -X POST http://localhost:4873/v1/attest/lockfile \
 curl http://localhost:4873/api/v1/status/lodash/4.17.21
 ```
 
+## Donate to a review
+
+Every paid route is opt-in. A 402 reports the price and no client signs
+anything unless the caller explicitly agrees to donate. A donation never
+signs above 20,000 microUSDC and never in an asset other than the USDC ASA.
+
+```bash
+export SPM_DONOR_MNEMONIC="<25-word mainnet mnemonic>"
+pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out spm-attestation.json
+```
+
+Without `--donate`, `spm attest` reports the price on a 402 and exits 2,
+signing nothing. The MCP `attest_lockfile` tool takes the same opt-in as
+`allowDonation`. `mcp/src/donor.ts` is the shared donation client behind
+both.
+
+The `spm-attest` GitHub Action installs `spm-cli` and runs `spm attest`. Its
+`donate` input defaults to `'false'`. Set it to `'true'` and pass a
+`donor-mnemonic` secret to donate from CI. WARNING: never pass a mnemonic as
+plain text. Use a GitHub Actions secret. The Action fails open: a
+facilitator outage, a 5xx, or a missing `donor-mnemonic` logs a warning and
+exits 0, so it never reddens a caller's CI.
+
 ## Verify an attestation offline
 
 `spm verify` checks one DSSE envelope against a published key. It makes no
@@ -172,6 +195,6 @@ read that exact tarball. A record with no stored integrity hash resolves to
 ## Further reading
 
 - `SPEC.md` — the authoritative specification.
-- `STATUS.md` — per-item implementation status and open items.
+- `docs/HANDOFF-next-session.md` — current state and open items.
 - `docs/RUNBOOK-contract-build.md` — regenerate the contract artifacts.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
