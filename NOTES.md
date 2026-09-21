@@ -2,6 +2,31 @@
 
 Use `/handoff <summary>` to append entries. Newest at top.
 
+## 2026-09-21 Variant A decided — launch tooling added on `spm-launch-tooling`
+
+- **Decision**: the user chose the `payTo` variant — Variant A. `payTo` is
+  the SplitRouter application address. Call `setRecipients` only. Never call
+  `setPayTo`. The app is not deployed yet.
+- **Changed**: branch `spm-launch-tooling`, on top of `master` (`0be2758`,
+  PR #18 `spm-spec-closeout` merged).
+  - `b48d302` removes the TestNet pins (`USDC_ASA_ID`, `ALGOD_SERVER`) and
+    the `npm:*`/`npx:*` allows from `.claude/settings.json`.
+  - `scripts/check-402.mjs`, the step 3 attribution check (exits 0 only if
+    tag, asset, network, and feePayer all PASS).
+  - `scripts/hit-rate.mjs`, the SPEC.md §4.2 seed-list median measurement.
+  - `deploy/systemd/spm-reconcile.{service,timer}` for the reconciliation
+    timer. A human installs them.
+  - `scripts/verify.sh` now also runs `unit:scripts`
+    (`node --test scripts/*.test.mjs`).
+- **State**: `bash scripts/verify.sh` prints `VERIFY: PASS` on this branch.
+  e2e: 9 passed, 1 SKIP (the on-chain step — no funded wallet or deployed
+  contract yet).
+- **Quirk**: a worktree subagent cannot check out a commit that changes
+  `.claude/settings.json` — the sandbox write-protects that file. Worktree
+  agents must run from `master`, not from this branch.
+- **Next**: push `spm-launch-tooling`, open a PR into `master`, and merge it.
+  Then deploy with Variant A.
+
 ## 2026-09-21 Donation opt-in on every client; SPEC.md renamed; STATUS.md retired
 
 - **Changed**: donation opt-in on every client — CLI `spm attest [--donate]`,
