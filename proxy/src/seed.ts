@@ -39,5 +39,13 @@ console.log('  lodash@4.17.20 → UNREVIEWED (FREE) — demonstrates version-bum
 console.log('  express@4.21.2 → UNREVIEWED (FREE) — demonstrates free passthrough')
 console.log('\nNow start the proxy and try:')
 console.log('  curl http://localhost:4873/api/v1/status/lodash/4.17.21')
-console.log('  curl -I http://localhost:4873/lodash/-/lodash-4.17.21.tgz  # → 402')
-console.log('  curl -I http://localhost:4873/lodash/-/lodash-4.17.20.tgz  # → passthrough')
+// CAUTION: `curl -I` issues a HEAD request. The paid route key is
+// `GET /*/-/*` (proxy/src/x402/tarball.ts), so a HEAD request is never
+// gated and never returns 402. `-D -` dumps response headers to stdout and
+// `-o /dev/null` discards the tarball body, showing the 402 with a real GET.
+console.log(
+  '  curl -s -D - -o /dev/null http://localhost:4873/lodash/-/lodash-4.17.21.tgz  # → 402',
+)
+console.log(
+  '  curl -s -D - -o /dev/null http://localhost:4873/lodash/-/lodash-4.17.20.tgz  # → passthrough',
+)

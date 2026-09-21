@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-routes-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
-const { writeAccruals } = await import('./ledger.js')
+const { writeAccruals, getClaim } = await import('./ledger.js')
 const { createClaimsRouter } = await import('./routes.js')
 type Attribution = import('./attribution-rules.js').Attribution
 type GithubClient = import('./ledger.js').GithubClient
@@ -26,6 +26,17 @@ beforeEach(() => {
   db.exec('DELETE FROM claims')
   db.exec('DELETE FROM payouts')
 })
+
+// Valid-checksum MainNet-shaped addresses (algosdk.generateAccount()), used
+// wherever a test needs a payout destination that passes
+// algosdk.isValidAddress — the router now rejects anything that doesn't.
+const VALID_ADDR_1 = '43KJFOUAT6ZRMOAYSJ2E6ECFB7WH2QAWETOOZ3D4554M6R7TKTBFLQG6WY'
+const VALID_ADDR_2 = 'MNFN6YYXQK5544BBDXW24B2PSNBQLRSXX3QGL6E52QZCJIARI5WTEOBRAI'
+const VALID_ADDR_3 = 'D5XBKGHE5GFQDYR5NNYQRHAOUHC6AJKWT6GGLXR4VODV3GF6VY46UE3IWE'
+const VALID_ADDR_4 = 'Q5THNFUQLRVCL3YTY5I45HZPTKH66LWOOVPDHKAL5MJG3TO3BFK6FK4KHM'
+// Right length (58 chars), valid base32 alphabet, but wrong checksum — must
+// still be rejected: length alone is not validation.
+const BAD_CHECKSUM_ADDR = `${'A'.repeat(57)}Q`
 
 function stubGithubClient(gistByLogin: Record<string, string> = {}): GithubClient {
   return {
@@ -71,7 +82,7 @@ describe('POST /api/v1/claims', () => {
     const res = await app.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:alice', algorandAddress: 'ALGOADDR' }),
+      body: JSON.stringify({ identity: 'github:alice', algorandAddress: VALID_ADDR_1 }),
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { nonce: string; status: string }
@@ -90,18 +101,58 @@ describe('POST /api/v1/claims', () => {
   })
 })
 
+describe('POST /api/v1/claims: payout destination validation (I3 defect 1)', () => {
+  test('400 for a non-address string, and no claim row is written', async () => {
+    const app = createClaimsRouter(stubGithubClient())
+    const res = await app.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:baddest', algorandAddress: 'not-an-address' }),
+    })
+    expect(res.status).toBe(400)
+    const body = (await res.json()) as { error: string }
+    expect(body.error).toMatch(/algorandAddress/)
+    expect(getClaim('github:baddest')).toBeUndefined()
+  })
+
+  test('a valid address still creates a claim and returns a nonce', async () => {
+    const app = createClaimsRouter(stubGithubClient())
+    const res = await app.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:goodaddr', algorandAddress: VALID_ADDR_1 }),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { nonce: string; status: string }
+    expect(body.nonce).toBeTruthy()
+    expect(body.status).toBe('pending')
+    expect(getClaim('github:goodaddr')?.algorand_address).toBe(VALID_ADDR_1)
+  })
+
+  test('400 for a 58-char address with a bad checksum, and no claim row is written', async () => {
+    const app = createClaimsRouter(stubGithubClient())
+    const res = await app.request('/api/v1/claims', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identity: 'github:badchecksum', algorandAddress: BAD_CHECKSUM_ADDR }),
+    })
+    expect(res.status).toBe(400)
+    expect(getClaim('github:badchecksum')).toBeUndefined()
+  })
+})
+
 describe('POST /api/v1/claims: verified claim reset protection (H2)', () => {
   test('409 when re-claiming an already-verified identity, and the stored claim is unchanged', async () => {
     const createApp = createClaimsRouter(stubGithubClient())
     const createRes = await createApp.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:verified', algorandAddress: 'ADDR-1' }),
+      body: JSON.stringify({ identity: 'github:verified', algorandAddress: VALID_ADDR_2 }),
     })
     const { nonce } = (await createRes.json()) as { nonce: string }
 
     const verifyingApp = createClaimsRouter(
-      stubGithubClient({ verified: `spm-claim:ADDR-1:${nonce}` }),
+      stubGithubClient({ verified: `spm-claim:${VALID_ADDR_2}:${nonce}` }),
     )
     await verifyingApp.request('/api/v1/claims/verify', {
       method: 'POST',
@@ -113,7 +164,7 @@ describe('POST /api/v1/claims: verified claim reset protection (H2)', () => {
     const res = await resetApp.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:verified', algorandAddress: 'ATTACKER-ADDR' }),
+      body: JSON.stringify({ identity: 'github:verified', algorandAddress: VALID_ADDR_3 }),
     })
     expect(res.status).toBe(409)
   })
@@ -125,12 +176,12 @@ describe('POST /api/v1/claims/verify', () => {
     const createRes = await app.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:alice', algorandAddress: 'ALGOADDR' }),
+      body: JSON.stringify({ identity: 'github:alice', algorandAddress: VALID_ADDR_1 }),
     })
     const { nonce } = (await createRes.json()) as { nonce: string }
 
     const verifyingApp = createClaimsRouter(
-      stubGithubClient({ alice: `spm-claim:ALGOADDR:${nonce}` }),
+      stubGithubClient({ alice: `spm-claim:${VALID_ADDR_1}:${nonce}` }),
     )
     const verifyRes = await verifyingApp.request('/api/v1/claims/verify', {
       method: 'POST',
@@ -157,7 +208,7 @@ describe('POST /api/v1/claims/verify', () => {
     await createApp.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:victim', algorandAddress: 'VICTIM-ADDR' }),
+      body: JSON.stringify({ identity: 'github:victim', algorandAddress: VALID_ADDR_4 }),
     })
 
     const app = createClaimsRouter(stubGithubClient({ attacker: 'placeholder' }))

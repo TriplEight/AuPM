@@ -244,6 +244,9 @@ async function signLockfileStatement(
   return signEnvelope(payload, PAYLOAD_TYPE, key)
 }
 
+/** A real sha512 digest is exactly 64 bytes. Anything else is not one. */
+const SHA512_BYTE_LENGTH = 64
+
 /**
  * Decodes an npm `integrity` string ("sha512-<base64>") to lowercase hex,
  * the digest shape the in-toto subject uses. Returns null for anything that
@@ -251,12 +254,19 @@ async function signLockfileStatement(
  *
  * CAUTION: never widen this to accept `sha1-`. A weak digest must not back
  * a paid security attestation.
+ *
+ * WARNING: a truncated or padded base64 payload still decodes to *some*
+ * bytes even when it is not a genuine sha512 digest. Requiring exactly 64
+ * decoded bytes stops that value from being sold, signed, and presented as
+ * `digest.sha512` with `integrityMatch: true` — a false security claim.
  */
 function integrityToHex(integrity: string): string | null {
   const match = /^sha512-([A-Za-z0-9+/]+=*)$/.exec(integrity)
   const base64 = match?.[1]
   if (!base64) return null
-  return Buffer.from(base64, 'base64').toString('hex')
+  const decoded = Buffer.from(base64, 'base64')
+  if (decoded.length !== SHA512_BYTE_LENGTH) return null
+  return decoded.toString('hex')
 }
 
 /**

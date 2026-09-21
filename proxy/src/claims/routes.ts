@@ -10,6 +10,7 @@
 // the spec. Exported, not mounted — a follow-up step wires it into
 // proxy/src/app.ts once that file is free for this item to touch.
 
+import algosdk from 'algosdk'
 import { Hono } from 'hono'
 import type { GithubClient, ProofKind } from './ledger.js'
 import {
@@ -42,6 +43,14 @@ export function createClaimsRouter(github: GithubClient): Hono {
       typeof body?.algorandAddress === 'string' ? body.algorandAddress : undefined
     if (!identity || !algorandAddress) {
       return c.json({ error: 'identity and algorandAddress are required' }, 400)
+    }
+    // WARNING: a payout destination must be validated before it is stored,
+    // not at payout time. scripts/payout.ts later emits this address as a
+    // real MainNet payout — an invalid address fails the payout, and a
+    // valid-but-wrong address is unrecoverable. algosdk.isValidAddress
+    // checks the checksum, not merely the length.
+    if (!algosdk.isValidAddress(algorandAddress)) {
+      return c.json({ error: 'algorandAddress is not a valid Algorand address' }, 400)
     }
     // WARNING: a verified claim is not reopened by an unauthenticated
     // request — otherwise anyone who knows a contributor's identity string

@@ -19,6 +19,21 @@ import type { FacilitatorClient } from '@x402-avm/core/server'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dsse.js'
 
+// A real 64-byte sha512 digest, base64 encoded.
+//
+// CAUTION: never use a short placeholder such as 'sha512-abc' here. That
+// decodes to 2 bytes, and integrityToHex now rejects anything that is not
+// exactly 64 bytes, so the row stops being priceable and a paid route
+// quietly returns free. A fixture that does not look like real data stops
+// testing the real path.
+const REVIEWED_INTEGRITY =
+  'sha512-uMabji0PUK/GUkT4djAnOhdLs5wT7SYAFg85uVAC7RjEn3rHxVZkSM7STlycrgrv9tJioRWIV9l213uMAlOdiQ=='
+
+// A checksum-valid Algorand address, never funded, never used on-chain.
+// CAUTION: POST /api/v1/claims validates this, so a placeholder string is
+// rejected with 400.
+const CLAIM_ADDRESS = 'L6O5IL7YXCD5PBLCOXMLQR6W33KWGB7LSYXLUTNBCKGLNWANQN3NOWRZJQ'
+
 const FAKE_APP_ADDRESS = 'FAKEADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
@@ -308,7 +323,7 @@ describe('x402 gate', () => {
   // lockfile that has one reviewed package instead, to keep testing what it
   // always tested: the gate fires before the real handler runs.
   test('POST /v1/attest/lockfile: 402 before the real handler runs (nonzero coverage)', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-abc')
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest/lockfile', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -318,7 +333,7 @@ describe('x402 gate', () => {
           'node_modules/ms': {
             version: '2.1.3',
             resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
-            integrity: 'sha512-abc',
+            integrity: REVIEWED_INTEGRITY,
           },
         },
       }),
@@ -327,7 +342,7 @@ describe('x402 gate', () => {
   })
 
   test('GET /v1/attest: 402 before the real handler runs (reviewed, with stored integrity)', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-abc')
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
     expect(res.status).toBe(402)
   })
@@ -366,7 +381,7 @@ describe('claims ledger, wired into the real app', () => {
       'COMMUNITY_REVIEWED',
       'ONCHAIN_ATTESTING_ADDR',
       null,
-      'sha512-abc',
+      REVIEWED_INTEGRITY,
       'alice',
     )
 
@@ -423,7 +438,7 @@ describe('claims ledger, wired into the real app', () => {
       'COMMUNITY_REVIEWED',
       'ONCHAIN_ATTESTING_ADDR',
       null,
-      'sha512-abc',
+      REVIEWED_INTEGRITY,
       'carol',
     )
 
@@ -472,7 +487,7 @@ describe('claims ledger, wired into the real app', () => {
     const res = await app.request('/api/v1/claims', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:carol', algorandAddress: 'ALGOADDR' }),
+      body: JSON.stringify({ identity: 'github:carol', algorandAddress: CLAIM_ADDRESS }),
     })
     expect(res.status).toBe(200)
     expect(res.status).not.toBe(402)

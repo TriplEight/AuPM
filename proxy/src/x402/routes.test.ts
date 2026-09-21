@@ -55,4 +55,29 @@ describe('buildRoutes', () => {
       expect(result.valid).toBe(true)
     }
   })
+
+  test("the lockfile route's discovery example summary buckets sum to its total (I3 defect 2)", () => {
+    const extensions = routes[LOCKFILE_ROUTE_KEY].extensions as {
+      bazaar: { info: { output: { example: { summary: Record<string, number> } } } }
+    }
+    const summary = extensions.bazaar.info.output.example.summary
+    const { total, ...buckets } = summary
+    const sum = Object.values(buckets).reduce((a, b) => a + b, 0)
+    expect(sum).toBe(total)
+  })
+
+  test("the lockfile route's discovery example summary bucket names match LockfileSummary", () => {
+    const extensions = routes[LOCKFILE_ROUTE_KEY].extensions as {
+      bazaar: { info: { output: { example: { summary: Record<string, number> } } } }
+    }
+    const summary = extensions.bazaar.info.output.example.summary
+    const bucketNames = Object.keys(summary)
+      .filter((k) => k !== 'total')
+      .sort()
+    // Mirrors LockfileSummary in proxy/src/attest/lockfile.ts, which is the
+    // shape the route actually returns.
+    expect(bucketNames).toEqual(
+      ['integrityMismatch', 'reviewed', 'unresolvable', 'unreviewed'].sort(),
+    )
+  })
 })

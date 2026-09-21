@@ -40,6 +40,15 @@ type AppVariables = {
 
 const encoder = new TextEncoder()
 
+// A genuine 64-byte sha512 digest (of the literal bytes "spm-fixture-a"),
+// base64- and hex-encoded. Used wherever a test exercises the single-attest
+// route's integrityToHex(), which — since defect 1's fix — requires exactly
+// 64 decoded bytes; "sha512-abc" (2 decoded bytes) no longer qualifies.
+const SHA512_FIXTURE_B64 =
+  'sha512-woVySPvFReXAMKkabXRPwlpLqzuKQlszC5GnMBpbIlR3rAXNdnFRpcUVM4jur+wGgRm5uTSsqOXyp/JFF1PHqQ=='
+const SHA512_FIXTURE_HEX =
+  'c2857248fbc545e5c030a91a6d744fc25a4bab3b8a425b330b91a7301a5b225477ac05cd767151a5c5153388eeafec068119b9b934aca8e5f2a7f2451753c7a9'
+
 function npmEntry(version: string, integrity = 'sha512-abc') {
   return {
     version,
@@ -516,7 +525,7 @@ describe('GET /v1/attest', () => {
   })
 
   test('a paid response sets attribution for the single-attest route', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
     const { app, getAttribution } = buildTestApp()
 
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
@@ -533,7 +542,15 @@ describe('GET /v1/attest', () => {
   })
 
   test('attribution.auditor and predicate.reviewer are "github:<login>", never the auditor_addr', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'bob')
+    setStatus(
+      'ms',
+      '2.1.3',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID1',
+      SHA512_FIXTURE_B64,
+      'bob',
+    )
     const { app, getAttribution } = buildTestApp()
 
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
@@ -551,7 +568,7 @@ describe('GET /v1/attest', () => {
   })
 
   test('the subject digest equals the lowercase hex decoding of the stored integrity, computed independently', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
     const { app } = buildTestApp()
 
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
@@ -559,9 +576,12 @@ describe('GET /v1/attest', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
-    // Independently computed: decode the base64 half of "sha512-abc" to hex,
+    // Independently computed: decode the base64 half of the fixture to hex,
     // never against attest.ts's own integrityToHex() output.
-    const expectedHex = Buffer.from('abc', 'base64').toString('hex')
+    const expectedHex = Buffer.from(SHA512_FIXTURE_B64.slice('sha512-'.length), 'base64').toString(
+      'hex',
+    )
+    expect(expectedHex).toBe(SHA512_FIXTURE_HEX)
     expect(statement.subject[0]?.digest.sha512).toBe(expectedHex)
     expect(statement.subject[0]?.digest.sha512).not.toBe('')
   })
@@ -636,7 +656,7 @@ describe('GET /v1/attest: integrity-format gating', () => {
   })
 
   test('a row with sha512- integrity still prices and still returns a signed statement', async () => {
-    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
     const { app, getAttribution } = buildTestApp()
 
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
@@ -648,6 +668,75 @@ describe('GET /v1/attest: integrity-format gating', () => {
       { keyid: signingKey.keyid, publicKey: signingKey.publicKey },
     ])
     expect(ok).toBe(true)
+    expect(getAttribution()).toEqual({
+      route: 'single-attest',
+      priceMicro: 1_000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+    })
+  })
+})
+
+// A real sha512 digest is exactly 64 bytes. A stored integrity whose base64
+// decodes to a different length must never be sold and signed as a valid
+// digest.sha512 with integrityMatch: true (defect: integrityToHex() never
+// checked the decoded length).
+describe('GET /v1/attest: sha512 digest length gating', () => {
+  test('a base64 payload decoding to fewer than 64 bytes is not advertised as paid', async () => {
+    // "c2hvcnQ=" decodes to 5 bytes, never 64.
+    setStatus(
+      'short-digest-pkg',
+      '1.0.0',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID1',
+      'sha512-c2hvcnQ=',
+    )
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=short-digest-pkg&version=1.0.0')
+
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(500)
+    const body = (await res.json()) as { tier: string }
+    expect(body.tier).toBe('UNREVIEWED')
+    expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
+  })
+
+  test('a base64 payload decoding to more than 64 bytes is not advertised as paid', async () => {
+    // 70 decoded bytes, never 64.
+    const longB64 =
+      'o6KkdMCe6svHVhEQ+x/XaFtUuYZkI09Q5rHfLUNeVkcZ3ZpFub/Tou7ewxLDpBo8bElk2I0Zcgf2q7OBe85Uv5uzL9OLzQ=='
+    expect(Buffer.from(longB64, 'base64')).toHaveLength(70)
+    setStatus(
+      'long-digest-pkg',
+      '1.0.0',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID1',
+      `sha512-${longB64}`,
+    )
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=long-digest-pkg&version=1.0.0')
+
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(500)
+    const body = (await res.json()) as { tier: string }
+    expect(body.tier).toBe('UNREVIEWED')
+    expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
+  })
+
+  test('a genuine 64-byte digest still prices, and the emitted hex is the plain decoding', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { tier: string; attestation: Envelope }
+    expect(body.tier).toBe('COMMUNITY_REVIEWED')
+    const statement = decodeStatement(body.attestation)
+    expect(statement.subject[0]?.digest.sha512).toBe(SHA512_FIXTURE_HEX)
     expect(getAttribution()).toEqual({
       route: 'single-attest',
       priceMicro: 1_000,

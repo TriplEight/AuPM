@@ -497,6 +497,108 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
   })
 })
 
+// npm's SSRI integrity format allows several space-separated hashes on one
+// field. A byte-for-byte `===` against a single-hash stored value falsely
+// reports INTEGRITY_MISMATCH for a package whose sha512 genuinely matches
+// (defect 2). The comparison must be made on the parsed sha512 digest.
+describe('analyzeLockfile — multi-hash SSRI integrity', () => {
+  test('a lockfile entry with "sha512-X sha1-Y" matches a stored "sha512-X"', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha512-X sha1-Y') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(1)
+    expect(result.analysis.summary.integrityMismatch).toBe(0)
+    expect(result.analysis.packages[0]?.tier).toBe('COMMUNITY_REVIEWED')
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(true)
+  })
+
+  test('hash order does not matter: "sha1-Y sha512-X" also matches a stored "sha512-X"', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha1-Y sha512-X') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(1)
+    expect(result.analysis.packages[0]?.tier).toBe('COMMUNITY_REVIEWED')
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(true)
+  })
+
+  test('"sha512-Z sha1-Y" against a stored "sha512-X" is still a mismatch', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha512-Z sha1-Y') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(0)
+    expect(result.analysis.summary.integrityMismatch).toBe(1)
+    expect(result.analysis.packages[0]?.tier).toBe('INTEGRITY_MISMATCH')
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(false)
+  })
+
+  // Design decision: when the lockfile entry carries no sha512 entry at
+  // all (only a weaker hash), the comparison is unresolvable — SPM cannot
+  // verify a digest it was never given. That state is reported as a
+  // mismatch, never as a match: a weak algorithm must never satisfy the
+  // check on its own.
+  test('an entry with no sha512 at all is reported as a mismatch, never a match', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha1-Y') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(0)
+    expect(result.analysis.summary.integrityMismatch).toBe(1)
+    expect(result.analysis.packages[0]?.tier).toBe('INTEGRITY_MISMATCH')
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(false)
+  })
+
+  test('existing single-hash behaviour is unchanged: equal single-hash values still match', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha512-X') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(1)
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(true)
+  })
+
+  test('existing single-hash behaviour is unchanged: differing single-hash values still mismatch', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-X')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3', 'sha512-Y') },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.integrityMismatch).toBe(1)
+    expect(result.analysis.packages[0]?.integrityMatch).toBe(false)
+  })
+})
+
 describe('analyzeLockfile — digest', () => {
   test('sha256 is computed over the exact raw body bytes, not a re-serialisation', () => {
     const doc = { lockfileVersion: 3, packages: { 'node_modules/ms': npmEntry('2.1.3') } }

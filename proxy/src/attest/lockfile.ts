@@ -74,6 +74,42 @@ const defaultIntegrityLookup: IntegrityLookup = (pkg, version) =>
 
 const NPM_TARBALL_RE = /^https?:\/\/registry\.npmjs\.org\/.+\.tgz(?:[?#].*)?$/i
 
+const SSRI_ENTRY_RE = /^sha512-([A-Za-z0-9+/]+=*)$/
+
+/**
+ * Extracts the sha512 entry's base64 digest from an npm SSRI `integrity`
+ * string. SSRI allows several space-separated hashes on one field, e.g.
+ * `"sha512-<b64> sha1-<b64>"` — npm may list them in either order. Returns
+ * null when no `sha512-` entry is present.
+ *
+ * CAUTION: never fall back to a weaker algorithm here. A `sha1-` entry must
+ * never satisfy a comparison on its own.
+ */
+function extractSha512Digest(integrity: string): string | null {
+  for (const entry of integrity.trim().split(/\s+/)) {
+    const match = SSRI_ENTRY_RE.exec(entry)
+    if (match?.[1]) return match[1]
+  }
+  return null
+}
+
+/**
+ * True only when both sides carry a `sha512-` entry and those entries are
+ * identical — never a raw-string `===` over the whole SSRI field, which
+ * fails a genuine match whenever either side lists more than one hash.
+ *
+ * CAUTION: when either side has no sha512 entry, the comparison cannot be
+ * made. That is unresolvable, not a match — reported as a mismatch (never
+ * `integrityMatch: true`), since a signed attestation must never claim a
+ * tarball matches a digest it cannot actually verify.
+ */
+function sha512Matches(knownIntegrity: string, observedIntegrity: string): boolean {
+  const known = extractSha512Digest(knownIntegrity)
+  const observed = extractSha512Digest(observedIntegrity)
+  if (known === null || observed === null) return false
+  return known === observed
+}
+
 function isNpmResolved(resolved: string | undefined): boolean {
   return typeof resolved === 'string' && NPM_TARBALL_RE.test(resolved)
 }
@@ -207,7 +243,11 @@ export function analyzeLockfile(
       summary.unreviewed += 1
       continue
     }
-    const integrityMatch = knownIntegrity === integrity
+    // Compared on the parsed sha512 digest, never on the raw SSRI string —
+    // a lockfile entry may list more than one hash space-separated (SPEC-v3
+    // §6.3), and a differing hash order or an extra weaker hash must never
+    // turn a genuine match into a reported INTEGRITY_MISMATCH.
+    const integrityMatch = integrity !== null && sha512Matches(knownIntegrity, integrity)
 
     if (!integrityMatch) {
       summary.integrityMismatch += 1

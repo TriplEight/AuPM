@@ -57,8 +57,17 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
             required: ['lockfileVersion', 'packages'],
           },
           output: {
+            // Buckets mirror LockfileSummary (proxy/src/attest/lockfile.ts):
+            // reviewed + unreviewed + unresolvable + integrityMismatch must
+            // sum to total. 14 + 497 + 1 + 0 = 512.
             example: {
-              summary: { total: 512, reviewed: 14, unreviewed: 497, integrityMismatch: 0 },
+              summary: {
+                total: 512,
+                reviewed: 14,
+                unreviewed: 497,
+                unresolvable: 1,
+                integrityMismatch: 0,
+              },
               attestation: { payloadType: 'application/vnd.in-toto+json' },
             },
           },
