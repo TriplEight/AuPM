@@ -16,12 +16,26 @@ import db from './schema.js'
 export interface UsdcInflow {
   txid: string
   amountMicro: number
+  /** Indexer round-time: unix seconds the confirming block landed. */
+  confirmedAt: number
 }
 
 /** Reads confirmed USDC axfers into `payTo` from an Algorand indexer. */
 export interface IndexerClient {
   listUsdcInflows(payTo: string): Promise<UsdcInflow[]>
 }
+
+/**
+ * Minimum age, in seconds, an inflow must have before this pass considers
+ * it at all. Closes the settle-to-write race: the claims middleware writes
+ * accrual rows synchronously, right after settlement, in the same request —
+ * a matter of seconds. A run landing inside that narrow window would see
+ * the on-chain inflow but not yet the accrual row, and would wrongly
+ * ledger it `unassigned`; the middleware then writes the real rows for the
+ * same txid, and the inflow counts twice. 900 seconds is a wide margin
+ * past that window, not a tuned constant — do not add an env var for it.
+ */
+export const MIN_INFLOW_AGE_SECONDS = 900
 
 const accrualExistsForTxid = db.prepare<[string], { n: number }>(
   'SELECT COUNT(*) as n FROM accruals WHERE settle_txid = ?',
@@ -95,10 +109,32 @@ export interface ReconcileResult {
   skipped: SkippedInflow[]
 }
 
-/** Run one reconciliation pass. Idempotent: a re-run over the same inflows ledgers nothing new. */
-export async function reconcile(payTo: string, indexer: IndexerClient): Promise<ReconcileResult> {
+/**
+ * True once `inflow` is at least `MIN_INFLOW_AGE_SECONDS` old, as of
+ * `nowSeconds`. A young inflow is left for a later pass rather than
+ * ledgered now — see `MIN_INFLOW_AGE_SECONDS`.
+ */
+function isMatureEnough(inflow: UsdcInflow, nowSeconds: number): boolean {
+  return nowSeconds - inflow.confirmedAt >= MIN_INFLOW_AGE_SECONDS
+}
+
+/**
+ * Run one reconciliation pass. Idempotent: a re-run over the same inflows
+ * ledgers nothing new. `nowSeconds` defaults to the real clock; a caller
+ * passes it explicitly only in tests.
+ *
+ * `inflowsChecked` counts every inflow the indexer returned this pass,
+ * mature or not — it reports total volume seen, not just what this pass
+ * acted on.
+ */
+export async function reconcile(
+  payTo: string,
+  indexer: IndexerClient,
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): Promise<ReconcileResult> {
   const inflows = await indexer.listUsdcInflows(payTo)
-  const unmatched = findUnmatchedInflows(inflows)
+  const mature = inflows.filter((inflow) => isMatureEnough(inflow, nowSeconds))
+  const unmatched = findUnmatchedInflows(mature)
 
   let unmatchedLedgered = 0
   const skipped: SkippedInflow[] = []
