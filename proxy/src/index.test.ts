@@ -29,9 +29,25 @@ const SUBPROCESS_TIMEOUT_MS = 10_000
 // it first.
 const VALID_APP_ADDRESS = algosdk.generateAccount().addr.toString()
 
-// 58 characters of base32, but not a real address — decodes to the wrong
-// checksum. Distinct from VALID_APP_ADDRESS only in its last character.
-const MALFORMED_APP_ADDRESS = `${VALID_APP_ADDRESS.slice(0, 57)}${VALID_APP_ADDRESS.at(-1) === 'A' ? 'B' : 'A'}`
+// 58 characters of base32 that fail checksum validation.
+//
+// WARNING: never build this by changing the LAST character. An Algorand
+// address is 58 base32 characters, which carry 290 bits for a 288-bit
+// value, so the final character's low two bits are padding and are
+// discarded on decode. Flipping 'A' to 'B' there leaves the decoded bytes
+// identical and the address still valid. That made this fixture valid on
+// roughly 14% of runs, measured over 500 generated addresses, and the test
+// failed whenever it happened.
+//
+// The first character carries only significant bits, so changing it always
+// breaks the checksum.
+const MALFORMED_APP_ADDRESS = `${VALID_APP_ADDRESS[0] === 'A' ? 'B' : 'A'}${VALID_APP_ADDRESS.slice(1)}`
+
+// CAUTION: assert the fixture really is invalid. A fixture that silently
+// becomes valid turns this boot-guard test into one that proves nothing.
+if (algosdk.isValidAddress(MALFORMED_APP_ADDRESS)) {
+  throw new Error('test fixture error: MALFORMED_APP_ADDRESS is a valid address')
+}
 
 type RunResult = {
   code: number | null
