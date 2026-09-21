@@ -20,7 +20,7 @@ export async function deploy() {
   console.log('=== Deploying SplitRouter ===')
 
   const algorand = AlgorandClient.fromEnvironment()
-  const deployer = loadAccount('PAYER_MNEMONIC')
+  const deployer = loadAccount('SPM_DONOR_MNEMONIC')
 
   algorand.setSigner(deployer.addr, algosdk.makeBasicAccountTransactionSigner(deployer))
   algorand.setDefaultSigner(algosdk.makeBasicAccountTransactionSigner(deployer))

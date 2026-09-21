@@ -24,9 +24,9 @@ if (fs.existsSync(envPath)) {
 }
 
 const USDC_ASA_ID = 10458941
-const mnemonic = process.env.PAYER_MNEMONIC
+const mnemonic = process.env.SPM_DONOR_MNEMONIC
 if (!mnemonic) {
-  console.error('PAYER_MNEMONIC not set in .env')
+  console.error('SPM_DONOR_MNEMONIC not set in .env')
   process.exit(1)
 }
 

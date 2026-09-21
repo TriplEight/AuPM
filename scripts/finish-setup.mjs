@@ -64,7 +64,7 @@ if (APP_ID) {
 }
 
 // Check if PAYER has enough ALGO for the demo tx
-const payerMnemonic = process.env.PAYER_MNEMONIC
+const payerMnemonic = process.env.SPM_DONOR_MNEMONIC
 if (payerMnemonic) {
   const payer = algosdk.mnemonicToSecretKey(payerMnemonic)
   const info = await algod.accountInformation(payer.addr.toString()).do()
