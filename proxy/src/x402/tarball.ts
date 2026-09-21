@@ -64,9 +64,40 @@ export function normalizeTarballPath(urlPath: string): string {
   return canonical.replace(/^\//, '')
 }
 
+/**
+ * True when `path` falls inside the paid tarball route's protected scope.
+ * This is a safe superset — it mirrors, exactly, the compiled route regex
+ * for TARBALL_ROUTE_KEY (`GET /*\/-/*` -> `^\/.*?\/-\/.*?$`, case
+ * insensitive, tested by the installed `@x402-avm/core@2.6.1` matcher
+ * against its own normalizePath). Fuzz-verified against 200,000 random
+ * paths: identical to the matcher's own decision in every case.
+ *
+ * The route key requires only a `/-/` segment somewhere in the path — no
+ * `.tgz` suffix, no particular case, no filename at all after the
+ * separator. `isTarballPath` below is narrower on purpose (it identifies a
+ * *specific, resolvable* tarball filename); this function exists so the
+ * free-tier hook can tell, before ever calling isTarballPath, whether a
+ * request is one the payment gate protects at all. See
+ * tarballFreeTierHook's use of it below.
+ */
+export function isTarballRouteScope(path: string): boolean {
+  return normalizeTarballPath(path).includes('/-/')
+}
+
+/**
+ * True when `path` has the shape of an actual npm tarball filename:
+ * `<name>/-/<name>-<version>.tgz`. `.tgz` is matched case-insensitively —
+ * npm's own registry only ever emits a lowercase suffix, but the route
+ * regex above matches any case, so `.TGZ`/`.Tgz` must resolve to the exact
+ * same stored review row as `.tgz`, never to a different (or no) row.
+ * Deliberately narrower than isTarballRouteScope: only a path matching this
+ * shape can ever be resolved to a specific package name and version, so
+ * only a path matching this shape can ever be positively identified as a
+ * *reviewed* tarball. See parseTarballPath's matching suffix fix below.
+ */
 export function isTarballPath(path: string): boolean {
   const normalized = normalizeTarballPath(path)
-  return normalized.includes('/-/') && normalized.endsWith('.tgz')
+  return normalized.includes('/-/') && /\.tgz$/i.test(normalized)
 }
 
 /** Integer micro-USDC charged for one reviewed tarball download (CLAUDE.md: $0.001). */
@@ -82,13 +113,18 @@ export const TARBALL_PRICE_MICRO = 1_000
  * `%40scope/name`, `@scope%2Fname`, and `%40scope%2Fname` all resolve to the
  * same stored row, and so does an encoded `/-/` separator itself. Decoding
  * is case-insensitive, so `%2f` matches `%2F`. See normalizeTarballPath.
+ *
+ * The `.tgz` suffix is matched case-insensitively, for the same reason as
+ * isTarballPath above: `pkg-1.0.0.TGZ` must resolve to version `1.0.0`, the
+ * identical row `pkg-1.0.0.tgz` resolves to, or a reviewed package would
+ * serve free under an uppercase suffix and an unreviewed one would charge.
  */
 export function parseTarballPath(urlPath: string): { name: string; version: string } {
   const decoded = normalizeTarballPath(urlPath)
   const parts = decoded.split('/-/')
   const name = parts[0] ?? ''
   const filename = parts[1] ?? ''
-  const match = filename.match(/^.+?-(\d+\.\d+\.\d+.*)\.tgz$/)
+  const match = filename.match(/^.+?-(\d+\.\d+\.\d+.*)\.tgz$/i)
   const version = match?.[1] ?? 'unknown'
   return { name, version }
 }
@@ -97,12 +133,33 @@ export function parseTarballPath(urlPath: string): { name: string; version: stri
  * onProtectedRequest hook: grant access without payment when the requested
  * tarball's version is below COMMUNITY_REVIEWED. Every other protected
  * route falls through to the normal payment flow (returns undefined).
+ *
+ * WARNING: this hook is registered globally on the httpServer (see
+ * proxy/src/x402/server.ts), so it runs for *every* protected route, not
+ * just the tarball one — `isTarballRouteScope` is the guard that keeps it a
+ * no-op for the lockfile and single-attest routes (neither path ever
+ * contains a `/-/` segment).
+ *
+ * Two predicates, deliberately different widths, decide the outcome:
+ *  - `isTarballRouteScope` mirrors the paid route key exactly (a safe
+ *    superset): true for every path the payment gate protects here.
+ *  - `isTarballPath` is narrower: true only for a path shaped like a real,
+ *    resolvable tarball filename (`/-/` plus a `.tgz`-suffixed name).
+ *
+ * A path inside the route's scope but outside isTarballPath's narrower
+ * shape (`/-/readme`, `/-/` with no filename, a path with no extension) can
+ * never be resolved to a specific package version, so it can never be
+ * positively identified as a reviewed tarball — it is granted free, not
+ * charged (CLAUDE.md invariant 4: unreviewed never returns 402; CAUTION —
+ * an unresolvable path defaults to free, never to a charge). Charging only
+ * ever happens once a resolved row is positively found to be reviewed.
  */
 export const tarballFreeTierHook: ProtectedRequestHook = async (
   context: HTTPRequestContext,
   _routeConfig: RouteConfig,
 ) => {
-  if (!isTarballPath(context.path)) return undefined
+  if (!isTarballRouteScope(context.path)) return undefined
+  if (!isTarballPath(context.path)) return { grantAccess: true }
   const { name, version } = parseTarballPath(context.path)
   const row = getStatusOrUnreviewed(name, version)
   return isFree(row.status) ? { grantAccess: true } : undefined

@@ -246,6 +246,56 @@ describe('x402 gate', () => {
     })
   })
 
+  // Defect pin (H1, invariant-4 variant 4): TARBALL_ROUTE_KEY compiles to
+  // `^\/.*?\/-\/.*?$`, case-insensitive, with no `.tgz` suffix required —
+  // strictly wider than the old isTarballPath, which required a
+  // case-sensitive `.tgz` suffix. Any path in that gap (an uppercase or
+  // mixed-case suffix, `/-/readme`, no extension at all) was a route the
+  // gate protected but the free-tier hook could never recognise, so an
+  // unreviewed package charged (402). Fixed via isTarballRouteScope: a path
+  // inside the route's scope but not shaped like a resolvable tarball
+  // filename now defaults to free, never to a charge.
+  describe.each([
+    ['lowercase .tgz', '/chalk/-/chalk-5.3.0.tgz'],
+    ['uppercase .TGZ', '/chalk/-/chalk-5.3.0.TGZ'],
+    ['mixed-case .Tgz', '/chalk/-/chalk-5.3.0.Tgz'],
+    ['no filename after /-/', '/chalk/-/readme'],
+    ['no filename at all, trailing /-/', '/chalk/-/'],
+    ['no extension', '/chalk/-/chalk-5.3.0'],
+  ])('tarball route scope, unreviewed package, %s', (_label, path) => {
+    test('never 402, no payment header', async () => {
+      const res = await app.request(path)
+      expect(res.status).not.toBe(402)
+      expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    })
+  })
+
+  // Companion positive control: every spelling covered above, plus the
+  // uppercase-suffix spelling this defect introduced, still returns 402 for
+  // a reviewed package. WARNING: never relax this — a defect here hands a
+  // reviewed tarball out for free under a different-case suffix.
+  describe.each([
+    ['lowercase .tgz', '/chalk/-/chalk-5.3.0.tgz'],
+    ['uppercase .TGZ', '/chalk/-/chalk-5.3.0.TGZ'],
+    ['mixed-case .Tgz', '/chalk/-/chalk-5.3.0.Tgz'],
+  ])('tarball route scope, reviewed package, %s', (_label, path) => {
+    test('402, regardless of suffix case', async () => {
+      setStatus('chalk', '5.3.0', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path)
+      expect(res.status).toBe(402)
+    })
+  })
+
+  // `/-/readme` and the no-extension spelling can never resolve to a
+  // specific version, so they stay free even when the package name has a
+  // reviewed row at some other version — there is nothing here to
+  // positively identify as that reviewed tarball.
+  test('reviewed package, /-/readme: still never 402 (nothing to resolve)', async () => {
+    setStatus('chalk', '5.3.0', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('/chalk/-/readme')
+    expect(res.status).not.toBe(402)
+  })
+
   test('/api/v1/status is free and unauthenticated regardless of tier', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/api/v1/status/lodash/4.17.21')
