@@ -2,6 +2,38 @@
 
 Use `/handoff <summary>` to append entries. Newest at top.
 
+## 2026-09-21 Contract artifacts regenerated; toolchain on pnpm 12
+
+- **Changed**: SplitRouter artifacts regenerated with `puya-ts` 1.1.0 and `puya`
+  5.3.2. The ABI has all seven methods and `pay` is gone. This is the first
+  Puya compile of the current contract. AlgoKit commands run through pnpm.
+  `allowBuilds` replaces `onlyBuiltDependencies`, which pnpm 11 removed. CI runs
+  pnpm 12.5.1 on Node 22 through `pnpm/setup` v3.0.0. The stale
+  `contracts/pnpm-lock.yaml` is deleted.
+- **State**: `scripts/verify.sh` prints `VERIFY: PASS` on a networked host. The
+  on-chain e2e step is SKIPPED until `PAYER_MNEMONIC`, `SPLIT_APP_ID` and
+  `SPLIT_APP_ADDRESS` are set. CI and SPM Attest pass on GitHub.
+- **Next**: `docs/HANDOFF-next-session.md` step 2, the `payTo` variant decision.
+
+### Not MVP — do after launch
+
+Each item is real, but none blocks MainNet.
+
+1. Pin the actions in `.github/workflows/spm-attest.yml` to full commit SHAs.
+   `actions/checkout@v4`, `actions/setup-node@v4` and
+   `actions/upload-artifact@v4` are tag references. `ci.yml` is already pinned.
+2. Add `actionlint` and `zizmor` to CI. Nothing lints the workflow files today.
+3. Add a prek config. The repo has no pre-commit hooks.
+4. Pin `contracts/package.json` exactly. It has 11 caret ranges, against the
+   rule in `CLAUDE.md`. The lockfile holds `puya-ts` 1.1.0, but a global
+   AlgoKit install may use 1.3.1. CAUTION: a `puya-ts` upgrade changes the
+   TEAL. Regenerate the artifacts and rerun the contract tests with it, and
+   never change it after the MainNet deploy without a redeploy.
+5. Remove the npm-only fields from `contracts/package.json`. pnpm ignores the
+   top-level `overrides` block: the lockfile has `esbuild@0.28.0`, not the
+   0.25.0 it asks for. `engines.npm` does not apply either. If the esbuild pin
+   is still needed, move it to `overrides` in `pnpm-workspace.yaml`.
+
 ## 2026-09-20 Handoff — ready for MainNet launch
 
 - **Changed**: Attestation routes, claims ledger, `spm verify`, MainNet MCP payer,
