@@ -18,7 +18,7 @@ fail=0
 declare -a SUMMARY
 
 log_for() {
-  echo "/tmp/spm_verify_$(echo "$1" | tr -c 'A-Za-z0-9' '_').log"
+  echo "${TMPDIR:-/tmp}/spm_verify_$(echo "$1" | tr -c 'A-Za-z0-9' '_').log"
 }
 
 # run <name> <command> — PASS/FAIL only. Use for checks with no legitimate
@@ -76,7 +76,7 @@ if [ -z "$TSX" ]; then
   fail=1
 else
   export NETWORK="${NETWORK:-testnet}"
-  export SQLITE_PATH="/tmp/spm_verify_$(date +%s).db"
+  export SQLITE_PATH="${TMPDIR:-/tmp}/spm_verify_$(date +%s).db"
   export SPM_PROXY_URL="${SPM_PROXY_URL:-http://localhost:4873}"
   # Ephemeral, throwaway values — never a real key or a real deployed
   # contract. Good enough to exercise the 402 gate and the signing path;
@@ -88,7 +88,7 @@ else
   # watch` never exits on its own (see the cleanup comment below).
   pkill -f "watch src/index.ts" 2>/dev/null || true
 
-  PROXY_LOG="/tmp/spm_verify_proxy.log"
+  PROXY_LOG="${TMPDIR:-/tmp}/spm_verify_proxy.log"
   rm -f "$PROXY_LOG"
   pnpm --dir proxy dev >"$PROXY_LOG" 2>&1 &
   PROXY_PID=$!
