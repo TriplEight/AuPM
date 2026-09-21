@@ -51,6 +51,7 @@ run "unit:cli"          "pnpm --dir cli test"
 run "unit:contracts"    "pnpm --dir contracts test"
 run "unit:mcp"          "pnpm --dir mcp test"
 run "action:spm-attest" "node --test .github/actions/spm-attest/attest.test.mjs"
+run "unit:scripts"      "node --test scripts/*.test.mjs"
 run "guard"             "bash scripts/guard.sh"
 run "lint"              "pnpm exec biome ci ."
 
