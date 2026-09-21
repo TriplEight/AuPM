@@ -2,7 +2,7 @@
   "name": "spm-mcp",
   "version": "1.0.0",
   "type": "module",
-  "packageManager": "pnpm@11.5.0",
+  "packageManager": "pnpm@12.5.1",
   "bin": {
     "spm-mcp": "dist/index.js"
   },
