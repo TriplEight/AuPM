@@ -41,6 +41,27 @@ function supportedWithoutExact(): SupportedResponse {
   }
 }
 
+// Same network and scheme as a real match, but missing x402Version — the
+// shape a non-conformant facilitator (or a stale fixture) could send.
+function supportedWithExactMissingVersion(network: Network, feePayer: string): SupportedResponse {
+  const kindWithoutVersion = { scheme: 'exact', network, extra: { feePayer } }
+  return {
+    kinds: [kindWithoutVersion as unknown as SupportedResponse['kinds'][number]],
+    extensions: [],
+    signers: {},
+  }
+}
+
+// Same network and scheme as a real match, but x402Version 1 — the legacy
+// protocol version, not the one this proxy's middleware requires.
+function supportedWithExactWrongVersion(network: Network, feePayer: string): SupportedResponse {
+  return {
+    kinds: [{ x402Version: 1, scheme: 'exact', network, extra: { feePayer } }],
+    extensions: [],
+    signers: {},
+  }
+}
+
 function stubFacilitatorClient(supported: SupportedResponse): FacilitatorClient {
   return {
     getSupported: async () => supported,
@@ -59,6 +80,18 @@ describe('boot guard (resolveFeePayer)', () => {
   test('returns the fee payer when the fixture contains it', () => {
     const feePayer = resolveFeePayer(supportedWithExact(CAIP2_NETWORK, FEE_PAYER), CAIP2_NETWORK)
     expect(feePayer).toBe(FEE_PAYER)
+  })
+
+  test('throws naming x402Version when a matching kind omits it', () => {
+    expect(() =>
+      resolveFeePayer(supportedWithExactMissingVersion(CAIP2_NETWORK, FEE_PAYER), CAIP2_NETWORK),
+    ).toThrow(/x402Version/)
+  })
+
+  test('throws naming x402Version when a matching kind declares version 1', () => {
+    expect(() =>
+      resolveFeePayer(supportedWithExactWrongVersion(CAIP2_NETWORK, FEE_PAYER), CAIP2_NETWORK),
+    ).toThrow(/x402Version/)
   })
 })
 

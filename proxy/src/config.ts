@@ -9,6 +9,7 @@ import {
   USDC_MAINNET_ASA_ID,
   USDC_TESTNET_ASA_ID,
 } from '@x402-avm/avm'
+import { x402Version as X402_PROTOCOL_VERSION } from '@x402-avm/core'
 import type { Network, SupportedResponse } from '@x402-avm/core/types'
 import algosdk from 'algosdk'
 import { loadSigningKey, type SigningKey } from './attest/keys.js'
@@ -69,8 +70,10 @@ export const GITHUB_READONLY_TOKEN = process.env.GITHUB_READONLY_TOKEN ?? ''
  * Boot guard (pure function, no I/O).
  *
  * Resolve the fee payer for `network` from a facilitator supported-kinds
- * response. Find the kind whose network matches and whose scheme is
- * "exact"; read `extra.feePayer` off it.
+ * response. Find the kind whose network matches, whose scheme is "exact",
+ * and whose x402Version matches the installed middleware's protocol
+ * version (X402_PROTOCOL_VERSION, re-exported as `x402Version` from
+ * `@x402-avm/core`); read `extra.feePayer` off it.
  *
  * CAUTION: pass in a supported-kinds response object only — this function
  * must never perform a network call itself. Callers do the fetch (via
@@ -80,12 +83,28 @@ export const GITHUB_READONLY_TOKEN = process.env.GITHUB_READONLY_TOKEN ?? ''
  * WARNING: throws when the facilitator does not advertise the configured
  * network's "exact" scheme with a feePayer. The server must not accept
  * paid-route traffic without a valid fee payer.
+ *
+ * WARNING: throws a distinct, named error when a kind matches network and
+ * scheme but declares a different or missing x402Version. Without this
+ * check the middleware's own route validation fails first, and the
+ * operator reads a middleware error instead of this boot guard's message.
  */
 export function resolveFeePayer(
   supported: SupportedResponse,
   network: string = CAIP2_NETWORK,
 ): string {
-  const kind = supported.kinds.find((k) => k.network === network && k.scheme === 'exact')
+  const exactKinds = supported.kinds.filter((k) => k.network === network && k.scheme === 'exact')
+  const kind = exactKinds.find((k) => k.x402Version === X402_PROTOCOL_VERSION)
+  const versionMismatch = kind
+    ? undefined
+    : exactKinds.find((k) => k.x402Version !== X402_PROTOCOL_VERSION)
+  if (versionMismatch) {
+    throw new Error(
+      `x402 boot guard: facilitator's "exact" kind on network "${network}" declares ` +
+        `x402Version ${JSON.stringify(versionMismatch.x402Version)}; this proxy requires ` +
+        `x402Version ${X402_PROTOCOL_VERSION}`,
+    )
+  }
   const feePayer = kind?.extra?.feePayer
   if (typeof feePayer !== 'string' || feePayer.length === 0) {
     throw new Error(
