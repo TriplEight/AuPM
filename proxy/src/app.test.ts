@@ -204,6 +204,7 @@ describe('x402 gate', () => {
     ['%2F-encoded separator only', '/@scope%2Fpkg/-/pkg-1.0.0.tgz'],
     ['%2f-encoded separator only (lowercase)', '/@scope%2fpkg/-/pkg-1.0.0.tgz'],
     ['both encoded', '/%40scope%2Fpkg/-/pkg-1.0.0.tgz'],
+    ['the /-/ separator itself also encoded', '/%40scope%2Fpkg%2F-%2Fpkg-1.0.0.tgz'],
     // Defect pin: duplicate-slash / trailing-slash spellings, each combined
     // with an already-covered percent-encoding, must still return 402.
     ['duplicate slash before /-/', '/@scope/pkg//-/pkg-1.0.0.tgz'],
@@ -229,6 +230,7 @@ describe('x402 gate', () => {
     ['%2F-encoded separator only', '/@babel%2Fcore/-/core-7.25.2.tgz'],
     ['%2f-encoded separator only (lowercase)', '/@babel%2fcore/-/core-7.25.2.tgz'],
     ['both encoded', '/%40babel%2Fcore/-/core-7.25.2.tgz'],
+    ['the /-/ separator itself also encoded', '/%40babel%2Fcore%2F-%2Fcore-7.25.2.tgz'],
     // Defect pin: same duplicate-slash spellings, combined with an
     // already-covered percent-encoding, for a real unreviewed package —
     // must never return 402. (Trailing-slash variants are covered
