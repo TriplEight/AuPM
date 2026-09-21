@@ -1,7 +1,8 @@
 # spm-attest GitHub Action
 
-This composite action posts a lockfile to the SPM attestation server. It
-writes the signed envelope to disk for upload as a build artifact.
+This composite action runs the `spm` CLI's `attest` command against the SPM
+attestation server. It writes the signed envelope to disk for upload as a
+build artifact.
 
 ## Usage
 
@@ -24,52 +25,65 @@ Upload the output file with `actions/upload-artifact` in a later step.
 | --- | --- | --- |
 | `endpoint` | (required) | URL of the SPM attestation server. |
 | `lockfile` | `package-lock.json` | Path to the lockfile the action posts. |
-| `fail-on-mismatch` | `false` | Set to `true` to fail the step on `INTEGRITY_MISMATCH`. |
+| `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
 | `output` | `spm-attestation.json` | Path where the action writes the signed envelope. |
-
-This action takes no wallet or secret input. It cannot pay for an
-attestation, and it never asks a caller for a credential it cannot use
-safely. See "Paid attestation" below.
+| `donate` | `false` | Set to `true` to pay for a reviewed lockfile attestation. |
+| `donor-mnemonic` | (empty) | A funded MainNet donor mnemonic, from a GitHub secret. Read only when `donate` is `true`. |
 
 ## Behavior
 
-The action reads the lockfile as raw bytes. It posts those bytes unchanged.
-It never parses or re-serializes the lockfile. The server signs a digest of
-the exact request body. A re-serialized body breaks that digest.
+The action installs the `spm` CLI's own dependencies (`cli/`, `mcp/`).
+It installs them from this action's own repository checkout, not the
+caller's. It then spawns `spm attest <lockfile>`.
 
-A lockfile with zero reviewed packages is free. The server returns 200
-without a 402. This is the only case this action can attest.
+The action never parses or re-serializes the lockfile. The CLI reads it as
+raw bytes. The server signs a digest of the exact request body.
 
-## Paid attestation
+A lockfile with zero reviewed packages is free. The CLI exits 0 without
+donating.
 
-A lockfile with reviewed packages triggers a 402 response. **This action
-does not pay it.** It logs a `::warning::` naming the paid route and exits
-0.
+## Paid attestation (donation)
 
-Paying for an attestation needs a signed x402 payment payload, built by a
-signer holding a funded key. This action is dependency-free, runs in
-arbitrary third-party CI, and holds no such signer or key.
+A lockfile with reviewed packages needs payment. Donation is off by
+default. Set `donate: 'true'` and pass `donor-mnemonic` (a GitHub secret)
+to opt in.
 
-WARNING: never configure a wallet secret, mnemonic, or private key for this
-action. It has no input that accepts one and no way to use one safely — a
-raw secret sent as a header is not a signed payment, and is also a
-credential leaked to whatever `endpoint` is configured.
+The action maps `donor-mnemonic` to the CLI's `SPM_DONOR_MNEMONIC`
+environment variable. It maps `donate: 'true'` to the CLI's `--donate`
+flag.
 
-Use paid attestation from a trusted, local context instead:
+WARNING: pass `donor-mnemonic` only through a GitHub secret in `with:`. The
+action forwards it through the spawned CLI's environment only. It never
+appears in argv, a file, or a log line.
 
-- the `spm` CLI (`spm verify` / the attest command), or
-- the MCP server's `install_audited_package` tool.
+Without `donate: 'true'`, the CLI exits 2 on a 402. The action logs a
+`::warning::` naming the paid route and exits 0.
 
-Both sign the payment locally with `@x402-avm/fetch` before any network
-call, so only the signed payload — never the key — crosses the network.
+The CLI signs a payment locally, inside its own process, before any
+network call. The action never sends a bare mnemonic to any endpoint.
+
+CAUTION: never configure `donor-mnemonic` for an account you cannot afford
+to spend from. The CLI enforces two limits:
+
+- It refuses to sign above 20,000 microUSDC per request.
+- It refuses any asset other than the network's USDC ASA.
+
+A compromised `endpoint` input can still misdirect a donated payment.
 
 ## Fail-open policy
 
-WARNING: this action fails open by default. A network failure, a DNS
-failure, a 5xx response, a missing wallet secret, a missing lockfile, or a
-malformed response logs a `::warning::` and exits 0.
+WARNING: this action fails open by default. Each of the following logs a
+`::warning::` and exits 0, never `fail-on-mismatch`:
 
-Set `fail-on-mismatch: true` to change this for one case only. The step
+- A missing endpoint.
+- A pnpm or dependency-install failure.
+- A 402 response without `donate` set.
+- A missing `donor-mnemonic` with `donate` set.
+- A facilitator outage or a 5xx response.
+- A spend-cap refusal.
+- Any other CLI error.
+
+Set `fail-on-mismatch: 'true'` to change this for one case only. The step
 then exits 1 when the summary reports `integrityMismatch` above zero.
 
 An attestation step that reddens someone else's CI gets removed from their
@@ -84,16 +98,26 @@ health checks, as `DEV` traffic. Trigger on `pull_request` and `push` only.
 
 ## Local development
 
-Run the script directly with Node. Pass flags in place of workflow inputs.
+Run the wrapper directly with Node. Pass flags in place of workflow inputs,
+or set the matching environment variables.
 
 ```bash
-node attest.mjs \
-  --endpoint https://spm.example.com \
-  --lockfile package-lock.json \
-  --output spm-attestation.json
+ENDPOINT=https://spm.example.com \
+LOCKFILE=package-lock.json \
+OUTPUT=spm-attestation.json \
+  node attest.mjs
 ```
 
-`attest.mjs` uses only Node built-in modules. It needs no install step.
+`SETUP_OK` defaults to `true`. Set it to `false` to simulate a failed
+dependency install.
+
+Set `donate: 'true'` locally with `DONATE=true` and
+`DONOR_MNEMONIC=<mnemonic>` in the environment. There is no
+`--donor-mnemonic` flag. A secret does not belong in argv, even for local
+development.
+
+`attest.mjs` uses only Node built-in modules. It needs no install step of
+its own. It spawns the already-installed `spm` CLI through `pnpm exec`.
 
 ## Testing
 
@@ -103,7 +127,14 @@ Run the test suite with Node's built-in test runner.
 node --test attest.test.mjs
 ```
 
-The tests start local stub HTTP servers with `node:http`. They cover the
-free-lockfile path, a 5xx response, the no-retry 402 warning, both
-`fail-on-mismatch` outcomes, exact-byte-equality of the posted body, and
-that no secret-shaped value ever reaches a request header, body, or URL.
+The tests stub the `spm` CLI with a fake `pnpm` executable. They place it
+first on `PATH`. Coverage includes:
+
+- A missing endpoint.
+- A failed dependency setup.
+- The no-retry donation-required exit.
+- A missing `donor-mnemonic` with `donate` set.
+- A generic CLI error.
+- Both `fail-on-mismatch` outcomes.
+- That a donor mnemonic reaches the CLI only through its environment,
+  never argv.

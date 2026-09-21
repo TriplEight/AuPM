@@ -1,16 +1,20 @@
 #!/usr/bin/env node
-// spm-attest: posts a lockfile to the SPM attestation server and writes the
-// signed envelope to disk. Fails open on every error except an explicit
-// integrity-mismatch failure (see run()).
+// spm-attest: spawns the workspace `spm attest` CLI to post a lockfile to
+// the SPM attestation server and write the signed envelope. Dependency-free
+// itself — it only shells out to a CLI that the action installed first.
+// Fails open on every error except an explicit integrity-mismatch failure
+// (see run()).
 
-import { readFileSync, writeFileSync } from 'node:fs'
-import { request as httpRequest } from 'node:http'
-import { request as httpsRequest } from 'node:https'
-import { pathToFileURL } from 'node:url'
+import { spawn } from 'node:child_process'
+import { resolve as resolvePath } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_LOCKFILE = 'package-lock.json'
 const DEFAULT_OUTPUT = 'spm-attestation.json'
-const REQUEST_TIMEOUT_MS = 15000
+const EXIT_DONATION_REQUIRED = 2
+
+// cli/ lives three levels above this file: .github/actions/spm-attest/ -> repo root -> cli.
+const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
 
 /** Print a GitHub Actions warning annotation. */
 export function warn(message) {
@@ -43,11 +47,10 @@ export function parseArgs(argv) {
 /**
  * Merge CLI args and environment variables into a single options object.
  *
- * CAUTION: this action never reads a wallet secret. It cannot perform an
- * x402 payment (that needs a signed payment payload, not a bare secret), so
- * it does not accept one. Any leftover WALLET_SECRET / INPUT_WALLET_SECRET /
- * --wallet-secret from an old workflow is intentionally ignored here — see
- * README.md "Paid attestation".
+ * CAUTION: donorMnemonic is read here but must only ever be forwarded to
+ * the spawned CLI's environment, never to its argv, a file, or a log line.
+ * There is no --donor-mnemonic flag on purpose — a secret does not belong
+ * in argv even for local development.
  */
 export function resolveOptions(argv, env) {
   const cli = parseArgs(argv)
@@ -57,63 +60,78 @@ export function resolveOptions(argv, env) {
     failOnMismatch:
       cli['fail-on-mismatch'] ?? env.FAIL_ON_MISMATCH ?? env.INPUT_FAIL_ON_MISMATCH ?? 'false',
     output: cli.output ?? env.OUTPUT ?? env.INPUT_OUTPUT ?? DEFAULT_OUTPUT,
+    donate: normalizeBool(cli.donate ?? env.DONATE ?? env.INPUT_DONATE ?? 'false'),
+    donorMnemonic: env.DONOR_MNEMONIC ?? env.INPUT_DONOR_MNEMONIC ?? '',
+    cliDir: cli['cli-dir'] ?? env.CLI_DIR ?? DEFAULT_CLI_DIR,
+    setupOk: normalizeBool(cli['setup-ok'] ?? env.SETUP_OK ?? 'true'),
+    cwd: cli.cwd ?? env.CWD ?? process.cwd(),
+  }
+}
+
+/** Build the argv for `pnpm -C <cliDir> exec tsx src/index.ts attest ...`. */
+export function buildPnpmArgs({ cliDir, lockfile, donate, output, cwd }) {
+  const args = ['-C', cliDir, 'exec', 'tsx', 'src/index.ts', 'attest', resolvePath(cwd, lockfile)]
+  if (donate) args.push('--donate')
+  args.push('--out', resolvePath(cwd, output))
+  return args
+}
+
+/** Extract the trailing JSON summary object the CLI prints to stdout. */
+export function parseSummaryFromStdout(stdout) {
+  const start = stdout.indexOf('{')
+  const end = stdout.lastIndexOf('}')
+  if (start === -1 || end === -1 || end < start) return null
+  try {
+    return JSON.parse(stdout.slice(start, end + 1))
+  } catch {
+    return null
   }
 }
 
 /**
- * POST raw bytes to an endpoint once. Never parses or re-serialises the
- * body — the server signs a digest of the exact bytes it receives.
- *
- * CAUTION: this takes no extra-headers parameter on purpose. This action
- * has no credential it is safe to put in a request header. Do not add one
- * back without re-reading the "Paid attestation" section of README.md.
+ * Spawn one command and collect its stdout/stderr/exit code. Never rejects
+ * on a non-zero exit code — that is a normal outcome the caller inspects.
  */
-export function postOnce(endpoint, bodyBytes) {
-  return new Promise((resolve, reject) => {
-    let target
+function runProcess(command, args, options, spawnFn) {
+  return new Promise((resolveRun, reject) => {
+    let child
     try {
-      target = new URL(endpoint)
+      child = spawnFn(command, args, options)
     } catch (err) {
-      reject(new Error(`invalid endpoint URL "${endpoint}": ${err.message}`))
+      reject(err)
       return
     }
-
-    const requester = target.protocol === 'https:' ? httpsRequest : httpRequest
-    const headers = {
-      'content-type': 'application/json',
-      'content-length': Buffer.byteLength(bodyBytes),
-    }
-
-    const req = requester(target, { method: 'POST', headers }, (res) => {
-      const chunks = []
-      res.on('data', (chunk) => chunks.push(chunk))
-      res.on('end', () => {
-        resolve({ statusCode: res.statusCode ?? 0, body: Buffer.concat(chunks) })
-      })
-      res.on('error', reject)
+    let stdout = ''
+    let stderr = ''
+    child.stdout?.on('data', (chunk) => {
+      stdout += chunk
     })
-
-    req.setTimeout(REQUEST_TIMEOUT_MS, () => {
-      req.destroy(new Error(`request to ${endpoint} timed out`))
+    child.stderr?.on('data', (chunk) => {
+      stderr += chunk
     })
-    req.on('error', reject)
-    req.write(bodyBytes)
-    req.end()
+    child.on('error', reject)
+    child.on('close', (code) => resolveRun({ code: code ?? 1, stdout, stderr }))
   })
 }
 
 /**
  * Run the full attest flow. Returns an exit code — never calls
  * process.exit itself, so callers (including tests) can inspect the result.
- * Fails open: every caught error returns 0. The single exception is a
- * reported integrityMismatch above zero when failOnMismatch is true.
+ * Fails open: every caught error, non-payment CLI exit, and infra setup
+ * failure returns 0. The single exception is a reported integrityMismatch
+ * above zero when failOnMismatch is true.
  */
-export async function run(options) {
+export async function run(options, { spawnFn = spawn } = {}) {
   const {
     endpoint,
     lockfile = DEFAULT_LOCKFILE,
     failOnMismatch = false,
     output = DEFAULT_OUTPUT,
+    donate = false,
+    donorMnemonic = '',
+    cliDir = DEFAULT_CLI_DIR,
+    setupOk = true,
+    cwd = process.cwd(),
   } = options
 
   try {
@@ -122,61 +140,43 @@ export async function run(options) {
       return 0
     }
 
-    let bytes
-    try {
-      bytes = readFileSync(lockfile)
-    } catch (err) {
-      warn(`could not read lockfile "${lockfile}": ${err.message}`)
+    if (!setupOk) {
+      warn('pnpm/dependency setup for the spm CLI failed; skipping attestation')
       return 0
     }
 
-    let response
-    try {
-      response = await postOnce(endpoint, bytes)
-    } catch (err) {
-      warn(`request to ${endpoint} failed: ${err.message}`)
+    if (donate && !donorMnemonic) {
+      warn('donate is enabled but donor-mnemonic is not set; skipping attestation')
       return 0
     }
 
-    if (response.statusCode === 402) {
-      // This action never pays. Paying needs a signed x402 payment payload,
-      // not a bare secret, and this action has no signer. Sending a secret
-      // as a header would only leak it to whatever `endpoint` is configured
-      // to — see README.md "Paid attestation" for the CLI / MCP path.
+    const args = buildPnpmArgs({ cliDir, lockfile, donate, output, cwd })
+    const env = { ...process.env, SPM_PROXY_URL: endpoint }
+    delete env.SPM_DONOR_MNEMONIC
+    if (donate) env.SPM_DONOR_MNEMONIC = donorMnemonic
+
+    let result
+    try {
+      result = await runProcess('pnpm', args, { cwd, env }, spawnFn)
+    } catch (err) {
+      warn(`could not start spm attest: ${err.message}`)
+      return 0
+    }
+
+    if (result.code === EXIT_DONATION_REQUIRED) {
       warn(
-        `paid route (${endpoint}) returned 402; this action does not pay. ` +
-          'Use the spm CLI or the MCP server for paid attestation. Skipping.',
+        'paid route returned 402; this run did not opt in with donate. ' +
+          "Set donate: 'true' and a donor-mnemonic secret to pay. Skipping.",
       )
       return 0
     }
 
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      warn(`server returned status ${response.statusCode}`)
+    if (result.code !== 0) {
+      warn(`spm attest exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`)
       return 0
     }
 
-    let parsed
-    try {
-      parsed = JSON.parse(response.body.toString('utf8'))
-    } catch (err) {
-      warn(`could not parse server response: ${err.message}`)
-      return 0
-    }
-
-    const summary = parsed?.summary
-    const attestation = parsed?.attestation
-    if (!attestation) {
-      warn('server response is missing an attestation envelope')
-      return 0
-    }
-
-    try {
-      writeFileSync(output, JSON.stringify(attestation, null, 2))
-    } catch (err) {
-      warn(`could not write output file "${output}": ${err.message}`)
-      return 0
-    }
-
+    const summary = parseSummaryFromStdout(result.stdout)
     const mismatchCount = summary?.integrityMismatch ?? 0
     if (normalizeBool(failOnMismatch) && mismatchCount > 0) {
       warn(`integrityMismatch is ${mismatchCount}; failing per fail-on-mismatch`)
