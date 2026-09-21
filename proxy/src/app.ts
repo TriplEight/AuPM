@@ -76,7 +76,7 @@ export function createApp(
   app.route('/api/v1/status', statusRouter)
 
   // Free, unauthenticated, never gated — the published attestation public
-  // keys (SPEC-v3.md 6.2). A verifier needs this to check a DSSE envelope
+  // keys (SPEC.md 6.2). A verifier needs this to check a DSSE envelope
   // offline; without it, offline verification only works for someone who
   // already holds the key out of band. WARNING: this route must never
   // return 402 — a verifier fetching a public key must never pay
@@ -95,7 +95,7 @@ export function createApp(
     return c.json(keys)
   })
 
-  // Claims ledger write path (SPEC-v3.md 5.2), registered *before* the
+  // Claims ledger write path (SPEC.md 5.2), registered *before* the
   // payment middleware below so it wraps that middleware's next() call and
   // can read PAYMENT-RESPONSE off the settled response on the way out.
   // CAUTION: order matters — after the payment middleware it never sees the

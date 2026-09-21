@@ -1,6 +1,6 @@
 // proxy/src/claims/middleware.ts
 //
-// Claims ledger write path (SPEC-v3.md 5.2). A Hono middleware registered
+// Claims ledger write path (SPEC.md 5.2). A Hono middleware registered
 // *outside* the payment middleware — i.e. before it in app.use() order, so
 // it wraps the payment middleware's next() call. After next() returns, it
 // inspects the response for a successful PAYMENT-RESPONSE header, decodes

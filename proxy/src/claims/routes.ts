@@ -1,6 +1,6 @@
 // proxy/src/claims/routes.ts
 //
-// The claim flow's HTTP surface (SPEC-v3.md 5.3):
+// The claim flow's HTTP surface (SPEC.md 5.3):
 //   GET  /api/v1/earnings/github/:login  — public, free
 //   POST /api/v1/claims                  — returns a nonce, records a pending claim
 //   POST /api/v1/claims/verify           — checks the claimant's published proof

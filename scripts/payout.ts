@@ -2,7 +2,7 @@
 
 // scripts/payout.ts
 //
-// Manual, batched payout runner for the SPM claims ledger (SPEC-v3.md 5.3
+// Manual, batched payout runner for the SPM claims ledger (SPEC.md 5.3
 // step 5, CLAUDE.md "pool-account mnemonics are cold").
 //
 // WARNING: dry-run by default. Without --execute this script only reads the
@@ -47,7 +47,7 @@ Options:
 
 WARNING: --execute signs a real MainNet USDC transfer from a pool account.
 Pool keys are cold. A human runs this locally with --key-file pointing at an
-offline mnemonic file, after checking each claim by hand (SPEC-v3.md 5.3
+offline mnemonic file, after checking each claim by hand (SPEC.md 5.3
 step 5). The recipient address must be opted into USDC 31566704 first.
 
 Dry run is the default so this script is always safe to run to inspect the
@@ -187,7 +187,7 @@ function main(): void {
       'This MVP script stops here by design: payouts are manual and batched, with a human',
     )
     console.log(
-      'checking each claim before broadcast (SPEC-v3.md 5.3 step 5). Confirm the batch above,',
+      'checking each claim before broadcast (SPEC.md 5.3 step 5). Confirm the batch above,',
     )
     console.log('then submit each transfer by hand and record it with recordPayout().')
   } finally {

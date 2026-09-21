@@ -62,7 +62,7 @@ function isTrustProxyEnabled(): boolean {
 /**
  * The real TCP peer address, via @hono/node-server's ConnInfo helper. A
  * caller cannot forge this — unlike a header — so it is the correct default
- * bucket key for the free-path rate limiter (SPEC-v3 §6.3).
+ * bucket key for the free-path rate limiter (SPEC.md §6.3).
  *
  * CAUTION: `getConnInfo` reads `c.env.incoming.socket`, which only exists
  * when this app runs under `@hono/node-server`'s `serve()`. A test harness
@@ -88,7 +88,7 @@ function socketAddress(c: AttestContext): string | null {
  * input unless a known reverse proxy sits in front of this server. Trusting
  * either unconditionally lets a caller defeat the free-path rate limit —
  * the stated control against using SPM as an unpriced signing oracle
- * (SPEC-v3 §6.3) — by sending a different value on every request. Only
+ * (SPEC.md §6.3) — by sending a different value on every request. Only
  * trust either header when TRUST_PROXY says so; otherwise ignore both and
  * fall back to the unspoofable socket address.
  *
@@ -225,7 +225,7 @@ function lockfilePredicate(analysis: LockfileAnalysis): Record<string, unknown> 
     summary: analysis.summary,
     packages: analysis.packages,
     // Absence from `packages[]` means UNREVIEWED — never the unreviewed
-    // majority is listed (SPEC-v3 §6.3).
+    // majority is listed (SPEC.md §6.3).
     absentMeans: 'UNREVIEWED',
   }
 }
@@ -368,7 +368,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (analysis.summary.reviewed === 0) {
       // Free path: charging for zero reviewed packages would charge for
       // nothing (CLAUDE.md free-tier invariant). Rate-limited per IP so it
-      // cannot be used as an unpriced signing oracle (SPEC-v3 §6.3).
+      // cannot be used as an unpriced signing oracle (SPEC.md §6.3).
       const ip = clientIp(c)
       if (!rateLimiter.attempt(ip)) {
         return c.json({ error: 'rate limit exceeded for the free lockfile path' }, 429)
@@ -402,7 +402,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       version: ref.version,
       auditor: ref.auditor,
       // Deriving the maintainer identity needs the npm packument's
-      // repository field (SPEC-v3 §5.2) — that's the claims-ledger work
+      // repository field (SPEC.md §5.2) — that's the claims-ledger work
       // item's job, not this route's. Never fabricated here.
       maintainer: null,
     }))

@@ -171,7 +171,7 @@ read that exact tarball. A record with no stored integrity hash resolves to
 
 ## Further reading
 
-- `SPEC-v3.md` — the authoritative specification.
+- `SPEC.md` — the authoritative specification.
 - `STATUS.md` — per-item implementation status and open items.
 - `docs/RUNBOOK-contract-build.md` — regenerate the contract artifacts.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)

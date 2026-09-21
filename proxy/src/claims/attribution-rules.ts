@@ -1,6 +1,6 @@
 // proxy/src/claims/attribution-rules.ts
 //
-// Attribution rules for the off-chain claims ledger (SPEC-v3.md section 5.2).
+// Attribution rules for the off-chain claims ledger (SPEC.md section 5.2).
 // Pure functions only — no I/O, no database access. proxy/src/claims/ledger.ts
 // calls these to turn one paid request's attribution into accrual rows.
 
@@ -17,7 +17,7 @@ export const UNASSIGNED = 'unassigned'
 /**
  * The three ledgered roles and their share of every 1,000 micro-USDC paid
  * (CLAUDE.md "Canonical facts"). Treasury (100) and ops (50) are not
- * ledgered — distribute() pays them directly (SPEC-v3.md 5.2).
+ * ledgered — distribute() pays them directly (SPEC.md 5.2).
  */
 export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
   auditor: 500,
@@ -66,7 +66,7 @@ export function splitProRata(totalMicro: number, count: number): number[] {
 /**
  * Canonical sort order for pro-rata splits: by package name, then version.
  * Deterministic so the same lockfile always sends its remainder to the same
- * package (SPEC-v3.md 5.2: "the remainder goes to the first package in sort
+ * package (SPEC.md 5.2: "the remainder goes to the first package in sort
  * order, so ledger sums equal pool inflows exactly").
  */
 export function sortPackages(packages: AttributionEntry[]): AttributionEntry[] {
@@ -95,7 +95,7 @@ export function resolveMaintainerIdentity(entry: AttributionEntry): string {
 /**
  * reviewer (the adversarial 15%) -> `unassigned` in the MVP. No adversarial
  * review exists yet; it stays in the reviewer pool as the future bounty
- * budget (SPEC-v3.md 5.2). This ignores the entry entirely on purpose.
+ * budget (SPEC.md 5.2). This ignores the entry entirely on purpose.
  */
 export function resolveReviewerIdentity(_entry: AttributionEntry): string {
   return UNASSIGNED
@@ -113,7 +113,7 @@ export function resolveIdentity(role: Role, entry: AttributionEntry): string {
 
 /**
  * Parse a GitHub `owner` out of an npm packument's `repository.url` for one
- * version (SPEC-v3.md 5.2). Handles the common forms: `git+https://`,
+ * version (SPEC.md 5.2). Handles the common forms: `git+https://`,
  * `https://`, `git://`, and scp-style `git@github.com:owner/repo.git`. A
  * non-GitHub or unparsable URL returns null, which callers map to
  * `unassigned` — this mapping is self-declared by the publisher, so callers
@@ -155,7 +155,7 @@ export interface AccrualInput {
  * Build every accrual row for one settled, paid request.
  *
  * - Tarball / single attest: `packages` has one entry, so each role's whole
- *   share goes to that package's identities (SPEC-v3.md 5.2).
+ *   share goes to that package's identities (SPEC.md 5.2).
  * - Lockfile: each role's share splits pro-rata across the reviewed
  *   packages with integer division; the remainder lands on the first
  *   package in sort order.

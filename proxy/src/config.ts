@@ -128,7 +128,7 @@ export const LOCKFILE_PREDICATE_TYPE = `${ISSUER}/attestation/lockfile/v1`
 export const SINGLE_PREDICATE_TYPE = `${ISSUER}/attestation/single/v1`
 
 // `validFrom` published on the configured attestation signing key's entry
-// at GET /.well-known/spm-keys.json (SPEC-v3.md 6.2). SPM_KEY_VALID_FROM
+// at GET /.well-known/spm-keys.json (SPEC.md 6.2). SPM_KEY_VALID_FROM
 // lets ops record the real provisioning date; the default is a placeholder,
 // same pattern as ISSUER above.
 export const ATTEST_SIGNING_KEY_VALID_FROM =

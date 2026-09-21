@@ -244,7 +244,7 @@ export function analyzeLockfile(
       continue
     }
     // Compared on the parsed sha512 digest, never on the raw SSRI string —
-    // a lockfile entry may list more than one hash space-separated (SPEC-v3
+    // a lockfile entry may list more than one hash space-separated (SPEC.md
     // §6.3), and a differing hash order or an extra weaker hash must never
     // turn a genuine match into a reported INTEGRITY_MISMATCH.
     const integrityMatch = integrity !== null && sha512Matches(knownIntegrity, integrity)
@@ -280,7 +280,7 @@ export function analyzeLockfile(
         // second unit in the total either. Every bucket below is a subset
         // of `total`; if this collapsed entry stayed counted in `total`
         // without landing in any bucket, the buckets would never sum to
-        // `total` — an inconsistent signed statement (SPEC-v3 §6.3).
+        // `total` — an inconsistent signed statement (SPEC.md §6.3).
         summary.total -= 1
         continue
       }

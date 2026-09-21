@@ -34,7 +34,7 @@ function canonicalizeIdentity(identity: string): string {
 
 // ON CONFLICT DO NOTHING makes a replayed settle_txid a no-op: the primary
 // key (settle_txid, role, pkg, version) already exists, so the row already
-// written wins and no second accrual is written (SPEC-v3.md 5.2, CLAUDE.md
+// written wins and no second accrual is written (SPEC.md 5.2, CLAUDE.md
 // invariant "idempotent").
 const insertAccrual = db.prepare<[string, string, string, string, string, string, number, number]>(
   `INSERT INTO accruals
@@ -120,7 +120,7 @@ export interface Earnings {
 
 /**
  * Accrued and claimed (paid out) totals per role for one GitHub login.
- * Public and free (SPEC-v3.md 5.3 step 1) — reports only this identity's
+ * Public and free (SPEC.md 5.3 step 1) — reports only this identity's
  * own data, never another identity's.
  */
 export function getEarningsForLogin(login: string): Earnings {
@@ -187,7 +187,7 @@ export class ClaimAlreadyVerifiedError extends Error {}
 
 /**
  * Register a pending claim and return its nonce. A repeat POST for the same
- * identity issues a fresh nonce and resets it to pending (SPEC-v3.md 5.3
+ * identity issues a fresh nonce and resets it to pending (SPEC.md 5.3
  * step 2) — the claimant re-proves with the new nonce.
  *
  * WARNING: throws `ClaimAlreadyVerifiedError` when the stored claim for this
@@ -308,7 +308,7 @@ const updateClaimStatus = db.prepare<[ClaimStatus, string, string, number | null
 
 /**
  * Verify a claim's published proof against its stored nonce, via GitHub API
- * reads through `github` (SPEC-v3.md 5.3 steps 3-4). Sets `status=verified`
+ * reads through `github` (SPEC.md 5.3 steps 3-4). Sets `status=verified`
  * on success, `status=failed` when the nonce does not match or the proof is
  * missing. Returns null when no pending claim exists for `identity`.
  *
@@ -351,7 +351,7 @@ const insertPayout = db.prepare<[string, string, number, string, number]>(
 )
 
 /**
- * Record a manual, human-checked payout (SPEC-v3.md 5.3 step 5).
+ * Record a manual, human-checked payout (SPEC.md 5.3 step 5).
  *
  * CAUTION: canonicalises `identity` on the way in, same as every other
  * write in this module, so a manually-typed mixed-case identity still joins

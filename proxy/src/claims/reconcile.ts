@@ -1,6 +1,6 @@
 // proxy/src/claims/reconcile.ts
 //
-// Nightly reconciliation (SPEC-v3.md 5.2). Lists USDC transfers into payTo
+// Nightly reconciliation (SPEC.md 5.2). Lists USDC transfers into payTo
 // via the indexer and compares them with ledger settle_txid values.
 // Unmatched inflows — a crash between settle and write, or a direct
 // deposit — are ledgered as `unassigned` so the ledger total never falls

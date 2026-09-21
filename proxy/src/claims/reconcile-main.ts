@@ -1,6 +1,6 @@
 // proxy/src/claims/reconcile-main.ts
 //
-// Nightly claims-ledger reconciliation runner (SPEC-v3.md 5.2, CLAUDE.md
+// Nightly claims-ledger reconciliation runner (SPEC.md 5.2, CLAUDE.md
 // invariant 2). An external cron or systemd timer starts this script — it
 // holds no scheduling logic of its own (mirrors scripts/payout.ts). It
 // imports reconcile() and createIndexerClient() from this directory and

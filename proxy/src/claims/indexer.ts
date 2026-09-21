@@ -1,6 +1,6 @@
 // proxy/src/claims/indexer.ts
 //
-// Production IndexerClient (SPEC-v3.md 5.2) for
+// Production IndexerClient (SPEC.md 5.2) for
 // proxy/src/claims/reconcile.ts: lists confirmed USDC axfers into `payTo`
 // from an Algorand indexer, via algosdk's own Indexer client. Pages through
 // every result with `next-token` — a busy `payTo` can span more than one
@@ -31,9 +31,9 @@ function portOf(indexerUrl: string): string {
 /**
  * Build a real, injectable IndexerClient. `indexerUrl` and `usdcAssetId`
  * come from the caller's own environment read — proxy/src/config.ts does
- * not own INDEXER_URL (see scripts/reconcile.ts, which reads it) — so this
- * module performs no environment read itself, matching
- * createGithubClient's shape.
+ * not own INDEXER_URL (see proxy/src/claims/reconcile-main.ts, run via
+ * `pnpm -C proxy reconcile`, which reads it) — so this module performs no
+ * environment read itself, matching createGithubClient's shape.
  */
 export function createIndexerClient(indexerUrl: string, usdcAssetId: string): IndexerClient {
   const client = new algosdk.Indexer('', indexerUrl, portOf(indexerUrl))

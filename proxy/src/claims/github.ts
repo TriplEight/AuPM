@@ -1,6 +1,6 @@
 // proxy/src/claims/github.ts
 //
-// Real, read-only GitHub client for claim-proof verification (SPEC-v3.md
+// Real, read-only GitHub client for claim-proof verification (SPEC.md
 // 5.3). Implements the GithubClient interface from proxy/src/claims/ledger.ts
 // over the public GitHub REST API. Only POST /api/v1/claims/verify uses this
 // — earnings and claim creation never reach GitHub.

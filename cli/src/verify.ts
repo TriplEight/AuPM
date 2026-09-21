@@ -1,10 +1,10 @@
 // cli/src/verify.ts
 //
 // Offline verifier for SPM DSSE + in-toto Statement v1 attestations.
-// See SPEC-v3.md section 6 for the envelope format.
+// See SPEC.md section 6 for the envelope format.
 //
 // This module implements the DSSE Pre-Authentication Encoding (PAE)
-// independently from SPEC-v3.md. It does not import proxy/src/attest/dsse.ts.
+// independently from SPEC.md. It does not import proxy/src/attest/dsse.ts.
 // An independent verifier proves the envelope is standard DSSE, not just
 // that this codebase agrees with itself.
 //
@@ -57,7 +57,7 @@ interface Statement {
 
 /**
  * Builds the DSSE Pre-Authentication Encoding, independently from the
- * SPEC-v3.md text:
+ * SPEC.md text:
  *   "DSSEv1" SP len(type) SP type SP len(payload) SP payload
  * SP is a single ASCII space. len() is the byte length in ASCII decimal.
  * payload is the raw Statement bytes, not the base64 form.
