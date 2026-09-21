@@ -194,17 +194,58 @@ describe('SplitRouter', () => {
     expect(contract.payTo.value).toEqual(external.bytes)
   })
 
-  test('setPayTo() is write-once: a second call is rejected after the first succeeds', () => {
+  test('setPayTo() succeeds a second time while the current payTo holds a zero balance', () => {
     const contract = ctx.contract.create(SplitRouter)
     const first = ctx.any.account()
     const second = ctx.any.account()
 
-    callInScope(contract, () => contract.setPayTo(first))
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
 
-    expect(() => callInScope(contract, () => contract.setPayTo(second))).toThrow(
-      'payTo already set',
+    callInScope(contract, () => contract.setPayTo(first))
+    // setRecipients stores assetId, so setPayTo's balance check now runs.
+    // `first` never opted into mockUsdc: op.AssetHolding.assetBalance
+    // returns exists=false, which the contract treats as a zero balance.
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
     )
-    expect(contract.payTo.value).toEqual(first.bytes)
+
+    callInScope(contract, () => contract.setPayTo(second))
+    expect(contract.payTo.value).toEqual(second.bytes)
+  })
+
+  test('setPayTo() rejects a second call once the current payTo holds a non-zero balance', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+    const replacement = ctx.any.account()
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () => contract.setPayTo(external))
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    // The harness does not mutate ledger balances by running inner
+    // transactions through the AVM emulator; distribute()'s tests above
+    // already rely on this same direct patch. It stages a real non-zero
+    // holding for `external`, so this test proves the rejection, not just
+    // the code path.
+    ctx.ledger.updateAssetHolding(external, mockUsdc, 1n)
+
+    expect(() => callInScope(contract, () => contract.setPayTo(replacement))).toThrow(
+      'payTo already holds revenue',
+    )
+    expect(contract.payTo.value).toEqual(external.bytes)
   })
 
   test('default path: setRecipients() alone leaves payTo at the app address', () => {
@@ -239,5 +280,43 @@ describe('SplitRouter', () => {
     const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
     expect(rekeyTxn.sender).toEqual(external)
     expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+  })
+
+  test('optInToAsset(): variant A opts in the app address when payTo defaults to it', () => {
+    const { contract, mockUsdc, appRef } = setupFull()
+
+    callInScope(contract, () => contract.optInToAsset(mockUsdc))
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+    expect(inner.sender).toEqual(appRef.address)
+    expect(inner.assetReceiver).toEqual(appRef.address)
+  })
+
+  test('optInToAsset(): variant B opts in payTo when it is an external, rekeyed account', () => {
+    const contract = ctx.contract.create(SplitRouter)
+    const external = ctx.any.account()
+
+    callInScope(contract, () => contract.setPayTo(external))
+
+    const auditor = ctx.any.account()
+    const maintainer = ctx.any.account()
+    const adversarial = ctx.any.account()
+    const treasury = ctx.any.account()
+    const ops = ctx.any.account()
+    const mockUsdc = ctx.any.asset()
+
+    callInScope(contract, () =>
+      contract.setRecipients(auditor, maintainer, adversarial, treasury, ops, mockUsdc),
+    )
+
+    callInScope(contract, () => contract.optInToAsset(mockUsdc))
+
+    const group = ctx.txn.lastGroup
+    expect(group.itxnGroups).toHaveLength(1)
+    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+    expect(inner.sender).toEqual(external)
+    expect(inner.assetReceiver).toEqual(external)
   })
 })

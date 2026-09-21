@@ -48,15 +48,33 @@ export class SplitRouter extends Contract {
   attests = BoxMap<string, bytes>({ keyPrefix: 'attest:' })
 
   // Admin-only. Sets payTo to an external account, bootstrapping variant B.
-  // Write-once: fails if payTo already has a value. This is the sole
-  // protection for the leaderboard key. Call before setRecipients.
+  // Correctable while payTo holds zero revenue; locked once revenue lands,
+  // because payTo is the competition leaderboard key. The asset balance is
+  // the signal a payment has settled, so a non-zero balance rejects the
+  // change.
+  //
+  // No-assetId rule: if setRecipients has never run, assetId has no value.
+  // No payment can have settled without a configured asset, so the balance
+  // check is skipped and the change is allowed.
   public setPayTo(addr: Account): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
-    assert(!this.payTo.hasValue, 'payTo already set')
     assert(
       addr.bytes !== Global.currentApplicationAddress.bytes,
       'use the default app-address path instead',
     )
+    if (this.assetId.hasValue) {
+      // setRecipients always sets payTo alongside assetId, so payTo has a
+      // value here too.
+      const asset = Asset(this.assetId.value)
+      const currentPayTo = Account(this.payTo.value)
+      // op.AssetHolding.assetBalance returns [balance, exists]. Use it
+      // instead of asset.balance(), which fails outright for an account
+      // that has never opted in. A not-opted-in account holds no revenue,
+      // so treat "not opted in" as a zero balance, not a rejection.
+      const [bal, exists] = op.AssetHolding.assetBalance(currentPayTo, asset)
+      const balance: uint64 = exists ? bal : Uint64(0)
+      assert(balance === Uint64(0), 'payTo already holds revenue')
+    }
     this.payTo.value = addr.bytes
   }
 
@@ -81,12 +99,24 @@ export class SplitRouter extends Contract {
     }
   }
 
+  // Opts in the account that actually receives USDC, not always the app.
+  // Variant A (default, payTo == app address): the sender is the app
+  // account, opting itself in.
+  // Variant B (payTo is an external, rekeyed account): the sender is payTo.
+  // payTo is rekeyed to this app (see releaseAuthority()), so the app can
+  // authorise an inner transaction on payTo's behalf. This is the same
+  // rekeyed-sender pattern distribute() and releaseAuthority() already rely
+  // on, so it is confirmed to work for this contract.
   public optInToAsset(asset: Asset): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    const receiver = this.payTo.hasValue
+      ? Account(this.payTo.value)
+      : Global.currentApplicationAddress
     itxn
       .assetTransfer({
+        sender: receiver,
         xferAsset: asset,
-        assetReceiver: Global.currentApplicationAddress,
+        assetReceiver: receiver,
         assetAmount: Uint64(0),
         fee: Uint64(0),
       })
