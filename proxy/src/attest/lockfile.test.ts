@@ -298,10 +298,34 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     )
     expect(result.ok).toBe(true)
     if (!result.ok) throw new Error('unreachable')
-    expect(result.analysis.summary.total).toBe(2)
+    // Two lockfile entries name one real package. `summary.total` counts
+    // distinct packages, the same as `summary.reviewed` — never a raw
+    // lockfile-entry count that the buckets below it cannot sum to.
+    expect(result.analysis.summary.total).toBe(1)
     expect(result.analysis.reviewedPackageRefs).toEqual([
       { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
     ])
+  })
+
+  test('summary buckets sum to summary.total for a package listed at two depths', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
+    const result = analyzeLockfile(
+      lockfileBytes({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': npmEntry('2.1.3'),
+          'node_modules/send/node_modules/ms': npmEntry('2.1.3'),
+        },
+      }),
+    )
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    const { summary } = result.analysis
+    expect(
+      summary.reviewed + summary.unreviewed + summary.unresolvable + summary.integrityMismatch,
+    ).toBe(summary.total)
+    expect(summary.total).toBe(1)
+    expect(summary.reviewed).toBe(1)
   })
 
   test('summary.reviewed counts the depth-duplicated package once', () => {

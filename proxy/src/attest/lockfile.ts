@@ -232,6 +232,16 @@ export function analyzeLockfile(
         // as reviewed, with the same raw lockfile integrity: the same
         // tarball listed twice. Collapse it — never double-count, never
         // double-list it in the signed statement, never double-pay it.
+        //
+        // `summary.total` counts distinct packages, not raw lockfile
+        // entries — the same invariant `summary.reviewed` already applies
+        // to this exact case. Undo the unconditional `total += 1` above for
+        // this entry: it is not a second package, so it must not be a
+        // second unit in the total either. Every bucket below is a subset
+        // of `total`; if this collapsed entry stayed counted in `total`
+        // without landing in any bucket, the buckets would never sum to
+        // `total` — an inconsistent signed statement (SPEC-v3 §6.3).
+        summary.total -= 1
         continue
       }
       // Same name@version, already accepted as reviewed, but this entry's

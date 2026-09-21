@@ -24,6 +24,7 @@ import type { Attribution } from '../attest/attribution.js'
 import type { Envelope, Statement } from '../attest/dsse.js'
 import { verifyEnvelope } from '../attest/dsse.js'
 import { loadSigningKey, type SigningKey } from '../attest/keys.js'
+import { LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
 import { createRateLimiter } from '../attest/ratelimit.js'
 import type { AttestRoutesOptions } from './attest.js'
 
@@ -373,6 +374,127 @@ describe('POST /v1/attest/lockfile', () => {
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
     expect(predicate.packages[0]?.reviewer).toBe('github:alice')
     expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
+  })
+})
+
+describe('POST /v1/attest/lockfile: body size cap', () => {
+  // A stream instrumented to record whether anything ever acquired a
+  // reader on it — used to prove the oversized-Content-Length path returns
+  // before the body is read at all, not merely before it finishes.
+  //
+  // CAUTION: a ReadableStream's `pull()` fires once automatically, to
+  // pre-fill its internal queue, even when nothing ever calls
+  // `getReader()` on it — that firing is not evidence anything read the
+  // body. `getReader()` — which readLimitedBody() must call to read even
+  // one byte — is the real signal.
+  function neverReadStream(): { stream: ReadableStream<Uint8Array>; wasRead: () => boolean } {
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(encoder.encode('{}'))
+        controller.close()
+      },
+    })
+    let read = false
+    const originalGetReader = stream.getReader.bind(stream)
+    stream.getReader = ((...args: Parameters<typeof stream.getReader>) => {
+      read = true
+      return originalGetReader(...args)
+    }) as typeof stream.getReader
+    return { stream, wasRead: () => read }
+  }
+
+  // A stream that emits `totalBytes` across small chunks, and records both
+  // how many bytes it actually handed out and whether it was cancelled —
+  // used to prove a hard read cap stops mid-stream, never draining a body
+  // that has no truthful Content-Length to reject up front.
+  function boundedChunkStream(
+    totalBytes: number,
+    chunkSize = 64 * 1024,
+  ): { stream: ReadableStream<Uint8Array>; bytesSent: () => number; wasCancelled: () => boolean } {
+    let sent = 0
+    let cancelled = false
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= totalBytes) {
+          controller.close()
+          return
+        }
+        const size = Math.min(chunkSize, totalBytes - sent)
+        controller.enqueue(new Uint8Array(size))
+        sent += size
+      },
+      cancel() {
+        cancelled = true
+      },
+    })
+    return { stream, bytesSent: () => sent, wasCancelled: () => cancelled }
+  }
+
+  test('an oversized Content-Length is rejected before the body is read', async () => {
+    const { app } = buildTestApp()
+    const { stream, wasRead } = neverReadStream()
+    const init = {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'content-length': String(LOCKFILE_MAX_BYTES + 1),
+      },
+      body: stream,
+      duplex: 'half',
+    } as unknown as RequestInit
+
+    const res = await app.request('/v1/attest/lockfile', init)
+
+    expect(res.status).toBe(413)
+    expect(wasRead()).toBe(false)
+  })
+
+  test('a chunked body with no Content-Length exceeding the cap is rejected mid-stream', async () => {
+    const { app } = buildTestApp()
+    const totalBytes = LOCKFILE_MAX_BYTES + 5 * 1024 * 1024
+    const { stream, bytesSent, wasCancelled } = boundedChunkStream(totalBytes)
+    const init = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    } as unknown as RequestInit
+
+    const res = await app.request('/v1/attest/lockfile', init)
+
+    expect(res.status).toBe(413)
+    // The reader was stopped well short of the full, lying body — never
+    // buffered the whole thing before rejecting it.
+    expect(bytesSent()).toBeLessThan(totalBytes)
+    expect(wasCancelled()).toBe(true)
+  })
+
+  test('a small declared Content-Length that understates the real body is still rejected', async () => {
+    const { app } = buildTestApp()
+    const totalBytes = LOCKFILE_MAX_BYTES + 5 * 1024 * 1024
+    const { stream, bytesSent, wasCancelled } = boundedChunkStream(totalBytes)
+    const init = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'content-length': '10' },
+      body: stream,
+      duplex: 'half',
+    } as unknown as RequestInit
+
+    const res = await app.request('/v1/attest/lockfile', init)
+
+    expect(res.status).toBe(413)
+    expect(bytesSent()).toBeLessThan(totalBytes)
+    expect(wasCancelled()).toBe(true)
+  })
+
+  test('a malformed body within the size cap still returns 400, not 413', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{ not json',
+    })
+    expect(res.status).toBe(400)
   })
 })
 

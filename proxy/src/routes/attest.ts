@@ -26,7 +26,7 @@ import {
   signEnvelope,
 } from '../attest/dsse.js'
 import type { IntegrityLookup, LockfileAnalysis } from '../attest/lockfile.js'
-import { analyzeLockfile } from '../attest/lockfile.js'
+import { analyzeLockfile, LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
 import {
   createRateLimiter,
   DEFAULT_FREE_LOCKFILE_RATE_LIMIT,
@@ -131,6 +131,88 @@ function registryAppId(): number {
   const raw = process.env.SPLIT_APP_ID
   const n = raw ? Number(raw) : 0
   return Number.isFinite(n) ? n : 0
+}
+
+/**
+ * Distinct from the 400 a malformed-but-bounded body gets. A caller can
+ * tell "too big" from "not valid JSON" without parsing the response body.
+ */
+const BODY_TOO_LARGE_STATUS = 413
+
+function bodyTooLargeResponse(c: AttestContext, maxBytes: number): Response {
+  return c.json({ error: `request body exceeds the ${maxBytes}-byte limit` }, BODY_TOO_LARGE_STATUS)
+}
+
+/**
+ * Reads `POST /v1/attest/lockfile`'s request body up to `maxBytes`, and no
+ * further — this route is unauthenticated and runs before the payment gate
+ * (see the module banner above), so an unbounded read here is a free
+ * memory-exhaustion oracle.
+ *
+ * Two layers, neither sufficient alone:
+ *   1. `Content-Length`, checked first, rejects an oversized declared body
+ *      before a single byte is read. CAUTION: it is caller-supplied and may
+ *      be absent (a chunked request) or false (a lying declared length) —
+ *      a fast rejection, never the only defence.
+ *   2. The stream itself is read in chunks and the running total is checked
+ *      after every chunk. Reading stops — the reader is cancelled — the
+ *      instant the total exceeds `maxBytes`, so a chunked request with no
+ *      `Content-Length`, or one that understates its real size, still
+ *      cannot buffer more than `maxBytes` (plus at most one in-flight
+ *      chunk) before this function returns.
+ *
+ * Returns the exact bytes read, unmodified, when within the cap — the
+ * sha256 `analyzeLockfile` computes over them is byte-for-byte the same
+ * digest `c.req.arrayBuffer()` would have produced for a valid lockfile.
+ */
+async function readLimitedBody(
+  c: AttestContext,
+  maxBytes: number,
+): Promise<{ ok: true; bytes: Uint8Array } | { ok: false; response: Response }> {
+  const declaredLength = c.req.header('content-length')
+  if (declaredLength !== undefined) {
+    const declared = Number(declaredLength)
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      return { ok: false, response: bodyTooLargeResponse(c, maxBytes) }
+    }
+  }
+
+  const body = c.req.raw.body
+  if (!body) {
+    return { ok: true, bytes: new Uint8Array(0) }
+  }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let total = 0
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value) continue
+      total += value.byteLength
+      if (total > maxBytes) {
+        await reader.cancel()
+        return { ok: false, response: bodyTooLargeResponse(c, maxBytes) }
+      }
+      chunks.push(value)
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {
+      // Already released by cancel() above; never let cleanup mask the
+      // real result.
+    }
+  }
+
+  const bytes = new Uint8Array(total)
+  let offset = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return { ok: true, bytes }
 }
 
 function lockfilePredicate(analysis: LockfileAnalysis): Record<string, unknown> {
@@ -259,8 +341,11 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
   const rateLimiter = options.rateLimiter ?? createRateLimiter(DEFAULT_FREE_LOCKFILE_RATE_LIMIT)
 
   const lockfilePreMiddleware: MiddlewareHandler<{ Variables: AppVariables }> = async (c, next) => {
-    const rawBody = new Uint8Array(await c.req.arrayBuffer())
-    const result = analyzeLockfile(rawBody, options.integrityLookup)
+    const limited = await readLimitedBody(c, LOCKFILE_MAX_BYTES)
+    if (!limited.ok) {
+      return limited.response
+    }
+    const result = analyzeLockfile(limited.bytes, options.integrityLookup)
 
     if (!result.ok) {
       // WARNING: return before the payment gate runs — a caller must never
