@@ -2,35 +2,36 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import {
-  ALGORAND_MAINNET_CAIP2,
-  ALGORAND_TESTNET_CAIP2,
-  USDC_MAINNET_ASA_ID,
-  USDC_TESTNET_ASA_ID,
-} from '@x402-avm/avm'
-import { registerExactAvmScheme } from '@x402-avm/avm/exact/client'
-import { x402Client } from '@x402-avm/core/client'
 import { decodePaymentResponseHeader } from '@x402-avm/core/http'
-import { wrapFetchWithPayment } from '@x402-avm/fetch'
-import { signerFromMnemonic } from '../signer.js'
+import {
+  DONATION_CAP_MICRO,
+  EXPLORER_NETWORK,
+  fetchWithDonation,
+  IS_TESTNET,
+  USDC_ASSET_ID,
+} from '../donor.js'
 
 const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
 
-// NETWORK selects Algorand MainNet (default) or TestNet rehearsal.
-const NETWORK = (process.env.NETWORK ?? 'mainnet').toLowerCase()
-const IS_TESTNET = NETWORK === 'testnet'
-const CAIP2_NETWORK = IS_TESTNET ? ALGORAND_TESTNET_CAIP2 : ALGORAND_MAINNET_CAIP2
-const USDC_ASSET_ID = IS_TESTNET ? USDC_TESTNET_ASA_ID : USDC_MAINNET_ASA_ID
-const EXPLORER_NETWORK = IS_TESTNET ? 'testnet' : 'mainnet'
+export type InstallOutcome =
+  | {
+      status: 'free' | 'paid'
+      pkg: string
+      version: string
+      tarballPath: string
+      txid: string | null
+      loraUrl: string | null
+    }
+  | {
+      status: 'donation_required'
+      pkg: string
+      version: string
+      priceMicro: number
+      resourceUrl: string
+      asset: string
+    }
 
-export type InstallResult = {
-  pkg: string
-  version: string
-  status: 'free' | 'paid'
-  tarballPath: string
-  txid: string | null
-  loraUrl: string | null
-}
+export type InstallResult = InstallOutcome
 
 type DecodedSettleResponse = {
   success: boolean
@@ -72,46 +73,43 @@ function readSettlementTxid(res: Response): string | null {
   return decoded.transaction
 }
 
-// Env var holding the payer's 25-word Algorand mnemonic.
-// WARNING: this value must never be printed or included in an error message.
-const PAYER_KEY_ENV = 'PAYER_MNEMONIC'
-
-function readPayerMnemonic(): string {
-  const value = process.env[PAYER_KEY_ENV]
-  if (!value) throw new Error(`${PAYER_KEY_ENV} env var not set`)
-  return value
-}
-
-// Builds an x402 client bound to exactly one Algorand network (never the
-// 'algorand:*' wildcard), so a payment can only be made on the network NETWORK
-// selects.
-function buildPaymentClient() {
-  const signer = signerFromMnemonic(readPayerMnemonic())
-  const client = new x402Client()
-  registerExactAvmScheme(client, { signer, networks: [CAIP2_NETWORK] })
-  return client
-}
-
 export const installTool = {
   name: 'install_audited_package',
   description:
-    'Install an npm package via SPM. If COMMUNITY_REVIEWED or higher, autonomously pays ' +
-    `$0.001 USDC on Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) ` +
-    'as a plain asset transfer to the merchant payTo address. Returns tarball path and ' +
-    'settlement txid.',
+    'Install an npm package via SPM. If COMMUNITY_REVIEWED or higher, this route returns ' +
+    `402. Pass allowDonation: true to donate up to ${DONATION_CAP_MICRO} microUSDC on ` +
+    `Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) as a plain ` +
+    'asset transfer to the merchant payTo address. Without allowDonation, a 402 is reported ' +
+    "back as status: 'donation_required' with the price and resource URL, and nothing is " +
+    'signed. Returns tarball path and settlement txid on a paid or free install.',
 
-  async handler({ pkg, version }: { pkg: string; version: string }): Promise<InstallResult> {
+  async handler({
+    pkg,
+    version,
+    allowDonation = false,
+  }: {
+    pkg: string
+    version: string
+    allowDonation?: boolean
+  }): Promise<InstallResult> {
     const basePkg = pkg.split('/').pop() ?? pkg
     const tarballName = `${basePkg}-${version}.tgz`
     const pkgPath = pkg.startsWith('@') ? pkg.replace('@', '%40').replace('/', '%2F') : pkg
     const url = `${PROXY_URL}/${pkgPath}/-/${tarballName}`
 
-    const client = buildPaymentClient()
-    const payFetch = wrapFetchWithPayment(fetch, client)
+    const result = await fetchWithDonation(url, undefined, allowDonation)
+    if (result.kind === 'donation_required') {
+      return {
+        status: 'donation_required',
+        pkg,
+        version,
+        priceMicro: result.requirement.priceMicro,
+        resourceUrl: result.requirement.resourceUrl,
+        asset: result.requirement.asset,
+      }
+    }
 
-    // wrapFetchWithPayment retries a 402 exactly once — it never loops. A second
-    // 402 (rejected payment) is returned as-is and falls into the !res.ok check below.
-    const res = await payFetch(url)
+    const res = result.response
     if (!res.ok) {
       throw new Error(`Install failed: ${res.status}`)
     }

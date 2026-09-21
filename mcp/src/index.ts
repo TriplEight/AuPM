@@ -30,12 +30,16 @@ server.tool(
   {
     pkg: z.string().describe('Package name, e.g. "lodash" or "@scope/pkg"'),
     version: z.string().describe('Exact version string, e.g. "4.17.21"'),
+    allowDonation: z
+      .boolean()
+      .optional()
+      .describe('Opt in to donating for a 402. Off by default — a 402 never signs otherwise.'),
   },
-  async ({ pkg, version }) => ({
+  async ({ pkg, version, allowDonation }) => ({
     content: [
       {
         type: 'text' as const,
-        text: JSON.stringify(await installTool.handler({ pkg, version }), null, 2),
+        text: JSON.stringify(await installTool.handler({ pkg, version, allowDonation }), null, 2),
       },
     ],
   }),

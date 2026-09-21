@@ -71,19 +71,38 @@ function settleResponseHeader(transaction: string, success = true): string {
 
 describe('install_audited_package', () => {
   beforeEach(() => {
-    process.env.PAYER_MNEMONIC = TEST_MNEMONIC
+    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
     process.env.SPM_PROXY_URL = 'http://localhost:4873'
     delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.PAYER_MNEMONIC
+    delete process.env.SPM_DONOR_MNEMONIC
     delete process.env.SPM_PROXY_URL
     delete process.env.NETWORK
   })
 
-  it('pays with a plain USDC asset transfer to payTo — exactly one paid retry, no appcall', async () => {
+  it('without allowDonation, a 402 never signs and reports donation_required', async () => {
+    const mockFetch = vi.fn(async () => {
+      return new Response(null, {
+        status: 402,
+        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader() },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
+
+    expect(result.status).toBe('donation_required')
+    if (result.status !== 'donation_required') throw new Error('unreachable')
+    expect(result.priceMicro).toBe(1000)
+    expect(result.resourceUrl).toBe('http://localhost:4873/lodash/-/lodash-4.17.21.tgz')
+    expect(result.asset).toBe(USDC_MAINNET_ASA_ID)
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('with allowDonation, pays with a plain USDC asset transfer to payTo — exactly one paid retry, no appcall', async () => {
     let paidRequestCount = 0
     let capturedHeader: string | null = null
 
@@ -118,8 +137,13 @@ describe('install_audited_package', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    const result = await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
+    const result = await installTool.handler({
+      pkg: 'lodash',
+      version: '4.17.21',
+      allowDonation: true,
+    })
 
+    if (result.status === 'donation_required') throw new Error('unreachable')
     expect(result.status).toBe('paid')
     expect(result.txid).toBe('txid-abc123')
     expect(result.loraUrl).not.toBeNull()
@@ -174,6 +198,7 @@ describe('install_audited_package', () => {
 
     const result = await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
 
+    if (result.status === 'donation_required') throw new Error('unreachable')
     expect(result.status).toBe('free')
     expect(result.txid).toBeNull()
     expect(result.loraUrl).toBeNull()
@@ -191,8 +216,13 @@ describe('install_audited_package', () => {
     )
     vi.stubGlobal('fetch', mockFetch)
 
-    const result = await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
+    const result = await installTool.handler({
+      pkg: 'lodash',
+      version: '4.17.21',
+      allowDonation: true,
+    })
 
+    if (result.status === 'donation_required') throw new Error('unreachable')
     expect(result.status).toBe('paid')
     expect(result.txid).toBe('txid-legacy456')
     expect(result.loraUrl).toContain('txid-legacy456')
@@ -208,7 +238,9 @@ describe('install_audited_package', () => {
     )
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(installTool.handler({ pkg: 'lodash', version: '4.17.21' })).rejects.toThrow()
+    await expect(
+      installTool.handler({ pkg: 'lodash', version: '4.17.21', allowDonation: true }),
+    ).rejects.toThrow()
   })
 
   it('raises an error rather than reporting free when settlement did not succeed', async () => {
@@ -223,6 +255,8 @@ describe('install_audited_package', () => {
     )
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(installTool.handler({ pkg: 'lodash', version: '4.17.21' })).rejects.toThrow()
+    await expect(
+      installTool.handler({ pkg: 'lodash', version: '4.17.21', allowDonation: true }),
+    ).rejects.toThrow()
   })
 })
