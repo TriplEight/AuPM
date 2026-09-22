@@ -152,8 +152,8 @@ while IFS=: read -r f l text; do
 done < <(rule7_scope | xargs -r grep -inE "[a-z0-9_]*mnemonic[a-z0-9_]*[[:space:]]*[:=][[:space:]]*[\"'][a-z]+([[:space:]]+[a-z]+)+[\"']" -- 2>/dev/null)
 
 # ---------------------------------------------------------------------------
-# RULE 8 — the two other package-manager CLIs stay out of scripts/**,
-# .githooks/**, and .github/workflows/** (CLAUDE.md: use pnpm everywhere).
+# RULE 8 — the two other package-manager CLIs stay out of scripts/** and
+# .github/workflows/** (CLAUDE.md: use pnpm everywhere).
 # This scans only the harness and CI surfaces, never README.md or other
 # docs — a documented end-user command pointing plain npm's installer at
 # the SPM registry there is the product working as intended, not a
@@ -167,7 +167,7 @@ done < <(rule7_scope | xargs -r grep -inE "[a-z0-9_]*mnemonic[a-z0-9_]*[[:space:
 while IFS=: read -r f l text; do
   [ -z "$f" ] && continue
   report 8 "$f" "$l" "forbidden package manager: $text"
-done < <(tracked_under scripts .githooks .github/workflows \
+done < <(tracked_under scripts .github/workflows \
   | grep -v -E '^scripts/guard\.sh$' \
   | xargs -r grep -nE '\bnpm[[:space:]]+(run|test|install|ci)\b|\byarn\b' -- 2>/dev/null)
 

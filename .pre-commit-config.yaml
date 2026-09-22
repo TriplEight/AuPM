@@ -1,0 +1,109 @@
+# prek config. Replaces .githooks/pre-commit (git config core.hooksPath).
+#
+# pre-commit stage: the invariant guard, Biome, the workspace typecheck,
+# and a secret scan. pre-push stage: the unit tests of the four packages
+# and the harness scripts' own tests. CI runs the same config with
+# `prek run --all-files`, so local and CI enforcement stay in parity.
+#
+# Local checks (guard.sh, Biome, typecheck, the test suites) run as
+# `language: system` hooks. They call the exact commands CLAUDE.md and CI
+# already use, so no wrapper script exists twice.
+repos:
+  # gitleaks/gitleaks — secret scanning. Catches a donor mnemonic or a
+  # private key before it reaches a commit (CLAUDE.md: never log or
+  # hardcode a mnemonic). Custom rule for Algorand mnemonics in
+  # .gitleaks.toml. Pinned to the v8.30.0 tag commit (the version
+  # installed locally at /usr/local/bin/gitleaks).
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 6eaad039603a4de39fddd1cf5f727391efe9974e # v8.30.0
+    hooks:
+      - id: gitleaks
+
+  # rhysd/actionlint — lints .github/workflows for syntax errors and
+  # unsafe patterns (CLAUDE.md invariant: CI must not silently break).
+  # Pinned to the v1.7.12 tag commit.
+  - repo: https://github.com/rhysd/actionlint
+    rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12
+    hooks:
+      - id: actionlint
+
+  # zizmorcore/zizmor-pre-commit — the official pre-commit mirror for
+  # zizmor, distributed separately so the hook installs a prebuilt wheel
+  # instead of a source build. Audits .github/workflows for GitHub
+  # Actions security issues (e.g. a pull_request_target injection).
+  # Pinned to the v1.30.1 tag commit.
+  - repo: https://github.com/zizmorcore/zizmor-pre-commit
+    rev: fa412071e4f5d44d44f9e365f4676f9df92456a2 # v1.30.1
+    hooks:
+      - id: zizmor
+
+  - repo: local
+    hooks:
+      - id: guard
+        name: guard.sh (invariant guard)
+        entry: bash scripts/guard.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: biome
+        name: biome ci (files prek passes)
+        # Scoped to the tracked files prek passes, not `biome ci .` over the
+        # whole working tree. `.` also walks untracked, non-gitignored
+        # files the Claude Code sandbox writes into this checkout
+        # (.claude/launch.json, .claude/scheduled_tasks.json, .mcp.json),
+        # which are not repo content and made this hook fail on a clean
+        # tree. `prek run --all-files` still passes every tracked file
+        # Biome covers, so CI coverage matches `biome ci .` on a real
+        # (sandbox-free) checkout.
+        entry: pnpm exec biome ci --files-ignore-unknown=true --no-errors-on-unmatched
+        language: system
+        pass_filenames: true
+        types_or: [javascript, jsx, ts, tsx, json, jsonc, css]
+
+      - id: typecheck
+        name: pnpm typecheck
+        entry: pnpm typecheck
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: test-proxy
+        name: pnpm -C proxy test
+        entry: pnpm -C proxy test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: test-contracts
+        name: pnpm -C contracts test
+        entry: pnpm -C contracts test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: test-mcp
+        name: pnpm -C mcp test
+        entry: pnpm -C mcp test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: test-cli
+        name: pnpm -C cli test
+        entry: pnpm -C cli test
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: test-scripts
+        name: node --test scripts/*.test.mjs
+        entry: bash -c 'node --test scripts/*.test.mjs'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
