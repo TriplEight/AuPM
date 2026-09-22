@@ -377,7 +377,7 @@ describe('POST /v1/attest/lockfile', () => {
       { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null },
     ])
     // predicate.packages[].reviewer must carry the same identity, never a
-    // raw Algorand address — SPEC.md §6.3's lockfile statement shape.
+    // raw Algorand address — SPEC.md §12.3's lockfile statement shape.
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }

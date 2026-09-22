@@ -2,7 +2,7 @@
 
 // SPM operator preflight — confirms a live MainNet proxy's 402 response is
 // safe to donate against, before anyone runs `--donate` (CLAUDE.md
-// invariants 3 and 6; SPEC.md §4.3; docs/HANDOFF-next-session.md step 3).
+// invariants 3 and 6; SPEC.md §11.3; docs/HANDOFF-next-session.md step 3).
 //
 // Usage: node scripts/check-402.mjs <url>
 // Example: node scripts/check-402.mjs "https://<domain>/v1/attest?name=ms&version=2.1.3"

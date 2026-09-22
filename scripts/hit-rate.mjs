@@ -2,7 +2,7 @@
 // scripts/hit-rate.mjs
 //
 // Measures the seed-list hit rate against real package-lock.json files
-// (SPEC.md §4.2). This script never writes to any database and never
+// (SPEC.md §11.2). This script never writes to any database and never
 // creates a review record — it only reads lockfiles and prints a report.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs'
@@ -225,7 +225,7 @@ function printReport(rows, hitsCounts, frequency, lockfileCount) {
     console.log(`${count}\t${name}`)
   }
   if (lockfileCount < 20) {
-    console.log(`WARNING: only ${lockfileCount} lockfiles given; SPEC.md §4.2 asks for 20`)
+    console.log(`WARNING: only ${lockfileCount} lockfiles given; SPEC.md §11.2 asks for 20`)
   }
   if (med < 5) {
     console.log('VERDICT: seed list too weak (median < 5)')
