@@ -280,7 +280,7 @@ export function analyzeLockfile(
         // second unit in the total either. Every bucket below is a subset
         // of `total`; if this collapsed entry stayed counted in `total`
         // without landing in any bucket, the buckets would never sum to
-        // `total` — an inconsistent signed statement (SPEC.md §6.3).
+        // `total` — an inconsistent signed statement (SPEC.md §12.3).
         summary.total -= 1
         continue
       }
