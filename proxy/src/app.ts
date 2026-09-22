@@ -9,14 +9,9 @@ import type { SigningKeyLike } from './attest/dsse.js'
 import { publishedKeys } from './attest/keys.js'
 import type { LockfileAnalysis } from './attest/lockfile.js'
 import type { RateLimiter } from './attest/ratelimit.js'
-import { createGithubClient } from './claims/github.js'
 import { claimsLedgerMiddleware } from './claims/middleware.js'
 import { createClaimsRouter } from './claims/routes.js'
-import {
-  ATTEST_SIGNING_KEY_VALID_FROM,
-  GITHUB_READONLY_TOKEN,
-  getAttestationSigningKey,
-} from './config.js'
+import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey } from './config.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
@@ -58,10 +53,8 @@ export function createApp(
 ): Hono<{ Variables: AppVariables }> {
   const app = new Hono<{ Variables: AppVariables }>()
 
-  // Fails cleanly on a thrown error (e.g. claim-proof verification with no
-  // GITHUB_READONLY_TOKEN configured) instead of an opaque crash. WARNING:
-  // never let this leak a secret; it returns only `err.message`, and the
-  // GitHub client (proxy/src/claims/github.ts) never puts a token in one.
+  // Fails cleanly on a thrown error instead of an opaque crash. WARNING:
+  // never let this leak a secret; it returns only `err.message`.
   app.onError((err, c) => c.json({ error: err.message }, 500))
 
   const attest = buildAttestRoutes({
@@ -102,10 +95,10 @@ export function createApp(
   // settlement header (see proxy/src/claims/middleware.ts).
   app.use('*', claimsLedgerMiddleware)
 
-  // Claims read/write API — free, never gated. An unpaid contributor must
+  // Earnings read API — free, never gated. An unpaid contributor must
   // always be able to see what they are owed (CLAUDE.md). Mounted before
   // the payment gate, alongside /api/v1/status above.
-  app.route('/', createClaimsRouter(createGithubClient(GITHUB_READONLY_TOKEN)))
+  app.route('/', createClaimsRouter())
 
   // Pre-payment validation and the lockfile route's zero-coverage free
   // path. Both run — and can fully answer the request — *before* the x402

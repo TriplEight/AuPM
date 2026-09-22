@@ -6,9 +6,9 @@
 // deposit — are ledgered as `unassigned` so the ledger total never falls
 // behind the pool balance.
 //
-// Reads the indexer through an injectable client, the same shape as
-// ledger.ts's GithubClient: production code passes a real client, tests
-// pass a stub, so no test in this directory performs a network call.
+// Reads the indexer through an injectable client: production code passes a
+// real client, tests pass a stub, so no test in this directory performs a
+// network call.
 
 import { computeRoleShareMicro, ROLES, UNASSIGNED } from './attribution-rules.js'
 import db from './schema.js'

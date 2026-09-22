@@ -9,8 +9,7 @@
     "reconcile": "node --env-file=../.env --import tsx/esm src/claims/reconcile-main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:native": "pnpm rebuild better-sqlite3",
-    "seed": "tsx src/seed.ts"
+    "build:native": "pnpm rebuild better-sqlite3"
   },
   "dependencies": {
     "@hono/node-server": "2.1.1",

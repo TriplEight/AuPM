@@ -59,13 +59,6 @@ export const TAG = 'x402-global-challenge'
 
 export const MAX_TIMEOUT_SECONDS = 60
 
-// Read-only GitHub token for claim-proof verification
-// (POST /api/v1/claims/verify). It reads only public repo files and public
-// gists to check a claimant's published proof. WARNING: never log this
-// value (CLAUDE.md). Empty when unset; proxy/src/claims/github.ts fails
-// each call cleanly in that case, instead of the server crashing.
-export const GITHUB_READONLY_TOKEN = process.env.GITHUB_READONLY_TOKEN ?? ''
-
 /**
  * Boot guard (pure function, no I/O).
  *

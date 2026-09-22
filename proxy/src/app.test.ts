@@ -29,11 +29,6 @@ import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dss
 const REVIEWED_INTEGRITY =
   'sha512-uMabji0PUK/GUkT4djAnOhdLs5wT7SYAFg85uVAC7RjEn3rHxVZkSM7STlycrgrv9tJioRWIV9l213uMAlOdiQ=='
 
-// A checksum-valid Algorand address, never funded, never used on-chain.
-// CAUTION: POST /api/v1/claims validates this, so a placeholder string is
-// rejected with 400.
-const CLAIM_ADDRESS = 'L6O5IL7YXCD5PBLCOXMLQR6W33KWGB7LSYXLUTNBCKGLNWANQN3NOWRZJQ'
-
 const FAKE_APP_ADDRESS = 'FAKEADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
@@ -552,20 +547,6 @@ describe('claims ledger, wired into the real app', () => {
     expect(res.status).toBe(200)
     expect(res.status).not.toBe(402)
     expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
-  })
-
-  test('POST /api/v1/claims: 200 with a nonce, never 402, no payment header', async () => {
-    const res = await app.request('/api/v1/claims', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ identity: 'github:carol', algorandAddress: CLAIM_ADDRESS }),
-    })
-    expect(res.status).toBe(200)
-    expect(res.status).not.toBe(402)
-    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
-    const body = (await res.json()) as { nonce: string }
-    expect(typeof body.nonce).toBe('string')
-    expect(body.nonce.length).toBeGreaterThan(0)
   })
 })
 
