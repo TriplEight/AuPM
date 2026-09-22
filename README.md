@@ -195,6 +195,7 @@ read that exact tarball. A record with no stored integrity hash resolves to
 ## Further reading
 
 - `SPEC.md` — the authoritative specification.
-- `docs/HANDOFF-next-session.md` — current state and open items.
+- `docs/TASK.md` — next steps and work items.
+- `docs/adr/` — design decisions.
 - `docs/RUNBOOK-contract-build.md` — regenerate the contract artifacts.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)

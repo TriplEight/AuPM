@@ -171,3 +171,30 @@ left the next one open. The fourth was structural, two predicates of different
 width deciding the same question. `normalizeTarballPath` now replicates the
 installed matcher's own steps and `isTarballRouteScope` mirrors the route key.
 Any change to the route key must change both.
+
+## 2026-09-22 — SPEC v6 review (docs only, no code changed)
+
+An executive review of the spec, the harness and the skills. Decisions (ADRs 0001, 0005–0008):
+- Qualification no longer waits for PaymentRouter. `payTo` is a plain account, opted into
+  USDC, and takes payments before the rekey. The rekey and the first credit come before the
+  first claim.
+- SQLite stays. ADR 0001 now records SQLite; PostgreSQL, Drizzle and Redis are dropped.
+- `credit(batchSeq, attributedTotal, unattributedTotal, entries)`: one call per nightly
+  batch. A per-payment credit cost about 11% of a $0.001 payment plus a replay box.
+- A reviewed tarball returns 402 only with `X-SPM-Donate: 1`. Plain `npm install` stays free.
+  Attestation routes keep standard x402; `X-SPM-Donate: 0` gets a free partial attestation.
+  Integrity warnings are never withheld.
+- The auditor anchors each review with a 0-ALGO note transaction. `attest()` and
+  `setAttestationKey()` leave the contract.
+- Price: 1,000 µUSDC per reviewed package on every route. The lockfile route stays (one
+  settlement per CI run) with no cap and no discount. The pro-rata remainder rule is gone.
+- One nightly job: reconcile, `VACUUM INTO` off-host backup, credit.
+- Donors need about 0.3 ALGO as well as USDC. SPEC §17 P0 now says so.
+- Next version (SPEC §21): review lineage with delta review, `spm donor init`, reviews as a
+  file in git, Litestream, PostgreSQL on a second instance.
+
+Found: the `.githooks/pre-commit` hook was never active (`core.hooksPath` unset). No Dockerfile
+or compose file exists yet. Both runbooks still describe SplitRouter; they carry a WARNING
+banner until `docs/TASK.md` D1 rewrites them.
+
+Next: `docs/TASK.md`, wave 1.
