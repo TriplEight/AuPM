@@ -108,11 +108,43 @@ describe('x402 gate', () => {
   test('unreviewed tarball path: returns 200 and sends no payment header', async () => {
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
     expect(res.status).not.toBe(402)
+    expect(res.headers.get('X-SPM-Tier')).toBe('UNREVIEWED')
   })
 
-  test('reviewed tarball path: returns 402', async () => {
+  // ADR 0006 / SPEC §10.4: npm install can never pay a 402, so a reviewed
+  // tarball is free unless the request opts in with X-SPM-Donate: 1.
+  test('unreviewed tarball path with X-SPM-Donate: 1: still returns 200', async () => {
+    const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-SPM-Donate': '1' },
+    })
+    expect(res.status).not.toBe(402)
+  })
+
+  test('reviewed tarball path, no donate header: returns 200, tier and donate hint', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('X-SPM-Tier')).toBe('COMMUNITY_REVIEWED')
+    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
+  })
+
+  // Any header value other than the exact string "1" does not opt in
+  // (CLAUDE.md invariant 4: "X-SPM-Donate: 0 ... gets a free partial
+  // attestation" — the tarball route applies the identical rule).
+  test('reviewed tarball path, X-SPM-Donate: 0: returns 200, not 402', async () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-SPM-Donate': '0' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
+  })
+
+  test('reviewed tarball path, X-SPM-Donate: 1: returns 402', async () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-SPM-Donate': '1' },
+    })
     expect(res.status).toBe(402)
   })
 
@@ -132,10 +164,16 @@ describe('x402 gate', () => {
     ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
     ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
   ])('unscoped tarball path spelling: %s (reviewed)', (_label, path) => {
-    test('402, never 200, never tarball bytes', async () => {
+    test('X-SPM-Donate: 1: 402, never 200, never tarball bytes', async () => {
+      setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      expect(res.status).toBe(402)
+    })
+
+    test('no donate header: 200, never 402 (free tier grant)', async () => {
       setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
       const res = await app.request(path)
-      expect(res.status).toBe(402)
+      expect(res.status).not.toBe(402)
     })
   })
 
@@ -170,7 +208,9 @@ describe('x402 gate', () => {
 
   test('402 body carries the asset id, the fee payer, and the tag', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
-    const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
+    const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-SPM-Donate': '1' },
+    })
     expect(res.status).toBe(402)
     // x402Version 2 puts the PaymentRequired payload in the PAYMENT-REQUIRED
     // header (base64), not the JSON body — the JSON body is `{}`. Verified by
@@ -186,10 +226,20 @@ describe('x402 gate', () => {
     expect(option?.extra?.tag).toBe(TAG)
   })
 
-  test('reviewed scoped package tarball: returns 402', async () => {
+  test('reviewed scoped package tarball, X-SPM-Donate: 1: returns 402', async () => {
+    setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz', {
+      headers: { 'X-SPM-Donate': '1' },
+    })
+    expect(res.status).toBe(402)
+  })
+
+  test('reviewed scoped package tarball, no donate header: returns 200 (free tier grant)', async () => {
     setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz')
-    expect(res.status).toBe(402)
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('X-SPM-Tier')).toBe('COMMUNITY_REVIEWED')
+    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
   })
 
   // Paywall-bypass regression, driven through the *real* app (the x402
@@ -214,10 +264,16 @@ describe('x402 gate', () => {
     ['duplicate slash combined with %40 scope encoding', '/%40scope/pkg//-/pkg-1.0.0.tgz'],
     ['trailing slash combined with %2F separator encoding', '/@scope%2Fpkg/-/pkg-1.0.0.tgz/'],
   ])('scoped tarball path encoding: %s (reviewed)', (_label, path) => {
-    test('402, regardless of encoding', async () => {
+    test('X-SPM-Donate: 1: 402, regardless of encoding', async () => {
+      setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      expect(res.status).toBe(402)
+    })
+
+    test('no donate header: 200, regardless of encoding (free tier grant)', async () => {
       setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
       const res = await app.request(path)
-      expect(res.status).toBe(402)
+      expect(res.status).not.toBe(402)
     })
   })
 
@@ -296,10 +352,16 @@ describe('x402 gate', () => {
     ['uppercase .TGZ', '/chalk/-/chalk-5.3.0.TGZ'],
     ['mixed-case .Tgz', '/chalk/-/chalk-5.3.0.Tgz'],
   ])('tarball route scope, reviewed package, %s', (_label, path) => {
-    test('402, regardless of suffix case', async () => {
+    test('X-SPM-Donate: 1: 402, regardless of suffix case', async () => {
+      setStatus('chalk', '5.3.0', 'COMMUNITY_REVIEWED', null, null)
+      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      expect(res.status).toBe(402)
+    })
+
+    test('no donate header: 200, regardless of suffix case (free tier grant)', async () => {
       setStatus('chalk', '5.3.0', 'COMMUNITY_REVIEWED', null, null)
       const res = await app.request(path)
-      expect(res.status).toBe(402)
+      expect(res.status).not.toBe(402)
     })
   })
 
@@ -450,7 +512,11 @@ describe('claims ledger, wired into the real app', () => {
     )
     const paidApp = createApp(paidHttpServer)
 
-    const unpaidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz')
+    // Opt in to payment — without X-SPM-Donate: 1, the free-tier hook would
+    // grant access here instead of returning 402 (ADR 0006, SPEC §10.4).
+    const unpaidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-SPM-Donate': '1' },
+    })
     expect(unpaidRes.status).toBe(402)
     const requiredHeader = unpaidRes.headers.get('PAYMENT-REQUIRED')
     const paymentRequired = decodePaymentRequiredHeader(requiredHeader as string) as unknown as {
@@ -464,8 +530,11 @@ describe('claims ledger, wired into the real app', () => {
       payload: {},
     } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
 
+    // The retry must also carry X-SPM-Donate: 1 — the hook runs on every
+    // request, so without it here the free-tier grant would short-circuit
+    // the payment flow and no PAYMENT-RESPONSE header would ever be set.
     const paidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'PAYMENT-SIGNATURE': paymentSignature },
+      headers: { 'PAYMENT-SIGNATURE': paymentSignature, 'X-SPM-Donate': '1' },
     })
     expect(paidRes.status).toBe(200)
     expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()

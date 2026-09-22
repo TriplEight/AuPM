@@ -134,31 +134,53 @@ export function createApp(
 
   // npm passthrough — reached only once payment (or the free-tier grant)
   // clears. A tarball path reaching here is either the free-tier grant (an
-  // unreviewed version, via proxy/src/x402/tarball.ts's onProtectedRequest
-  // hook) or a cleared payment (a reviewed version) — never an unpaid,
-  // reviewed request; the x402 gate above never calls next() for that case.
-  // Set attribution here so claimsLedgerMiddleware, which wraps the gate's
-  // next() call, can write the tarball route's accruals (CLAUDE.md: every
-  // paid request is ledgered; the free path sets priceMicro: 0, per the
-  // Attribution contract in proxy/src/attest/attribution.ts).
-  app.all('*', (c) => {
-    if (isTarballPath(c.req.path)) {
-      const { name, version } = parseTarballPath(c.req.path)
-      const status = getStatusOrUnreviewed(name, version)
-      c.set(
-        'attribution',
-        isFree(status.status)
-          ? { route: 'tarball', priceMicro: 0, packages: [] }
-          : {
-              route: 'tarball',
-              priceMicro: TARBALL_PRICE_MICRO,
-              packages: [
-                { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
-              ],
-            },
-      )
+  // unreviewed version, or a reviewed version the request did not opt in to
+  // pay for, via proxy/src/x402/tarball.ts's onProtectedRequest hook) or a
+  // cleared payment (a reviewed version requested with X-SPM-Donate: 1) —
+  // never an unpaid request that opted in; the x402 gate above never calls
+  // next() for that case. Set attribution here so claimsLedgerMiddleware,
+  // which wraps the gate's next() call, can write the tarball route's
+  // accruals (CLAUDE.md: every paid request is ledgered; the free path sets
+  // priceMicro: 0, per the Attribution contract in
+  // proxy/src/attest/attribution.ts).
+  app.all('*', async (c) => {
+    if (!isTarballPath(c.req.path)) return proxyToNpm(c)
+
+    const { name, version } = parseTarballPath(c.req.path)
+    const status = getStatusOrUnreviewed(name, version)
+
+    // A reviewed tarball reaches this handler two ways: the free-tier grant
+    // (the request did not opt in with X-SPM-Donate: 1) or a cleared
+    // payment (it did, and the gate above already settled it). The
+    // request's own donate header says which happened — the
+    // tarballFreeTierHook in proxy/src/x402/tarball.ts reads the identical
+    // header the same way.
+    const donatedForPaidTier = !isFree(status.status) && c.req.header('X-SPM-Donate') === '1'
+
+    c.set(
+      'attribution',
+      isFree(status.status)
+        ? { route: 'tarball', priceMicro: 0, packages: [] }
+        : {
+            route: 'tarball',
+            priceMicro: TARBALL_PRICE_MICRO,
+            packages: [{ pkg: name, version, auditor: reviewerIdentity(status), maintainer: null }],
+          },
+    )
+
+    // proxyToNpm returns a fresh Response built from the upstream registry's
+    // own headers (never from this context's c.header() calls), so the tier
+    // and donate-hint headers are added here, to the actual returned
+    // Response, not via c.header() — a call before this point would be
+    // silently discarded once this handler returns a different Response
+    // object (SPEC §10.4: every tarball response carries X-SPM-Tier).
+    const upstream = await proxyToNpm(c)
+    const headers = new Headers(upstream.headers)
+    headers.set('X-SPM-Tier', status.status)
+    if (!isFree(status.status) && !donatedForPaidTier) {
+      headers.set('X-SPM-Donate-Hint', String(TARBALL_PRICE_MICRO))
     }
-    return proxyToNpm(c)
+    return new Response(upstream.body, { status: upstream.status, headers })
   })
 
   return app
