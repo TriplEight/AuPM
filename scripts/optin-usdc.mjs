@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url'
 import { algodEndpoint, assertMainnetConfirmed, parseNetworkFlag, usdcAssetId } from './network.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
-const require = createRequire(new URL('../mcp/package.json', import.meta.url))
+const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = require('algosdk')
 
 // Load root .env
