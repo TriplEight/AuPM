@@ -1,8 +1,8 @@
-# Schedules spm-reconcile.service nightly. Install alongside it — see
+# Schedules spm-nightly.service nightly. Install alongside it — see
 # docs/RUNBOOK-mainnet-launch.md section 6.
 
 [Unit]
-Description=Run SPM claims-ledger reconciliation nightly
+Description=Run the SPM nightly job (reconcile, back up, credit) nightly
 
 [Timer]
 # Off-peak UTC time. Persistent=true runs a missed pass at the next boot,

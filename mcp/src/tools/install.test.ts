@@ -207,10 +207,10 @@ describe('install_audited_package', () => {
     }
     const { paymentGroup, paymentIndex } = payloadJson.payload
 
-    // No application-call transaction anywhere in the group — the old
-    // SplitRouter appcall payload is gone. The group is just the fee-payer
-    // self-payment (unsigned, for the facilitator to sign) and the client's
-    // plain USDC transfer.
+    // No application-call transaction anywhere in the group — payment carries
+    // no contract call. The group is just the fee-payer self-payment
+    // (unsigned, for the facilitator to sign) and the client's plain USDC
+    // transfer.
     expect(paymentGroup).toHaveLength(2)
     const decoded = paymentGroup.map((txn, i) =>
       i === paymentIndex ? decodeSignedTransaction(txn).txn : decodeUnsignedTransaction(txn),

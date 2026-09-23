@@ -247,3 +247,40 @@ Next: `docs/TASK.md`, wave 1.
   `~` inherits a default ACL for `tripleight`, so apt fails with EINVAL; pass
   `--podman-args=--root=/var/tmp/spm-podman-1001/root` (+ `--runroot`, `--storage-driver=vfs`).
   Wave 2 is complete. Next: wave 3 (Q7; Q11; Q12; R2).
+
+## 2026-09-23 — wave 3 (branch `spm-mvp-v6-wave3`, from `master` f664466)
+- Q12 scope (user decision): `SplitRouter`/`distribute(` banned in `contracts/`, `proxy/`,
+  `mcp/`, `cli/`, `scripts/`, `.github/`, `README.md`; `attest(` banned in `contracts/` only.
+  Q12 deletes the dead SplitRouter step from `scripts/e2e.mjs`; R3 rebuilds the on-chain step.
+- Q11 `c5a173d`: README shows both splits, $0.001 per reviewed package, donor setup section,
+  PaymentRouter credit/claim text. `OG_DESCRIPTION` in `proxy/src/x402/routes.ts` is the canonical
+  og:description text; no HTTP route serves it, the operator sets the meta tag at the domain root.
+  The `20,000` test title in `attribution-rules.test.ts` is renamed inside Q7.
+  Quirk: empty untracked `.claude/launch.json` and `.claude/scheduled_tasks.json` make
+  `biome ci .` fail in the main tree; run biome over `git ls-files`.
+- Q7 `7fc8082`: `accruals` gets `repo` and `batch_seq`; new `batches` table. Nightly job
+  `proxy/src/claims/nightly-main.ts` (local: `pnpm -C proxy nightly`; host: `spm-nightly.timer`
+  runs `docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`):
+  reconcile → `VACUUM INTO` `/backup` → credit. `compose.yaml` bind-mounts
+  `SPM_BACKUP_HOST_DIR` at `/backup`; compose refuses to start without it. Credit call uses algosdk
+  and a hand-kept ABI signature (the image has no contract artifacts). Each credit txn carries note
+  `spm:credit:<batchSeq>`; a pending batch already credited on chain is recovered by indexer note
+  lookup, never resent. Limit: 8 foreign refs → at most 5 auditor identities + ops per batch; no
+  batch-split tool exists yet. `docs/RUNBOOK-mainnet-launch.md` §6 still shows spm-reconcile (D1).
+- R2 `012cf58`: `contracts/smart_contracts/payment_router/deploy-config.ts` deploys PaymentRouter,
+  funds the app account (1 ALGO) for box MBR, sets the crediter, maps `AUDITORS` and `ops`
+  (`OPS_ADDRESS`). It refuses: MainNet without `CONFIRM_MAINNET=1`; algod genesis id not matching
+  `NETWORK`; crediter equal to deployer/admin/payTo; a mapped address not opted into USDC.
+  `scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network <net> [--confirm-mainnet]` refuses: payTo not
+  opted in; already rekeyed; genesis mismatch; app's `pto`/`ast` not this payTo/USDC;
+  `PAY_TO_ADDRESS` ≠ mnemonic address. Zero USDC balance does not block the rekey.
+  `scripts/optin-usdc.mjs` now loads algosdk from `proxy/` (the mcp package has none).
+  Contract unchanged; no Puya build needed for R2.
+- Q12 `d893834`: guard RULE 10 (`SplitRouter`/`distribute(` in contracts/, proxy/, mcp/, cli/,
+  scripts/, .github/, README.md), RULE 11 (`attest(` in contracts/), RULE 12 (REAL/FLOAT/DOUBLE
+  column, also after `(`/`,`/`ADD COLUMN`), RULE 13 (pg/postgres/drizzle/@neondatabase import,
+  subpath import, or dependency). RULE 9 already covers review-row writes. `scripts/e2e.mjs` lost
+  its dead SplitRouter step; it SKIPs "on-chain: PaymentRouter credit/claim" until R3.
+  Quirks: `rg -E` means `--encoding`; `grep` here is ugrep. `trash` works only outside the sandbox.
+  Wave 3 is complete. `verify.sh` → VERIFY: PASS. Next: human qualification (SPEC §17 Q1–6), then
+  wave 4 (R3 → R4 → MainNet rekey → D1). Human: set `SPM_BACKUP_HOST_DIR` and `OPS_ADDRESS`.

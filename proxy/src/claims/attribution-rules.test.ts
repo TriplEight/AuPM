@@ -18,7 +18,7 @@ import {
 } from './attribution-rules.js'
 
 describe('role shares', () => {
-  test('400/100/200/150/100/50 of 20,000 microUSDC scale exactly', () => {
+  test('400/100/200/150/100/50 of 20000 microUSDC scale exactly', () => {
     expect(computeRoleShareMicro(20000, 'auditor')).toBe(8000)
     expect(computeRoleShareMicro(20000, 'contributor')).toBe(2000)
     expect(computeRoleShareMicro(20000, 'maintainer')).toBe(4000)
