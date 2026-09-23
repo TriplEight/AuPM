@@ -9,14 +9,9 @@ import type { SigningKeyLike } from './attest/dsse.js'
 import { publishedKeys } from './attest/keys.js'
 import type { LockfileAnalysis } from './attest/lockfile.js'
 import type { RateLimiter } from './attest/ratelimit.js'
-import { createGithubClient } from './claims/github.js'
 import { claimsLedgerMiddleware } from './claims/middleware.js'
 import { createClaimsRouter } from './claims/routes.js'
-import {
-  ATTEST_SIGNING_KEY_VALID_FROM,
-  GITHUB_READONLY_TOKEN,
-  getAttestationSigningKey,
-} from './config.js'
+import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey } from './config.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
@@ -58,10 +53,8 @@ export function createApp(
 ): Hono<{ Variables: AppVariables }> {
   const app = new Hono<{ Variables: AppVariables }>()
 
-  // Fails cleanly on a thrown error (e.g. claim-proof verification with no
-  // GITHUB_READONLY_TOKEN configured) instead of an opaque crash. WARNING:
-  // never let this leak a secret; it returns only `err.message`, and the
-  // GitHub client (proxy/src/claims/github.ts) never puts a token in one.
+  // Fails cleanly on a thrown error instead of an opaque crash. WARNING:
+  // never let this leak a secret; it returns only `err.message`.
   app.onError((err, c) => c.json({ error: err.message }, 500))
 
   const attest = buildAttestRoutes({
@@ -102,10 +95,10 @@ export function createApp(
   // settlement header (see proxy/src/claims/middleware.ts).
   app.use('*', claimsLedgerMiddleware)
 
-  // Claims read/write API — free, never gated. An unpaid contributor must
+  // Earnings read API — free, never gated. An unpaid contributor must
   // always be able to see what they are owed (CLAUDE.md). Mounted before
   // the payment gate, alongside /api/v1/status above.
-  app.route('/', createClaimsRouter(createGithubClient(GITHUB_READONLY_TOKEN)))
+  app.route('/', createClaimsRouter())
 
   // Pre-payment validation and the lockfile route's zero-coverage free
   // path. Both run — and can fully answer the request — *before* the x402
@@ -134,31 +127,53 @@ export function createApp(
 
   // npm passthrough — reached only once payment (or the free-tier grant)
   // clears. A tarball path reaching here is either the free-tier grant (an
-  // unreviewed version, via proxy/src/x402/tarball.ts's onProtectedRequest
-  // hook) or a cleared payment (a reviewed version) — never an unpaid,
-  // reviewed request; the x402 gate above never calls next() for that case.
-  // Set attribution here so claimsLedgerMiddleware, which wraps the gate's
-  // next() call, can write the tarball route's accruals (CLAUDE.md: every
-  // paid request is ledgered; the free path sets priceMicro: 0, per the
-  // Attribution contract in proxy/src/attest/attribution.ts).
-  app.all('*', (c) => {
-    if (isTarballPath(c.req.path)) {
-      const { name, version } = parseTarballPath(c.req.path)
-      const status = getStatusOrUnreviewed(name, version)
-      c.set(
-        'attribution',
-        isFree(status.status)
-          ? { route: 'tarball', priceMicro: 0, packages: [] }
-          : {
-              route: 'tarball',
-              priceMicro: TARBALL_PRICE_MICRO,
-              packages: [
-                { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
-              ],
-            },
-      )
+  // unreviewed version, or a reviewed version the request did not opt in to
+  // pay for, via proxy/src/x402/tarball.ts's onProtectedRequest hook) or a
+  // cleared payment (a reviewed version requested with X-SPM-Donate: 1) —
+  // never an unpaid request that opted in; the x402 gate above never calls
+  // next() for that case. Set attribution here so claimsLedgerMiddleware,
+  // which wraps the gate's next() call, can write the tarball route's
+  // accruals (CLAUDE.md: every paid request is ledgered; the free path sets
+  // priceMicro: 0, per the Attribution contract in
+  // proxy/src/attest/attribution.ts).
+  app.all('*', async (c) => {
+    if (!isTarballPath(c.req.path)) return proxyToNpm(c)
+
+    const { name, version } = parseTarballPath(c.req.path)
+    const status = getStatusOrUnreviewed(name, version)
+
+    // A reviewed tarball reaches this handler two ways: the free-tier grant
+    // (the request did not opt in with X-SPM-Donate: 1) or a cleared
+    // payment (it did, and the gate above already settled it). The
+    // request's own donate header says which happened — the
+    // tarballFreeTierHook in proxy/src/x402/tarball.ts reads the identical
+    // header the same way.
+    const donatedForPaidTier = !isFree(status.status) && c.req.header('X-SPM-Donate') === '1'
+
+    c.set(
+      'attribution',
+      isFree(status.status)
+        ? { route: 'tarball', priceMicro: 0, packages: [] }
+        : {
+            route: 'tarball',
+            priceMicro: TARBALL_PRICE_MICRO,
+            packages: [{ pkg: name, version, auditor: reviewerIdentity(status), maintainer: null }],
+          },
+    )
+
+    // proxyToNpm returns a fresh Response built from the upstream registry's
+    // own headers (never from this context's c.header() calls), so the tier
+    // and donate-hint headers are added here, to the actual returned
+    // Response, not via c.header() — a call before this point would be
+    // silently discarded once this handler returns a different Response
+    // object (SPEC §10.4: every tarball response carries X-SPM-Tier).
+    const upstream = await proxyToNpm(c)
+    const headers = new Headers(upstream.headers)
+    headers.set('X-SPM-Tier', status.status)
+    if (!isFree(status.status) && !donatedForPaidTier) {
+      headers.set('X-SPM-Donate-Hint', String(TARBALL_PRICE_MICRO))
     }
-    return proxyToNpm(c)
+    return new Response(upstream.body, { status: upstream.status, headers })
   })
 
   return app

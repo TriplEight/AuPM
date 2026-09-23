@@ -62,7 +62,6 @@ calls it. A version bump resets a package's review status to `UNREVIEWED`.
 | tarball download | unreviewed version | free |
 | `GET /api/v1/status/...` | — | free |
 | `GET /api/v1/earnings/github/:login` | — | free |
-| `POST /api/v1/claims` | — | free |
 
 Every price is a multiple of 1,000 microUSDC. MainNet USDC asset id is
 31566704. Every paid route sets `extra.asset` explicitly, so a client never
@@ -72,7 +71,7 @@ falls back to ALGO.
 
 ### Point npm at the proxy
 
-Copy `.env.example` to `.env` and fill in a deployed `SPLIT_APP_ADDRESS`.
+Copy `.env.example` to `.env` and fill in a deployed `PAY_TO_ADDRESS`.
 Start the proxy, then install through it like any npm registry.
 
 ```bash

@@ -7,9 +7,8 @@
 // page.
 //
 // CAUTION: this is the only module in proxy/src/claims that talks to an
-// indexer directly, over `fetch` (algosdk's own HTTP client) — same
-// "production client behind an injectable interface" split as
-// proxy/src/claims/github.ts's createGithubClient.
+// indexer directly, over `fetch` (algosdk's own HTTP client) — a
+// "production client behind an injectable interface" split.
 
 import algosdk from 'algosdk'
 import type { IndexerClient, UsdcInflow } from './reconcile.js'
@@ -33,7 +32,7 @@ function portOf(indexerUrl: string): string {
  * come from the caller's own environment read — proxy/src/config.ts does
  * not own INDEXER_URL (see proxy/src/claims/reconcile-main.ts, run via
  * `pnpm -C proxy reconcile`, which reads it) — so this module performs no
- * environment read itself, matching createGithubClient's shape.
+ * environment read itself.
  */
 export function createIndexerClient(indexerUrl: string, usdcAssetId: string): IndexerClient {
   const client = new algosdk.Indexer('', indexerUrl, portOf(indexerUrl))

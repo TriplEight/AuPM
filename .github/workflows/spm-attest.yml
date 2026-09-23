@@ -14,9 +14,15 @@ jobs:
       - name: Checkout
         # actions/checkout v7.0.1, pinned to a full commit SHA.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Run spm-attest
-        uses: ./.github/actions/spm-attest
+        # actionlint v1.7.12 (pinned) does not parse GitHub's "$/..."
+        # self-repository syntax yet; it flags "ref is missing" and fails
+        # the lint hook. Switch to "$/..." once a pinned actionlint
+        # release supports it.
+        uses: ./.github/actions/spm-attest # zizmor: ignore[self-repository]
         with:
           endpoint: ${{ vars.SPM_ENDPOINT }}
           lockfile: package-lock.json

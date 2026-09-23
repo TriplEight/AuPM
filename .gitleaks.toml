@@ -1,0 +1,42 @@
+title = "SPM gitleaks config"
+
+# Extends gitleaks' default rule set (API keys, tokens, private keys, etc.)
+# instead of replacing it, so every built-in detector still runs.
+[extend]
+useDefault = true
+
+# ---------------------------------------------------------------------------
+# Algorand mnemonics. gitleaks' default rules do not recognize a bare
+# 25-word phrase or a "mnemonic"-named variable, so a committed
+# SPM_DONOR_MNEMONIC value would pass gitleaks silently without these two
+# rules. Both patterns mirror scripts/guard.sh RULE 7 (7a, 7b), so the
+# pre-commit secret scan and the invariant guard agree on what a
+# committed mnemonic looks like.
+# ---------------------------------------------------------------------------
+
+[[rules]]
+id          = "algorand-mnemonic-bare"
+description = "Algorand mnemonics are 25 words; a bare 25-word phrase is a secret"
+# Lowercase only, no case-insensitive flag: a run of 25 space-separated,
+# all-lowercase tokens. Natural-language prose breaks this run at almost
+# every sentence (capitalized words, punctuation-joined tokens), which is
+# why this stays narrow enough not to flag ordinary comments and docs.
+regex       = '''([a-z]+ ){24}[a-z]+'''
+
+[[rules]]
+id          = "algorand-mnemonic-assigned"
+description = "A name containing \"mnemonic\" assigned a literal multi-word value"
+regex       = '''(?i)[a-z0-9_]*mnemonic[a-z0-9_]*[[:space:]]*[:=][[:space:]]*["'][a-zA-Z]+([[:space:]]+[a-zA-Z]+)+["']'''
+
+# ---------------------------------------------------------------------------
+# Allowlist. Mirrors scripts/guard.sh RULE 7's own scope exclusions: vendor
+# skill reference docs and test fixtures legitimately hold synthetic
+# secret-shaped strings (a hex key, an example signing key) that are not
+# real credentials.
+# ---------------------------------------------------------------------------
+[allowlist]
+paths = [
+  '''(^|/)\.claude/skills/''',
+  '''\.test\.''',
+  '''(^|/)\.env\.example$''',
+]

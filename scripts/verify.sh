@@ -45,15 +45,13 @@ skip_line() {
 
 echo "== SPM verify =="
 
-run "typecheck"        "pnpm typecheck"
+run "prek"              "prek run --all-files"
 run "unit:proxy"        "pnpm --dir proxy test"
 run "unit:cli"          "pnpm --dir cli test"
 run "unit:contracts"    "pnpm --dir contracts test"
 run "unit:mcp"          "pnpm --dir mcp test"
 run "action:spm-attest" "node --test .github/actions/spm-attest/attest.test.mjs"
 run "unit:scripts"      "node --test scripts/*.test.mjs"
-run "guard"             "bash scripts/guard.sh"
-run "lint"              "pnpm exec biome ci ."
 
 # ---------------------------------------------------------------------------
 # e2e: start a proxy instance with ephemeral, throwaway config, then run
@@ -77,13 +75,16 @@ if [ -z "$TSX" ]; then
   fail=1
 else
   export NETWORK="${NETWORK:-testnet}"
-  export SQLITE_PATH="${TMPDIR:-/tmp}/spm_verify_$(date +%s).db"
+  sqlite_path="${TMPDIR:-/tmp}/spm_verify_$(date +%s).db"
+  export SQLITE_PATH="$sqlite_path"
   export SPM_PROXY_URL="${SPM_PROXY_URL:-http://localhost:4873}"
   # Ephemeral, throwaway values — never a real key or a real deployed
   # contract. Good enough to exercise the 402 gate and the signing path;
   # never good enough to move real funds. Generated fresh every run.
-  export SPLIT_APP_ADDRESS="$(cd "$ROOT/proxy" && node -e "console.log(require('algosdk').generateAccount().addr.toString())")"
-  export ATTEST_SIGNING_KEY="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+  pay_to_address="$(cd "$ROOT/proxy" && node -e "console.log(require('algosdk').generateAccount().addr.toString())")"
+  export PAY_TO_ADDRESS="$pay_to_address"
+  attest_signing_key="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
+  export ATTEST_SIGNING_KEY="$attest_signing_key"
 
   # Clear any proxy left running by an earlier, interrupted run — `tsx
   # watch` never exits on its own (see the cleanup comment below).

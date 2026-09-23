@@ -14,6 +14,8 @@ jobs:
       - name: Checkout
         # actions/checkout v7.0.1, pinned to a full commit SHA.
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm and Node
         # pnpm/setup v3.0.0, pinned to a full commit SHA. pnpm 11 and later
@@ -28,14 +30,19 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run invariant guard
-        run: bash scripts/guard.sh
+      - name: Install prek
+        # j178/prek-action v3.0.0, pinned to a full commit SHA. The
+        # official action for prek; it verifies its own release artifact
+        # instead of piping a install script straight into a shell.
+        # prek-version pins the exact release, matching the version
+        # installed locally.
+        uses: j178/prek-action@4e14d07f9231acabce116ccfca13b13dd9755ece
+        with:
+          prek-version: 0.5.3
+          install-only: "true"
 
-      - name: Run Biome
-        run: pnpm exec biome ci .
-
-      - name: Typecheck
-        run: pnpm typecheck
+      - name: Run prek (guard, Biome, typecheck, secret scan, actionlint, zizmor)
+        run: prek run --all-files
 
       - name: Test proxy
         run: pnpm -C proxy test

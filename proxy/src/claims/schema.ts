@@ -1,9 +1,9 @@
 // proxy/src/claims/schema.ts
 //
-// The off-chain claims ledger schema (SPEC.md section 5.2): accruals,
-// claims, payouts. Uses the shared better-sqlite3 handle exported by
-// proxy/src/db.ts — this module never modifies db.ts, it only imports the
-// handle it already exposes and creates its own tables on it.
+// The off-chain ledger schema (SPEC.md section 5.2): accruals, payouts.
+// Uses the shared better-sqlite3 handle exported by proxy/src/db.ts — this
+// module never modifies db.ts, it only imports the handle it already
+// exposes and creates its own tables on it.
 
 import db from '../db.js'
 
@@ -21,24 +21,8 @@ db.exec(`
   )
 `)
 
-// One pending or resolved claim per identity. `nonce` is issued by
-// POST /api/v1/claims and re-checked against the claimant's published proof
-// at verification time (SPEC.md 5.3).
-db.exec(`
-  CREATE TABLE IF NOT EXISTS claims (
-    identity         TEXT PRIMARY KEY,
-    algorand_address TEXT NOT NULL,
-    nonce            TEXT NOT NULL,
-    proof_kind       TEXT,
-    proof_ref        TEXT,
-    status           TEXT NOT NULL DEFAULT 'pending',
-    created_at       INTEGER NOT NULL,
-    verified_at      INTEGER
-  )
-`)
-
 // One row per manual, human-checked payout (SPEC.md 5.3 step 5). Signed
-// locally from the cold pool key by scripts/payout.ts, never by the server.
+// locally from the cold pool key, never by the server.
 db.exec(`
   CREATE TABLE IF NOT EXISTS payouts (
     identity     TEXT NOT NULL,
@@ -59,19 +43,6 @@ export type AccrualRow = {
   identity: string
   amount_micro: number
   created_at: number
-}
-
-export type ClaimStatus = 'pending' | 'verified' | 'failed'
-
-export type ClaimRow = {
-  identity: string
-  algorand_address: string
-  nonce: string
-  proof_kind: string | null
-  proof_ref: string | null
-  status: ClaimStatus
-  created_at: number
-  verified_at: number | null
 }
 
 export type PayoutRow = {

@@ -4,7 +4,8 @@ import { test } from 'node:test'
 import { checkRequirements, resolveExpectedFeePayer } from './check-402.mjs'
 
 const requireFromProxy = createRequire(new URL('../proxy/package.json', import.meta.url))
-const { ALGORAND_MAINNET_CAIP2, USDC_MAINNET_ASA_ID } = requireFromProxy('@x402-avm/avm')
+const { ALGORAND_MAINNET_CAIP2, ALGORAND_TESTNET_CAIP2, USDC_MAINNET_ASA_ID } =
+  requireFromProxy('@x402-avm/avm')
 
 const TESTNET_USDC_ASA_ID = '10458941'
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJ2EU'
@@ -98,4 +99,25 @@ test('resolveExpectedFeePayer throws when no matching kind advertises one', () =
     () => resolveExpectedFeePayer(supported, ALGORAND_MAINNET_CAIP2),
     /does not advertise/,
   )
+})
+
+test('checkRequirements defaults to mainnet when network is omitted', () => {
+  const results = checkRequirements(decodedWith(goodAccept()), FEE_PAYER)
+  assert.equal(fieldOf(results, 'extra.asset').expected, USDC_MAINNET_ASA_ID)
+  assert.equal(fieldOf(results, 'network').expected, ALGORAND_MAINNET_CAIP2)
+})
+
+test('checkRequirements("testnet") checks a TestNet accept against TestNet values', () => {
+  const accept = goodAccept({
+    network: ALGORAND_TESTNET_CAIP2,
+    extra: { asset: TESTNET_USDC_ASA_ID, feePayer: FEE_PAYER, tag: 'x402-global-challenge' },
+  })
+  const results = checkRequirements(decodedWith(accept), FEE_PAYER, 'testnet')
+  assert.equal(allOk(results), true)
+})
+
+test('checkRequirements("testnet") fails a MainNet accept', () => {
+  const results = checkRequirements(decodedWith(goodAccept()), FEE_PAYER, 'testnet')
+  assert.equal(fieldOf(results, 'extra.asset').ok, false)
+  assert.equal(fieldOf(results, 'network').ok, false)
 })

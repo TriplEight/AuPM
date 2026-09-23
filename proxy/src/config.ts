@@ -25,15 +25,16 @@ export const USDC_ASA_ID: string = NETWORK === 'testnet' ? USDC_TESTNET_ASA_ID :
 
 export const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.goplausible.xyz'
 
-// payTo is fixed for the whole competition — the SplitRouter app address.
-// It is the leaderboard key (CLAUDE.md invariant 1). Never change it in code.
-export const PAY_TO = process.env.SPLIT_APP_ADDRESS ?? ''
+// payTo is fixed for the whole competition — the rekeyed PaymentRouter payTo
+// account, not the application address (SPEC.md). It is the leaderboard key
+// (CLAUDE.md invariant 1). Never change it in code.
+export const PAY_TO = process.env.PAY_TO_ADDRESS ?? ''
 
 /**
  * Boot guard (pure function, no I/O). Follows the shape of resolveFeePayer
  * below: it throws instead of returning a boolean, so a single call inside
  * proxy/src/index.ts's existing try/catch is enough to stop boot and exit
- * non-zero. It never runs at module-import time — SPLIT_APP_ADDRESS is
+ * non-zero. It never runs at module-import time — PAY_TO_ADDRESS is
  * unset or intentionally fake in most of the test suite (stubbed
  * facilitator clients never reach the network), so eager validation here
  * would break every one of those imports. Call it once, explicitly, from
@@ -49,7 +50,7 @@ export function assertValidPayTo(payTo: string = PAY_TO): void {
   if (!payTo || !algosdk.isValidAddress(payTo)) {
     throw new Error(
       `x402 boot guard: PAY_TO is not a valid Algorand address (got ${JSON.stringify(payTo)}); ` +
-        'set SPLIT_APP_ADDRESS to the SplitRouter app address',
+        'set PAY_TO_ADDRESS to the rekeyed PaymentRouter payTo account',
     )
   }
 }
@@ -58,13 +59,6 @@ export function assertValidPayTo(payTo: string = PAY_TO): void {
 export const TAG = 'x402-global-challenge'
 
 export const MAX_TIMEOUT_SECONDS = 60
-
-// Read-only GitHub token for claim-proof verification
-// (POST /api/v1/claims/verify). It reads only public repo files and public
-// gists to check a claimant's published proof. WARNING: never log this
-// value (CLAUDE.md). Empty when unset; proxy/src/claims/github.ts fails
-// each call cleanly in that case, instead of the server crashing.
-export const GITHUB_READONLY_TOKEN = process.env.GITHUB_READONLY_TOKEN ?? ''
 
 /**
  * Boot guard (pure function, no I/O).

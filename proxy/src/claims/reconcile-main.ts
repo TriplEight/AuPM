@@ -2,8 +2,8 @@
 //
 // Nightly claims-ledger reconciliation runner (SPEC.md 5.2, CLAUDE.md
 // invariant 2). An external cron or systemd timer starts this script — it
-// holds no scheduling logic of its own (mirrors scripts/payout.ts). It
-// imports reconcile() and createIndexerClient() from this directory and
+// holds no scheduling logic of its own. It imports reconcile() and
+// createIndexerClient() from this directory and
 // adds no reconciliation logic of its own; the unit tests for those two
 // modules (indexer.test.ts, reconcile.test.ts) are the ones that exercise
 // this behavior.
@@ -34,7 +34,7 @@ function printResult(result: ReconcileResult): void {
 async function main(): Promise<void> {
   // payTo guard: cheap, local, no I/O — checked before the indexer call.
   // Reuses proxy/src/config.ts's own boot guard rather than a second copy
-  // of the same validation, and its error message names SPLIT_APP_ADDRESS.
+  // of the same validation, and its error message names PAY_TO_ADDRESS.
   assertValidPayTo()
 
   const indexerUrl = process.env.INDEXER_URL ?? DEFAULT_INDEXER_URL
