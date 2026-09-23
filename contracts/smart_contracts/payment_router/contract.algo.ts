@@ -98,8 +98,8 @@ export class PaymentRouter extends Contract {
     assert(batchSeq === last + Uint64(1), 'batchSeq must follow the last credited batch')
 
     let entriesTotal: uint64 = Uint64(0)
-    for (const entry of entries) {
-      entriesTotal = entriesTotal + entry.amount
+    for (let i: uint64 = Uint64(0); i < entries.length; i = i + Uint64(1)) {
+      entriesTotal = entriesTotal + entries[i].amount
     }
     const auditorShare: uint64 = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN
     assert(entriesTotal === auditorShare, 'entries must sum to attributedTotal x 400 / 1000')
@@ -117,11 +117,12 @@ export class PaymentRouter extends Contract {
     // Credit each identity directly. No identity mapping is required here,
     // so an unmapped identity never stalls a batch: it still accrues a
     // balance, and claims once the admin maps it to an address.
-    for (const entry of entries) {
-      const current: uint64 = this.balances(entry.identity).exists
-        ? this.balances(entry.identity).value
+    for (let i: uint64 = Uint64(0); i < entries.length; i = i + Uint64(1)) {
+      const identity = entries[i].identity
+      const current: uint64 = this.balances(identity).exists
+        ? this.balances(identity).value
         : Uint64(0)
-      this.balances(entry.identity).value = current + entry.amount
+      this.balances(identity).value = current + entries[i].amount
     }
 
     const opsAmount: uint64 = attributedTotal - entriesTotal + unattributedTotal
