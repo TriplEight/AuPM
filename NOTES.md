@@ -284,3 +284,18 @@ Next: `docs/TASK.md`, wave 1.
   Quirks: `rg -E` means `--encoding`; `grep` here is ugrep. `trash` works only outside the sandbox.
   Wave 3 is complete. `verify.sh` → VERIFY: PASS. Next: human qualification (SPEC §17 Q1–6), then
   wave 4 (R3 → R4 → MainNet rekey → D1). Human: set `SPM_BACKUP_HOST_DIR` and `OPS_ADDRESS`.
+
+## 2026-09-23 — wave 4: R3 (branch `spm-mvp-v6-wave4`, from `master` 09a428e)
+- R3 `8b948ca`: `scripts/claim.mjs` claims one identity. The e2e on-chain step pays one lockfile
+  of 250 reviewed `express` versions, runs the nightly job, checks the credit deltas, and claims
+  `github:spm-e2e-auditor` and `ops`. TestNet only. It SKIPs and names each missing variable.
+- Decision (user): no contract change for `MIN_CLAIM`. 250 entries, one repo, one identity →
+  auditor 100,000, ops 150,000. The R4 text in TASK.md is updated.
+- Files: scripts/{claim,claim.test,e2e,e2e.test}.mjs, scripts/fixtures/e2e-lockfile-packages.json,
+  scripts/demo.sh (single operator entry point), .env.example (two e2e claimant keys).
+- State: no TestNet PaymentRouter, no `.env`. VERIFY: PASS. Quirk: `$TMPDIR` differs with the
+  sandbox off.
+- Blocked (human): funded TestNet keys for payTo, deployer, crediter, donor (≥0.25 USDC), and
+  the auditor and ops claimants (opted into USDC). `AUDITORS` maps `github:spm-e2e-auditor`.
+- Next: fill `.env` for TestNet, then R4: opt-in → deploy → rekey →
+  `NETWORK=testnet bash scripts/demo.sh`. Record each txid here.
