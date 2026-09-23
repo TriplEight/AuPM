@@ -67,13 +67,21 @@ describe('reconcile', () => {
     expect(result.unmatchedLedgered).toBe(1)
 
     const rows = db
-      .prepare('SELECT role, identity, amount_micro FROM accruals WHERE settle_txid = ?')
-      .all('TXID-UNMATCHED-1') as Array<{ role: string; identity: string; amount_micro: number }>
+      .prepare('SELECT role, identity, amount_micro, repo FROM accruals WHERE settle_txid = ?')
+      .all('TXID-UNMATCHED-1') as Array<{
+      role: string
+      identity: string
+      amount_micro: number
+      repo: string
+    }>
     expect(rows).toHaveLength(6)
     // Every role, including ops, is "unassigned" here — an unmatched
     // inflow carries no attribution data at all (unlike a normal payment,
     // where ops always resolves to the fixed "ops" identity).
     for (const row of rows) expect(row.identity).toBe('unassigned')
+    // No package, so no repo-pool key — the credit step's attributedTotal
+    // grouping (ledger.ts) relies on this being '', never null.
+    for (const row of rows) expect(row.repo).toBe('')
     const total = rows.reduce((s, r) => s + r.amount_micro, 0)
     expect(total).toBe(20000)
   })

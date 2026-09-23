@@ -14,6 +14,17 @@
 # to run without one (CLAUDE.md invariant 5), so this only works
 # interactively — never with `-T`/`--no-TTY`, and never from a non-interactive
 # CI job or cron entry.
+#
+# SPM_BACKUP_HOST_DIR (.env.example) is the off-host directory the nightly
+# job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
+# step 2), bind-mounted at the fixed container path /backup. BACKUP_DIR is
+# set here, not read from .env, so the nightly job always writes to the
+# mounted path regardless of what a bare, non-Docker `pnpm -C proxy
+# nightly` run has BACKUP_DIR set to in .env. `docker compose up` and
+# `docker compose run` both refuse to start when SPM_BACKUP_HOST_DIR is
+# unset — deliberately: an unmounted BACKUP_DIR would let the nightly job
+# "succeed" while writing its backup inside the throwaway `run --rm`
+# container, where it is deleted with the container on exit.
 
 services:
   proxy:
@@ -24,10 +35,12 @@ services:
       - .env
     environment:
       SQLITE_PATH: /data/audit.db
+      BACKUP_DIR: /backup
     ports:
       - "${PORT:-4873}:4873"
     volumes:
       - spm-db:/data
+      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the off-host backup directory}:/backup
     restart: unless-stopped
 
 volumes:

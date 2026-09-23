@@ -42,11 +42,11 @@ const accrualExistsForTxid = db.prepare<[string], { n: number }>(
 )
 
 const insertUnassignedAccrual = db.prepare<
-  [string, string, string, string, string, string, number, number]
+  [string, string, string, string, string, string, string, number, number]
 >(
   `INSERT INTO accruals
-     (settle_txid, route, pkg, version, role, identity, amount_micro, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     (settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT (settle_txid, role, pkg, version) DO NOTHING`,
 )
 
@@ -90,6 +90,7 @@ function ledgerUnassignedInflow(inflow: UsdcInflow): SkipReason | null {
         'unassigned',
         '(unassigned)',
         '',
+        '', // repo: no package, so no repo-pool key
         role,
         UNASSIGNED,
         amountMicro,

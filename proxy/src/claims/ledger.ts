@@ -4,8 +4,9 @@
 // module in proxy/src/claims that touches SQL directly, besides table
 // creation in schema.ts.
 
+import { getStatusOrUnreviewed } from '../status.js'
 import { type Attribution, buildAccrualInputs } from './attribution-rules.js'
-import db, { type AccrualRow, type PayoutRow } from './schema.js'
+import db, { type AccrualRow, type BatchRow, type PayoutRow } from './schema.js'
 
 // ---------------------------------------------------------------------------
 // Identity canonicalisation
@@ -26,14 +27,28 @@ function canonicalizeIdentity(identity: string): string {
 // Accruals
 // ---------------------------------------------------------------------------
 
+/**
+ * The repo-pool key for one reviewed package (SPEC.md §13.1, §13.2):
+ * `audit_status.repo`, resolved and stored only by `scripts/record-review.mjs`
+ * at review time. Never fetched here. Falls back to `''` when the row (or
+ * its repo) is unknown, so a payment can never fail to accrue for a missing
+ * repo key.
+ */
+function resolveRepoForPackage(pkg: string, version: string): string {
+  return getStatusOrUnreviewed(pkg, version).repo ?? ''
+}
+
 // ON CONFLICT DO NOTHING makes a replayed settle_txid a no-op: the primary
 // key (settle_txid, role, pkg, version) already exists, so the row already
 // written wins and no second accrual is written (SPEC.md 5.2, CLAUDE.md
-// invariant "idempotent").
-const insertAccrual = db.prepare<[string, string, string, string, string, string, number, number]>(
+// invariant "idempotent"). batch_seq is never set here — NULL until the
+// nightly credit step assigns this row to a batch (ADR 0005).
+const insertAccrual = db.prepare<
+  [string, string, string, string, string, string, string, number, number]
+>(
   `INSERT INTO accruals
-     (settle_txid, route, pkg, version, role, identity, amount_micro, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     (settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT (settle_txid, role, pkg, version) DO NOTHING`,
 )
 
@@ -66,6 +81,7 @@ export function writeAccruals(attribution: Attribution, settleTxid: string): num
         row.route,
         row.pkg,
         row.version,
+        resolveRepoForPackage(row.pkg, row.version),
         row.role,
         canonicalizeIdentity(row.identity),
         row.amountMicro,
@@ -137,6 +153,136 @@ export function getEarningsForLogin(login: string): Earnings {
     totalAccruedMicro: roleEarnings.reduce((sum, r) => sum + r.accruedMicro, 0),
     totalClaimedMicro: roleEarnings.reduce((sum, r) => sum + r.claimedMicro, 0),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Batches (nightly credit step, SPEC.md §13.2, ADR 0005)
+// ---------------------------------------------------------------------------
+
+/** One `(repo, identity)` amount for `credit()`'s `entries` argument. */
+export interface CreditEntry {
+  repo: string
+  identity: string
+  amountMicro: number
+}
+
+export interface UncreditedTotals {
+  /** Sum of every non-`unassigned` row: `credit()`'s `attributedTotal`. */
+  attributedMicro: number
+  /** Sum of every `unassigned` row: `credit()`'s `unattributedTotal`. */
+  unattributedMicro: number
+  /** Auditor-role, non-`unassigned` rows, summed per `(repo, identity)`. */
+  entries: CreditEntry[]
+}
+
+/**
+ * Groups accrual rows into the shape `credit()` needs (ADR 0005):
+ * `attributedMicro` sums every row from a real payment; `unattributedMicro`
+ * sums every `unassigned` row (an unmatched inflow, SPEC.md §13.2);
+ * `entries` are the auditor-role rows of a real payment, summed per
+ * `(repo, identity)` — never split per payment, and never per package
+ * within the same `(repo, identity)` pair.
+ */
+function groupForCredit(rows: AccrualRow[]): UncreditedTotals {
+  let attributedMicro = 0
+  let unattributedMicro = 0
+  const entryTotals = new Map<string, CreditEntry>()
+
+  for (const row of rows) {
+    if (row.route === 'unassigned') {
+      unattributedMicro += row.amount_micro
+      continue
+    }
+    attributedMicro += row.amount_micro
+    if (row.role !== 'auditor') continue
+    const repo = row.repo ?? ''
+    const key = `${repo}\u0000${row.identity}`
+    const existing = entryTotals.get(key)
+    if (existing) existing.amountMicro += row.amount_micro
+    else entryTotals.set(key, { repo, identity: row.identity, amountMicro: row.amount_micro })
+  }
+
+  return { attributedMicro, unattributedMicro, entries: [...entryTotals.values()] }
+}
+
+const listUncreditedRows = db.prepare<[], AccrualRow>(
+  'SELECT * FROM accruals WHERE batch_seq IS NULL',
+)
+
+/** Every accrual row not yet assigned to a batch, grouped for `credit()`. */
+export function summarizeUncredited(): UncreditedTotals {
+  return groupForCredit(listUncreditedRows.all())
+}
+
+const listRowsForBatch = db.prepare<[number], AccrualRow>(
+  'SELECT * FROM accruals WHERE batch_seq = ?',
+)
+
+/**
+ * Rebuilds the same `entries` for a batch's already-assigned rows — used to
+ * resend a batch that crashed before its credit txid was recorded, so the
+ * resend uses exactly the rows the first attempt assigned (see
+ * `getPendingBatch`), never a fresh snapshot of "uncredited".
+ */
+export function summarizeBatch(batchSeq: number): UncreditedTotals {
+  return groupForCredit(listRowsForBatch.all(batchSeq))
+}
+
+const assignBatchSeq = db.prepare<[number]>(
+  'UPDATE accruals SET batch_seq = ? WHERE batch_seq IS NULL',
+)
+
+/** Assigns every still-uncredited accrual row to `batchSeq`. */
+export function assignUncreditedToBatch(batchSeq: number): void {
+  assignBatchSeq.run(batchSeq)
+}
+
+const getLastBatchRow = db.prepare<[], { batch_seq: number }>(
+  'SELECT batch_seq FROM batches ORDER BY batch_seq DESC LIMIT 1',
+)
+
+/** The last batch number a row exists for, or 0 before the first batch. */
+export function getLastBatchSeq(): number {
+  return getLastBatchRow.get()?.batch_seq ?? 0
+}
+
+const getPendingBatchRow = db.prepare<[], BatchRow>(
+  'SELECT * FROM batches WHERE credit_txid IS NULL ORDER BY batch_seq DESC LIMIT 1',
+)
+
+/**
+ * The one batch row with an assigned `batch_seq` but no recorded credit
+ * txid — a crash between "assign rows to a batch" and "record the credit
+ * txid". Resend exactly this batch; never open a new one while it exists
+ * (SPEC.md §13.2).
+ */
+export function getPendingBatch(): BatchRow | null {
+  return getPendingBatchRow.get() ?? null
+}
+
+const insertBatch = db.prepare<[number, number, number, number]>(
+  `INSERT INTO batches (batch_seq, attributed_micro, unattributed_micro, created_at)
+   VALUES (?, ?, ?, ?)`,
+)
+
+/** Opens batch `batchSeq` with its totals, before its rows are stamped and
+ * before `credit()` is called. `credit_txid` starts NULL. */
+export function insertPendingBatch(
+  batchSeq: number,
+  attributedMicro: number,
+  unattributedMicro: number,
+): void {
+  insertBatch.run(batchSeq, attributedMicro, unattributedMicro, Date.now())
+}
+
+const recordCreditTxidStmt = db.prepare<[string, number]>(
+  'UPDATE batches SET credit_txid = ? WHERE batch_seq = ?',
+)
+
+/** Records the confirmed credit() txid on `batchSeq`. A batch row whose
+ * txid is recorded is never sent again (SPEC.md §13.2). */
+export function recordBatchCreditTxid(batchSeq: number, txid: string): void {
+  recordCreditTxidStmt.run(txid, batchSeq)
 }
 
 // ---------------------------------------------------------------------------

@@ -21,11 +21,13 @@ const {
   recordPayout,
   writeAccruals,
 } = await import('./ledger.js')
+const { setStatus } = await import('../status.js')
 type Attribution = import('./attribution-rules.js').Attribution
 
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
   db.exec('DELETE FROM payouts')
+  db.exec('DELETE FROM audit_status')
 })
 
 const LOCKFILE_ATTRIBUTION: Attribution = {
@@ -93,6 +95,43 @@ describe('writeAccruals', () => {
     const auditorRow = rows.find((r) => r.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
     expect(auditorRow?.amount_micro).toBe(400)
+  })
+})
+
+describe('writeAccruals: repo column (SPEC.md §13.2)', () => {
+  test('every row of a reviewed package carries its stored repo key', () => {
+    setStatus(
+      'ms',
+      '2.1.3',
+      'COMMUNITY_REVIEWED',
+      '0xAUD',
+      'anchor-1',
+      'sha512-x',
+      'alice',
+      'scope',
+      'acme/ms',
+    )
+    const attribution: Attribution = {
+      route: 'single-attest',
+      priceMicro: 1000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
+    }
+    writeAccruals(attribution, 'TXID-REPO-1')
+    const rows = getAccrualsForTxid('TXID-REPO-1')
+    expect(rows).toHaveLength(6)
+    for (const row of rows) expect(row.repo).toBe('acme/ms')
+  })
+
+  test("a package with no stored repo accrues with repo '', never a failed write", () => {
+    const attribution: Attribution = {
+      route: 'single-attest',
+      priceMicro: 1000,
+      packages: [{ pkg: 'unknown-pkg', version: '1.0.0', auditor: 'github:alice' }],
+    }
+    writeAccruals(attribution, 'TXID-REPO-2')
+    const rows = getAccrualsForTxid('TXID-REPO-2')
+    expect(rows).toHaveLength(6)
+    for (const row of rows) expect(row.repo).toBe('')
   })
 })
 
