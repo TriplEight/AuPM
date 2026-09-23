@@ -198,3 +198,13 @@ or compose file exists yet. Both runbooks still describe SplitRouter; they carry
 banner until `docs/TASK.md` D1 rewrites them.
 
 Next: `docs/TASK.md`, wave 1.
+
+## 2026-09-23 — wave 1: H1, Q1, Q5, R1
+
+- Done: Q1 `ac1f1e1` (tarball 402 only with `X-SPM-Donate: 1`), Q5 `e6ef9c3` (claims, seed, payout
+  deleted), H1 `87c9ef0` (prek replaces `.githooks`), R1 `60d1b90` (PaymentRouter; no APP_ID yet).
+- Decided: PaymentRouter balances are per identity; `claim(identity)` by the mapped address.
+  SPEC §10.1 and ADR 0002 are amended. The `spm-payment-router` skill lines 53–54 still need it.
+- Blocked (human): `pnpm exec biome format --write .claude/settings.json`; `prek install
+  --hook-type pre-commit --hook-type pre-push`; `algokit project run build` for PaymentRouter.
+- Next: wave 1 Q9 + Q10 (keys, env, both networks), then wave 2.
