@@ -213,3 +213,6 @@ Next: `docs/TASK.md`, wave 1.
 - Open: e2e on-chain step still imports the deleted `SplitRouterClient` (R3);
   `contracts/scripts/genaccounts.ts` makes SplitRouter-era roles (R2). Branch is not pushed.
 - Next: push `spm-mvp-v6`, open the PR into `master`, then wave 2 (Q2 → Q3; Q4; Q6; Q8).
+- 2026-09-23 later: Puya rejected `for…of` over the `entries` ABI array; `8478ab6` uses an
+  index loop (`clone()` broke the JS harness). Human build passed; artifacts `e348d58`.
+  Skill updated for `claim(identity)` `8d35560`.
