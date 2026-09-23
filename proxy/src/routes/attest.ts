@@ -128,7 +128,7 @@ function clientIp(c: AttestContext): string {
 }
 
 function registryAppId(): number {
-  const raw = process.env.SPLIT_APP_ID
+  const raw = process.env.PAYMENT_ROUTER_APP_ID
   const n = raw ? Number(raw) : 0
   return Number.isFinite(n) ? n : 0
 }

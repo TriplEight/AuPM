@@ -32,7 +32,7 @@ const REVIEWED_INTEGRITY =
 const FAKE_APP_ADDRESS = 'FAKEADDRESSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
-process.env.SPLIT_APP_ADDRESS = FAKE_APP_ADDRESS
+process.env.PAY_TO_ADDRESS = FAKE_APP_ADDRESS
 process.env.NETWORK = 'mainnet'
 // A 32-byte hex seed, not a real key — only the free attestation paths
 // (single-attest, zero-coverage lockfile) ever reach getAttestationSigningKey()

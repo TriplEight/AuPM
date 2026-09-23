@@ -14,7 +14,7 @@ const PORT = Number(process.env.PORT ?? 4873)
 async function main(): Promise<void> {
   // PAY_TO guard: cheap, local, no I/O — checked before the facilitator
   // boot guard's network call. payTo is the leaderboard key (CLAUDE.md
-  // invariant 1); a missing or malformed SPLIT_APP_ADDRESS must stop boot
+  // invariant 1); a missing or malformed PAY_TO_ADDRESS must stop boot
   // here, not surface as an unpayable 402 to a real caller. A separate
   // try/catch keeps this failure's log free of the facilitator, which was
   // never contacted.

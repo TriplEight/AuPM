@@ -71,7 +71,7 @@ falls back to ALGO.
 
 ### Point npm at the proxy
 
-Copy `.env.example` to `.env` and fill in a deployed `SPLIT_APP_ADDRESS`.
+Copy `.env.example` to `.env` and fill in a deployed `PAY_TO_ADDRESS`.
 Start the proxy, then install through it like any npm registry.
 
 ```bash

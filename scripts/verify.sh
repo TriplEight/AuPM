@@ -81,8 +81,8 @@ else
   # Ephemeral, throwaway values — never a real key or a real deployed
   # contract. Good enough to exercise the 402 gate and the signing path;
   # never good enough to move real funds. Generated fresh every run.
-  split_app_address="$(cd "$ROOT/proxy" && node -e "console.log(require('algosdk').generateAccount().addr.toString())")"
-  export SPLIT_APP_ADDRESS="$split_app_address"
+  pay_to_address="$(cd "$ROOT/proxy" && node -e "console.log(require('algosdk').generateAccount().addr.toString())")"
+  export PAY_TO_ADDRESS="$pay_to_address"
   attest_signing_key="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
   export ATTEST_SIGNING_KEY="$attest_signing_key"
 

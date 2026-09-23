@@ -23,7 +23,7 @@ const INDEX_ENTRY = path.join(__dirname, 'index.ts')
 const SUBPROCESS_TIMEOUT_MS = 10_000
 
 // A real, checksum-valid Algorand address, generated fresh (never funded,
-// never used on-chain) — used wherever a test needs SPLIT_APP_ADDRESS to
+// never used on-chain) — used wherever a test needs PAY_TO_ADDRESS to
 // pass shape validation so it can exercise a *different* boot-guard step
 // (e.g. facilitator reachability) without PAY_TO validation short-circuiting
 // it first.
@@ -180,7 +180,7 @@ describe('index.ts startup guard (subprocess)', () => {
           NETWORK: 'mainnet',
           // Must be a *valid* address here — this test proves the
           // facilitator-reachability guard fires, not the PAY_TO guard.
-          SPLIT_APP_ADDRESS: VALID_APP_ADDRESS,
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
         },
         SUBPROCESS_TIMEOUT_MS,
       )
@@ -204,10 +204,10 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   const DEAD_FACILITATOR = 'http://127.0.0.1:9'
 
   test(
-    'refuses to boot and never opens the port when SPLIT_APP_ADDRESS is unset',
+    'refuses to boot and never opens the port when PAY_TO_ADDRESS is unset',
     async () => {
       const PORT = 39872
-      // No SPLIT_APP_ADDRESS key at all — runIndex() spreads this over
+      // No PAY_TO_ADDRESS key at all — runIndex() spreads this over
       // process.env, so the subprocess only sees it unset if it is also
       // unset in this test runner's own environment, which CI and local
       // dev both guarantee (nothing in this repo sets it globally).
@@ -234,7 +234,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   )
 
   test(
-    'refuses to boot and never opens the port when SPLIT_APP_ADDRESS is malformed',
+    'refuses to boot and never opens the port when PAY_TO_ADDRESS is malformed',
     async () => {
       const PORT = 39873
 
@@ -243,7 +243,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           FACILITATOR_URL: DEAD_FACILITATOR,
           PORT: String(PORT),
           NETWORK: 'mainnet',
-          SPLIT_APP_ADDRESS: MALFORMED_APP_ADDRESS,
+          PAY_TO_ADDRESS: MALFORMED_APP_ADDRESS,
         },
         SUBPROCESS_TIMEOUT_MS,
       )
@@ -260,7 +260,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   )
 
   test(
-    'boots normally when SPLIT_APP_ADDRESS is a valid address',
+    'boots normally when PAY_TO_ADDRESS is a valid address',
     async () => {
       const PORT = 39874
 
@@ -281,7 +281,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           PORT: String(PORT),
           NETWORK: 'mainnet',
           FACILITATOR_URL: facilitator.url,
-          SPLIT_APP_ADDRESS: VALID_APP_ADDRESS,
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
         },
       })
 

@@ -34,7 +34,7 @@ function printResult(result: ReconcileResult): void {
 async function main(): Promise<void> {
   // payTo guard: cheap, local, no I/O — checked before the indexer call.
   // Reuses proxy/src/config.ts's own boot guard rather than a second copy
-  // of the same validation, and its error message names SPLIT_APP_ADDRESS.
+  // of the same validation, and its error message names PAY_TO_ADDRESS.
   assertValidPayTo()
 
   const indexerUrl = process.env.INDEXER_URL ?? DEFAULT_INDEXER_URL
