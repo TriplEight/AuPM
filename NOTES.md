@@ -276,3 +276,11 @@ Next: `docs/TASK.md`, wave 1.
   `PAY_TO_ADDRESS` ≠ mnemonic address. Zero USDC balance does not block the rekey.
   `scripts/optin-usdc.mjs` now loads algosdk from `proxy/` (the mcp package has none).
   Contract unchanged; no Puya build needed for R2.
+- Q12 `d893834`: guard RULE 10 (`SplitRouter`/`distribute(` in contracts/, proxy/, mcp/, cli/,
+  scripts/, .github/, README.md), RULE 11 (`attest(` in contracts/), RULE 12 (REAL/FLOAT/DOUBLE
+  column, also after `(`/`,`/`ADD COLUMN`), RULE 13 (pg/postgres/drizzle/@neondatabase import,
+  subpath import, or dependency). RULE 9 already covers review-row writes. `scripts/e2e.mjs` lost
+  its dead SplitRouter step; it SKIPs "on-chain: PaymentRouter credit/claim" until R3.
+  Quirks: `rg -E` means `--encoding`; `grep` here is ugrep. `trash` works only outside the sandbox.
+  Wave 3 is complete. `verify.sh` → VERIFY: PASS. Next: human qualification (SPEC §17 Q1–6), then
+  wave 4 (R3 → R4 → MainNet rekey → D1). Human: set `SPM_BACKUP_HOST_DIR` and `OPS_ADDRESS`.
