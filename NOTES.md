@@ -225,3 +225,7 @@ Next: `docs/TASK.md`, wave 1.
 - Blocked: Q8 needs `docker compose up` by a user in the `docker` group (`undead` is not).
   `proxy/seed.sql` still uses `attest_txid`; Q6 deletes it.
 - Next: run Q3 ‖ Q4 from `spm-mvp-v6-wave2`.
+- Q4 `cafba88`: clients send `X-SPM-Donate: 1`/`0`; spend cap = 1,000 × lockfile entries
+  (`donationCapMicro`, `mcp/src/lockfile-entries.ts`); no opt-in → CLI prints withheld and exits 0,
+  MCP `donation_required`, Action warns with the count. Gap: the CLI has no `install` command
+  (pre-existing; `CLAUDE.md` repo map lists one). Next: accept Q3, then Q6.
