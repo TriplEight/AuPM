@@ -216,3 +216,34 @@ Next: `docs/TASK.md`, wave 1.
 - 2026-09-23 later: Puya rejected `for…of` over the `entries` ABI array; `8478ab6` uses an
   index loop (`clone()` broke the JS harness). Human build passed; artifacts `e348d58`.
   Skill updated for `claim(identity)` `8d35560`.
+
+## 2026-09-23 — wave 2 (branch `spm-mvp-v6-wave2`, from `master` e912431)
+- Q2 `90a2f73`: `X-SPM-Donate: 0` gives a free partial attestation on both attest routes
+  (`withheld`, `UNREVIEWED_OR_WITHHELD`); `registryAppId` removed; `attestTxid`/`attest_txid` →
+  `anchorTxid`/`anchor_txid` (proxy, cli verify test, mcp check, e2e). No app id involved.
+- Q8 `39fad03` (branch `wave2-q8`, not merged): Dockerfile, `compose.yaml`, `.dockerignore`.
+- Blocked: Q8 needs `docker compose up` by a user in the `docker` group (`undead` is not).
+  `proxy/seed.sql` still uses `attest_txid`; Q6 deletes it.
+- Next: run Q3 ‖ Q4 from `spm-mvp-v6-wave2`.
+- Q4 `cafba88`: clients send `X-SPM-Donate: 1`/`0`; spend cap = 1,000 × lockfile entries
+  (`donationCapMicro`, `mcp/src/lockfile-entries.ts`); no opt-in → CLI prints withheld and exits 0,
+  MCP `donation_required`, Action warns with the count. Gap: the CLI has no `install` command
+  (pre-existing; `CLAUDE.md` repo map lists one). Next: accept Q3, then Q6.
+- Q3 `bda3a0d`: lockfile price is a `DynamicPrice` (1,000 × reviewed entries with matching
+  integrity), read from the pre-middleware analysis through the `HonoAdapter` `c` field
+  (private in the 2.6.1 types; recheck on any `@x402-avm/hono` bump). Ledger records six roles
+  per package: 400/100/200/150/100/50; maintainer is always `unassigned`, ops is `ops`.
+  Next: Q6 (anchor-review, record-review, repo key, delete `proxy/seed.sql`).
+- Q6 `5ca4fe7`: `scripts/anchor-review.mjs` (auditor, own machine) and `scripts/record-review.mjs`
+  (operator; `proxy/node_modules/.bin/tsx scripts/record-review.mjs <anchorTxid>`); logic in
+  `scripts/review-anchor.mjs`. `audit_status` gets `review_scope` and `repo`. Guard RULE 9: only
+  `record-review.mjs` writes a reviewed status. `e2e.mjs` writes its fixture row only when
+  `SQLITE_PATH` is inside `os.tmpdir()` (user decision). `proxy/seed.sql` deleted.
+  Next: Q8 image must carry the record-review scripts; then the human Docker check.
+- Q8 `5e52f93`: `proxy/Dockerfile`, `compose.yaml` (service `proxy`, volume `spm-db` at `/data`,
+  `SQLITE_PATH=/data/audit.db`), `.dockerignore`; the image carries `scripts/record-review.mjs`.
+  Checked with podman-compose on TestNet config: status JSON 200, same `audit.db` inode after restart
+  and down/up, `record-review` no-TTY refusal in the container. Host quirk: podman storage under
+  `~` inherits a default ACL for `tripleight`, so apt fails with EINVAL; pass
+  `--podman-args=--root=/var/tmp/spm-podman-1001/root` (+ `--runroot`, `--storage-driver=vfs`).
+  Wave 2 is complete. Next: wave 3 (Q7; Q11; Q12; R2).

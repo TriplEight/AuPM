@@ -1,8 +1,9 @@
 // proxy/src/routes/attest.ts
 //
 // Handlers for the two paid attestation routes:
-//   POST /v1/attest/lockfile  — whole-tree attestation, $0.02, free when the
-//                                tree has zero reviewed packages.
+//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC per
+//                                reviewed entry (SPEC §11.2, ADR 0008), free
+//                                when the tree has zero reviewed packages.
 //   GET  /v1/attest           — single-package attestation, $0.001 (query:
 //                                name, version). Free when the requested
 //                                version resolves below COMMUNITY_REVIEWED,
@@ -16,6 +17,8 @@
 // `*Handler`s run *after* the gate, only once payment has cleared.
 
 import { getConnInfo } from '@hono/node-server/conninfo'
+import type { HTTPRequestContext } from '@x402-avm/core/http'
+import type { AssetAmount } from '@x402-avm/core/types'
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AppVariables } from '../app.js'
 import type { AttributionEntry } from '../attest/attribution.js'
@@ -32,21 +35,36 @@ import {
   DEFAULT_FREE_LOCKFILE_RATE_LIMIT,
   type RateLimiter,
 } from '../attest/ratelimit.js'
-import { CAIP2_NETWORK, ISSUER, LOCKFILE_PREDICATE_TYPE, SINGLE_PREDICATE_TYPE } from '../config.js'
+import {
+  CAIP2_NETWORK,
+  ISSUER,
+  LOCKFILE_PREDICATE_TYPE,
+  SINGLE_PREDICATE_TYPE,
+  USDC_ASA_ID,
+} from '../config.js'
 import { getStatusOrUnreviewed, isReviewedWithIntegrity, reviewerIdentity } from '../status.js'
 
 type AttestContext = Context<{ Variables: AppVariables }>
 
-export const LOCKFILE_PRICE_MICRO = 20_000
-export const SINGLE_ATTEST_PRICE_MICRO = 1_000
+/**
+ * Integer micro-USDC owed for one reviewed package, on every route (SPEC
+ * §11.2, ADR 0008, CLAUDE.md "Canonical facts"). Used directly for the
+ * single-attest route's flat price, and multiplied by N (the reviewed-entry
+ * count) for the lockfile route's DynamicPrice below.
+ */
+export const PRICE_PER_REVIEWED_PACKAGE_MICRO = 1_000
 
 const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 
 // The parsed, classified lockfile the pre-middleware hands to the paid
 // handler once payment clears, so the body is parsed and hashed exactly
 // once. The context variable key ('spmLockfileAnalysis') is declared on
-// AppVariables in app.ts.
-const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
+// AppVariables in app.ts. Exported so lockfileDynamicPrice (below) — and,
+// through it, proxy/src/x402/routes.ts, which wires it into the route's
+// `accepts.price` — can read the same value off the request context the
+// x402 payment gate resolves the price against, never a second parse of
+// the request body (see lockfileDynamicPrice's docstring).
+export const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
 
 /**
  * True only when TRUST_PROXY says this server runs behind a known reverse
@@ -127,10 +145,14 @@ function clientIp(c: AttestContext): string {
   return socketAddress(c) ?? 'unknown'
 }
 
-function registryAppId(): number {
-  const raw = process.env.PAYMENT_ROUTER_APP_ID
-  const n = raw ? Number(raw) : 0
-  return Number.isFinite(n) ? n : 0
+/**
+ * True only when the caller explicitly asked for the free partial
+ * attestation on a paid-tier package (SPEC.md §11.2, §12.3, ADR 0006).
+ * `X-SPM-Donate: 0` — and only that exact value — triggers it; a missing
+ * header or any other value falls through to standard x402 pricing.
+ */
+function requestedPartial(c: AttestContext): boolean {
+  return c.req.header('X-SPM-Donate') === '0'
 }
 
 /**
@@ -215,33 +237,107 @@ async function readLimitedBody(
   return { ok: true, bytes }
 }
 
-function lockfilePredicate(analysis: LockfileAnalysis): Record<string, unknown> {
+/**
+ * Builds `predicate` for the lockfile statement. `partial` is true only for
+ * the free `X-SPM-Donate: 0` path (SPEC.md §11.2, §12.3): every reviewed
+ * entry whose integrity matches (`integrityMatch === true`) is left out of
+ * `packages[]` and counted in `withheld`. An `INTEGRITY_MISMATCH`
+ * (`integrityMatch === false`) or `UNRESOLVABLE` (`integrityMatch === null`)
+ * entry is never filtered — SPM never charges for a security warning
+ * (CLAUDE.md invariant 4).
+ *
+ * A full (paid, or genuinely zero-coverage) attestation always has
+ * `withheld: 0`.
+ */
+function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record<string, unknown> {
+  const packages = partial
+    ? analysis.packages.filter((pkg) => pkg.integrityMatch !== true)
+    : analysis.packages
+  const withheld = analysis.packages.length - packages.length
   return {
     issuer: ISSUER,
     issuedAt: new Date().toISOString(),
     network: CAIP2_NETWORK,
-    registryAppId: registryAppId(),
     lockfileVersion: analysis.lockfileVersion,
     summary: analysis.summary,
-    packages: analysis.packages,
-    // Absence from `packages[]` means UNREVIEWED — never the unreviewed
-    // majority is listed (SPEC.md §12.3).
-    absentMeans: 'UNREVIEWED',
+    packages,
+    withheld,
+    // Absence from `packages[]` means UNREVIEWED on a full attestation, or
+    // UNREVIEWED-or-withheld on a partial one — never the unreviewed
+    // majority is listed either way (SPEC.md §12.3).
+    absentMeans: partial ? 'UNREVIEWED_OR_WITHHELD' : 'UNREVIEWED',
   }
 }
 
 async function signLockfileStatement(
   analysis: LockfileAnalysis,
   key: SigningKeyLike,
+  partial: boolean,
 ): ReturnType<typeof signEnvelope> {
   const statement = buildLockfileStatement({
     subjectName: 'package-lock.json',
     sha256: analysis.sha256,
     predicateType: LOCKFILE_PREDICATE_TYPE,
-    predicate: lockfilePredicate(analysis),
+    predicate: lockfilePredicate(analysis, partial),
   })
   const payload = new TextEncoder().encode(JSON.stringify(statement))
   return signEnvelope(payload, PAYLOAD_TYPE, key)
+}
+
+/**
+ * Unwraps the Hono `Context` an `@x402-avm/hono` `HonoAdapter` wraps.
+ *
+ * `HTTPRequestContext` (the type `DynamicPrice` receives) exposes no public
+ * accessor for the underlying framework request — only `adapter.getHeader`,
+ * `adapter.getQueryParam`, and `adapter.getBody`. `getBody()` calls
+ * `c.req.json()`, which re-reads the request body: a second parse this
+ * route must never perform. The pre-middleware below already consumed the
+ * raw body stream (readLimitedBody) to compute the one true
+ * `LockfileAnalysis` for this request; a second `c.req.json()` call would
+ * throw on the now-exhausted stream.
+ *
+ * `HonoAdapter` is constructed once per request as `new HonoAdapter(c)`
+ * (the exact same Hono `Context` object every middleware in this request's
+ * chain shares) and stores it as a plain instance property named `c`
+ * (`@x402-avm/hono` 2.6.1's compiled output — a normal assignment, not a
+ * JavaScript private field). `private c` in its `.d.ts` is a
+ * compile-time-only annotation; reading it back here, by its actual
+ * runtime shape, is how `lockfileDynamicPrice` reaches the same context
+ * the lockfile pre-middleware already set `ANALYSIS_KEY` on.
+ */
+function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined {
+  return (context.adapter as unknown as { c?: AttestContext }).c
+}
+
+/**
+ * DynamicPrice for `POST /v1/attest/lockfile` (SPEC §11.2, ADR 0008): 1,000
+ * microUSDC × N, where N is `analysis.reviewedPackageRefs.length` — the
+ * identical count `lockfileHandler` below uses to build the signed
+ * attestation, so the price and the attestation can never disagree.
+ *
+ * The x402 payment gate only ever calls this once the pre-middleware has
+ * already called `next()`, which only happens for a lockfile with at least
+ * one reviewed entry and no `X-SPM-Donate: 0` — the zero-coverage and
+ * partial-attestation free paths answer the request themselves, earlier in
+ * the chain, and are never priced at all. `ANALYSIS_KEY` is therefore
+ * always set by the time this runs; a missing value means the wiring
+ * between app.ts's route registration and this function has drifted, so
+ * this fails closed (throws) rather than silently pricing the request at 0.
+ *
+ * Returns an `AssetAmount`, never a dollar string: the amount is computed
+ * with plain integer arithmetic, never a floating-point dollar
+ * multiplication (CLAUDE.md invariant 7), and `asset` is explicit
+ * (CLAUDE.md invariant 3 — an omitted asset can resolve to ALGO).
+ */
+export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
+  const analysis = honoContextFrom(context)?.get(ANALYSIS_KEY)
+  if (!analysis) {
+    throw new Error(
+      'internal error: lockfile analysis missing when the x402 gate resolved the price',
+    )
+  }
+  const amountMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
+  return { asset: USDC_ASA_ID, amount: String(amountMicro) }
 }
 
 /** A real sha512 digest is exactly 64 bytes. Anything else is not one. */
@@ -307,7 +403,6 @@ function buildFreeSingleStatement(name: string, version: string): Statement {
       issuer: ISSUER,
       issuedAt: new Date().toISOString(),
       network: CAIP2_NETWORK,
-      registryAppId: registryAppId(),
       packages: [
         {
           name,
@@ -316,13 +411,41 @@ function buildFreeSingleStatement(name: string, version: string): Statement {
           tier: 'UNREVIEWED',
           reviewer: null,
           reviewScope: null,
-          attestTxid: null,
+          anchorTxid: null,
           integrityMatch: null,
         },
       ],
+      withheld: 0,
       absentMeans: 'UNREVIEWED',
     },
   }
+}
+
+/**
+ * Builds the free partial statement for a paid-tier package requested with
+ * `X-SPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR 0006). SPEC.md §12.3: a
+ * partial attestation is "the same statement, with every reviewed entry
+ * whose integrity matches left out of predicate.packages" — the subject is
+ * not withheld. Only the one entry this route could otherwise sell (the
+ * reviewer, the tier, the anchor txid) is left out of `packages[]`;
+ * `subject.digest.sha512` still carries the real, known-good digest, same
+ * as the paid statement. `withheld` is always 1 here: single-attest has
+ * exactly one candidate entry, and reaching this path means it was priceable.
+ */
+function buildWithheldSingleStatement(name: string, version: string, sha512: string): Statement {
+  return buildSinglePackageStatement({
+    packageUrl: `pkg:npm/${name}@${version}`,
+    sha512,
+    predicateType: SINGLE_PREDICATE_TYPE,
+    predicate: {
+      issuer: ISSUER,
+      issuedAt: new Date().toISOString(),
+      network: CAIP2_NETWORK,
+      packages: [],
+      withheld: 1,
+      absentMeans: 'UNREVIEWED_OR_WITHHELD',
+    },
+  })
 }
 
 export interface AttestRoutesOptions {
@@ -364,24 +487,28 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     }
 
     const { analysis } = result
+    const partial = requestedPartial(c)
 
-    if (analysis.summary.reviewed === 0) {
+    if (analysis.summary.reviewed === 0 || partial) {
       // Free path: charging for zero reviewed packages would charge for
-      // nothing (CLAUDE.md free-tier invariant). Rate-limited per IP so it
-      // cannot be used as an unpriced signing oracle (SPEC.md §12.3).
+      // nothing (CLAUDE.md free-tier invariant), and `X-SPM-Donate: 0`
+      // opts into the free partial attestation (SPEC.md §11.2, §12.3,
+      // ADR 0006). Both share this per-IP rate limiter so neither can be
+      // used as an unpriced signing oracle (SPEC.md §12.3).
       const ip = clientIp(c)
       if (!rateLimiter.attempt(ip)) {
         return c.json({ error: 'rate limit exceeded for the free lockfile path' }, 429)
       }
       const key = await options.getSigningKey()
-      const attestation = await signLockfileStatement(analysis, key)
+      const attestation = await signLockfileStatement(analysis, key, partial)
       c.set('attribution', { route: 'lockfile', priceMicro: 0, packages: [] })
       return c.json({ summary: analysis.summary, attestation })
     }
 
-    // At least one reviewed package: the route is genuinely priced at
-    // $0.02. Hand the already-parsed analysis to the paid handler so the
-    // body — already consumed above — is never re-read or re-parsed.
+    // At least one reviewed package and no partial-attestation opt-out: the
+    // route is genuinely priced. Hand the already-parsed analysis to the
+    // paid handler so the body — already consumed above — is never re-read
+    // or re-parsed.
     c.set(ANALYSIS_KEY, analysis)
     await next()
   }
@@ -395,18 +522,15 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     }
 
     const key = await options.getSigningKey()
-    const attestation = await signLockfileStatement(analysis, key)
+    const attestation = await signLockfileStatement(analysis, key, false)
 
     const packages: AttributionEntry[] = analysis.reviewedPackageRefs.map((ref) => ({
       pkg: ref.pkg,
       version: ref.version,
       auditor: ref.auditor,
-      // Deriving the maintainer identity needs the npm packument's
-      // repository field (SPEC.md §13.2) — that's the claims-ledger work
-      // item's job, not this route's. Never fabricated here.
-      maintainer: null,
     }))
-    c.set('attribution', { route: 'lockfile', priceMicro: LOCKFILE_PRICE_MICRO, packages })
+    const priceMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
+    c.set('attribution', { route: 'lockfile', priceMicro, packages })
 
     return c.json({ summary: analysis.summary, attestation })
   }
@@ -445,6 +569,38 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       return c.json({ tier: 'UNREVIEWED', attestation })
     }
 
+    if (requestedPartial(c)) {
+      // Paid-tier package, but the caller opted into the free partial
+      // attestation with `X-SPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR
+      // 0006). Only `packages[]` (the reviewer, the tier, the anchor txid)
+      // is withheld — the subject digest is not (SPEC.md §12.3) — so the
+      // same fail-closed guards as the paid handler below apply here too:
+      // fail closed, not open, if the store changed since
+      // isPriceableSingleAttest() above was checked.
+      if (status.integrity === null) {
+        return c.json({ error: 'internal error: reviewed package missing stored integrity' }, 500)
+      }
+      const partialHex = integrityToHex(status.integrity)
+      if (partialHex === null) {
+        return c.json(
+          { error: 'internal error: stored integrity is not a valid sha512 value' },
+          500,
+        )
+      }
+      // Rate-limited per IP, same limiter as the free-tier path above, so
+      // this cannot be used as an unpriced signing oracle either.
+      const ip = clientIp(c)
+      if (!rateLimiter.attempt(ip)) {
+        return c.json({ error: 'rate limit exceeded for the free single-attest path' }, 429)
+      }
+      const key = await options.getSigningKey()
+      const statement = buildWithheldSingleStatement(name, version, partialHex)
+      const payload = new TextEncoder().encode(JSON.stringify(statement))
+      const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
+      c.set('attribution', { route: 'single-attest', priceMicro: 0, packages: [] })
+      return c.json({ tier: status.status, attestation })
+    }
+
     await next()
   }
 
@@ -479,7 +635,6 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
         issuer: ISSUER,
         issuedAt: new Date().toISOString(),
         network: CAIP2_NETWORK,
-        registryAppId: registryAppId(),
         packages: [
           {
             name,
@@ -487,23 +642,22 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
             integrity: status.integrity,
             tier: status.status,
             reviewer: reviewerIdentity(status),
-            reviewScope: null,
-            attestTxid: status.attest_txid,
+            reviewScope: status.review_scope,
+            anchorTxid: status.anchor_txid,
             integrityMatch: true,
           },
         ],
+        withheld: 0,
         absentMeans: 'UNREVIEWED',
       },
     })
     const payload = new TextEncoder().encode(JSON.stringify(statement))
     const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
 
-    const packages: AttributionEntry[] = [
-      { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
-    ]
+    const packages: AttributionEntry[] = [{ pkg: name, version, auditor: reviewerIdentity(status) }]
     c.set('attribution', {
       route: 'single-attest',
-      priceMicro: SINGLE_ATTEST_PRICE_MICRO,
+      priceMicro: PRICE_PER_REVIEWED_PACKAGE_MICRO,
       packages,
     })
 

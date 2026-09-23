@@ -102,6 +102,48 @@ describe('install_audited_package', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
+  it('without allowDonation, sends X-SPM-Donate: 0', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await installTool.handler({ pkg: 'lodash', version: '4.17.21' })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial and the paid retry', async () => {
+    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    const seenHeaderValues: (string | null)[] = []
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+
+      const request = input instanceof Request ? input : new Request(url, init)
+      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
+      if (!paymentSignature) {
+        return new Response(null, {
+          status: 402,
+          headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader() },
+        })
+      }
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
+        status: 200,
+        headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-header-value-ok') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await installTool.handler({ pkg: 'lodash', version: '4.17.21', allowDonation: true })
+
+    expect(seenHeaderValues).toEqual(['1', '1'])
+  })
+
   it('with allowDonation, pays with a plain USDC asset transfer to payTo — exactly one paid retry, no appcall', async () => {
     let paidRequestCount = 0
     let capturedHeader: string | null = null

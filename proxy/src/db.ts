@@ -13,7 +13,7 @@ db.exec(`
     version      TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'UNREVIEWED',
     auditor_addr TEXT,
-    attest_txid  TEXT,
+    anchor_txid  TEXT,
     ts           INTEGER,
     PRIMARY KEY (pkg, version)
   )
@@ -39,12 +39,25 @@ if (!existingColumns.some((column) => column.name === 'reviewer')) {
   db.exec('ALTER TABLE audit_status ADD COLUMN reviewer TEXT')
 }
 
+// Upgrade guard: an existing audit.db predates the `review_scope` and `repo`
+// columns. Add them in place, same pattern as `integrity`/`reviewer` above.
+// `record-review.mjs` (scripts/record-review.mjs) is the only writer of
+// both (SPEC §14, §13.1): `review_scope` is the auditor's free-text review
+// scope from the anchor note, and `repo` is the GitHub `owner/repo` (or
+// `npm:<name>`) key the repo pool accrues under.
+if (!existingColumns.some((column) => column.name === 'review_scope')) {
+  db.exec('ALTER TABLE audit_status ADD COLUMN review_scope TEXT')
+}
+if (!existingColumns.some((column) => column.name === 'repo')) {
+  db.exec('ALTER TABLE audit_status ADD COLUMN repo TEXT')
+}
+
 export type StatusRow = {
   pkg: string
   version: string
   status: string
   auditor_addr: string | null
-  attest_txid: string | null
+  anchor_txid: string | null
   ts: number | null
   /** The known-good npm `integrity` string for the reviewed tarball, or null
    * when no independent integrity has been stored — see status.ts's
@@ -54,6 +67,13 @@ export type StatusRow = {
    * unknown. Never "github:alice" here — status.ts's reviewerIdentity()
    * applies that prefix. Never an Algorand address; see auditor_addr. */
   reviewer: string | null
+  /** The auditor's free-text review scope from the anchor note (SPEC §14),
+   * or null when unknown. Set only by scripts/record-review.mjs. */
+  review_scope: string | null
+  /** The repo-pool key: GitHub `owner/repo`, or `npm:<name>` (SPEC §13.1).
+   * Resolved and stored only by scripts/record-review.mjs at review time —
+   * never fetched at payment time. */
+  repo: string | null
 }
 
 export const getStatus = db.prepare<[string, string], StatusRow>(
@@ -70,17 +90,22 @@ export const upsertStatus = db.prepare<
     number | null,
     string | null,
     string | null,
+    string | null,
+    string | null,
   ]
 >(
-  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts, integrity, reviewer)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `INSERT INTO audit_status
+     (pkg, version, status, auditor_addr, anchor_txid, ts, integrity, reviewer, review_scope, repo)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(pkg, version) DO UPDATE SET
-     status       = excluded.status,
-     auditor_addr = excluded.auditor_addr,
-     attest_txid  = excluded.attest_txid,
-     ts           = excluded.ts,
-     integrity    = excluded.integrity,
-     reviewer     = excluded.reviewer`,
+     status        = excluded.status,
+     auditor_addr  = excluded.auditor_addr,
+     anchor_txid   = excluded.anchor_txid,
+     ts            = excluded.ts,
+     integrity     = excluded.integrity,
+     reviewer      = excluded.reviewer,
+     review_scope  = excluded.review_scope,
+     repo          = excluded.repo`,
 )
 
 export default db

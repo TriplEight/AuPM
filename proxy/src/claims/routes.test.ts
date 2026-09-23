@@ -27,9 +27,7 @@ describe('GET /api/v1/earnings/github/:login', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:bob' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     writeAccruals(attribution, 'TXID-ROUTE-1')
 
@@ -41,7 +39,7 @@ describe('GET /api/v1/earnings/github/:login', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     expect(body.identity).toBe('github:alice')
-    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
+    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
   })
 
   test("an unknown login reports zero, not another identity's data", async () => {
@@ -56,9 +54,7 @@ describe('GET /api/v1/earnings/github/:login', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:Alice', maintainer: 'github:bob' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:Alice' }],
     }
     writeAccruals(attribution, 'TXID-ROUTE-2')
 
@@ -70,6 +66,6 @@ describe('GET /api/v1/earnings/github/:login', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     expect(body.identity).toBe('github:alice')
-    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
+    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
   })
 })

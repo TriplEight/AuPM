@@ -46,7 +46,7 @@ describe('findUnmatchedInflows', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     writeAccruals(attribution, 'TXID-MATCHED')
     const unmatched = findUnmatchedInflows([
@@ -58,7 +58,7 @@ describe('findUnmatchedInflows', () => {
 })
 
 describe('reconcile', () => {
-  test('ledgers an unmatched inflow as unassigned across the three roles', async () => {
+  test('ledgers an unmatched inflow as unassigned across all six roles', async () => {
     const indexer = stubIndexerClient([
       { txid: 'TXID-UNMATCHED-1', amountMicro: 20000, confirmedAt: OLD_ENOUGH },
     ])
@@ -69,10 +69,13 @@ describe('reconcile', () => {
     const rows = db
       .prepare('SELECT role, identity, amount_micro FROM accruals WHERE settle_txid = ?')
       .all('TXID-UNMATCHED-1') as Array<{ role: string; identity: string; amount_micro: number }>
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(6)
+    // Every role, including ops, is "unassigned" here — an unmatched
+    // inflow carries no attribution data at all (unlike a normal payment,
+    // where ops always resolves to the fixed "ops" identity).
     for (const row of rows) expect(row.identity).toBe('unassigned')
     const total = rows.reduce((s, r) => s + r.amount_micro, 0)
-    expect(total).toBe(17000)
+    expect(total).toBe(20000)
   })
 
   test('re-running reconcile over the same inflow ledgers nothing new (idempotent)', async () => {
@@ -133,7 +136,7 @@ describe('reconcile', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [{ pkg: 'left-pad', version: '1.0.1', auditor: 'github:bob', maintainer: null }],
+      packages: [{ pkg: 'left-pad', version: '1.0.1', auditor: 'github:bob' }],
     }
     // Simulate the normal write path: the middleware writes real accruals
     // for this txid before this pass ever runs, exactly as it does inside
@@ -146,7 +149,7 @@ describe('reconcile', () => {
     const result = await reconcileNow('PAYTOADDR', indexer)
 
     expect(result.unmatchedLedgered).toBe(0)
-    // Exactly the 3 rows writeAccruals wrote above — reconcile added none.
+    // Exactly the 6 rows writeAccruals wrote above — reconcile added none.
     // (The reviewer role's identity is legitimately "unassigned" even on a
     // normal payment — SPM has no adversarial review yet — so the row
     // count and route/pkg are what distinguish "no second write" here, not
@@ -154,7 +157,7 @@ describe('reconcile', () => {
     const rows = db
       .prepare('SELECT route, pkg, identity FROM accruals WHERE settle_txid = ?')
       .all('TXID-ALREADY-LEDGERED') as Array<{ route: string; pkg: string; identity: string }>
-    expect(rows).toHaveLength(3)
+    expect(rows).toHaveLength(6)
     for (const row of rows) {
       expect(row.route).toBe('single-attest')
       expect(row.pkg).toBe('left-pad')

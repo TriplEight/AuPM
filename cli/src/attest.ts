@@ -2,8 +2,9 @@
 //
 // `spm attest <lockfile> [--donate] [--out <path>]` — requests a signed
 // lockfile attestation via the MCP attest_lockfile handler and writes the
-// envelope to disk. Donation is opt-in: without --donate, a 402 reports the
-// price and exits 2, and nothing is signed.
+// envelope to disk. Donation is opt-in (SPEC.md §11.4): without --donate,
+// the reviewed entries are withheld, not refused — the CLI still writes
+// the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
 import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
 
@@ -49,8 +50,10 @@ function parseAttestArgv(argv: string[]): ParsedAttestArgs {
 
 /**
  * Runs `spm attest` end to end: parses argv, requests the attestation,
- * writes it to disk, and returns the process exit code. A donation_required
- * result (402 without --donate) exits 2 and writes nothing.
+ * writes it to disk, and returns the process exit code. Without --donate, a
+ * `donation_required` result still writes the partial attestation (when the
+ * server returned one) and always exits 0 — SPEC.md §11.4: donating is an
+ * opt-in, not a requirement to get any attestation at all.
  */
 export async function runAttest(argv: string[]): Promise<number> {
   let args: ParsedAttestArgs
@@ -76,9 +79,26 @@ export async function runAttest(argv: string[]): Promise<number> {
   })
 
   if (result.status === 'donation_required') {
+    if (result.attestation !== undefined && result.withheld !== undefined) {
+      fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
+      console.log(`attestation written to ${args.outPath}`)
+      console.log(
+        `withheld ${result.withheld} reviewed ${result.withheld === 1 ? 'entry' : 'entries'} ` +
+          `(${result.priceMicro} microUSDC) — retry with --donate to include them`,
+      )
+      console.log(
+        JSON.stringify(
+          { ...(result.summary as Record<string, unknown>), withheld: result.withheld },
+          null,
+          2,
+        ),
+      )
+      return 0
+    }
+
     console.log(`donation required: ${result.priceMicro} microUSDC for ${result.resourceUrl}`)
     console.log('retry with --donate to opt in')
-    return 2
+    return 0
   }
 
   fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))

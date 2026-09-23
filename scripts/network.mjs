@@ -93,6 +93,29 @@ export function algodEndpoint(network, env = process.env) {
 }
 
 /**
+ * The Algorand indexer endpoint for `network`. INDEXER_URL/INDEXER_TOKEN in
+ * `env` override the per-network default (`.env.example`) — used by
+ * scripts/record-review.mjs to read a confirmed review anchor. Mirrors
+ * algodEndpoint's override shape, with its own single-purpose env vars, so
+ * an indexer override never accidentally repoints the algod client too.
+ *
+ * @param {'testnet'|'mainnet'} network
+ * @param {NodeJS.ProcessEnv} [env] - defaults to process.env.
+ * @returns {{server: string, port: number, token: string}}
+ */
+export function indexerEndpoint(network, env = process.env) {
+  return {
+    server:
+      env.INDEXER_URL ??
+      (network === 'testnet'
+        ? 'https://testnet-idx.algonode.cloud'
+        : 'https://mainnet-idx.algonode.cloud'),
+    port: Number(env.INDEXER_PORT ?? 443),
+    token: env.INDEXER_TOKEN ?? '',
+  }
+}
+
+/**
  * True when `argv` carries the `--confirm-mainnet` flag.
  *
  * @param {string[]} argv

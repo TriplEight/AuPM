@@ -56,8 +56,10 @@ WARNING: pass `donor-mnemonic` only through a GitHub secret in `with:`. The
 action forwards it through the spawned CLI's environment only. It never
 appears in argv, a file, or a log line.
 
-Without `donate: 'true'`, the CLI exits 2 on a 402. The action logs a
-`::warning::` naming the paid route and exits 0.
+Without `donate: 'true'`, the reviewed entries are withheld, not refused:
+the CLI still writes a partial attestation and exits 0. The action reads
+the withheld count from its output, logs a `::warning::` naming it, and
+still exits 0.
 
 The CLI signs a payment locally, inside its own process, before any
 network call. The action never sends a bare mnemonic to any endpoint.
@@ -65,7 +67,8 @@ network call. The action never sends a bare mnemonic to any endpoint.
 CAUTION: never configure `donor-mnemonic` for an account you cannot afford
 to spend from. The CLI enforces two limits:
 
-- It refuses to sign above 20,000 microUSDC per request.
+- It refuses to sign above 1,000 microUSDC per lockfile entry (SPEC.md
+  §11.4) — never a fixed cap.
 - It refuses any asset other than the network's USDC ASA.
 
 A compromised `endpoint` input can still misdirect a donated payment.
@@ -77,7 +80,7 @@ WARNING: this action fails open by default. Each of the following logs a
 
 - A missing endpoint.
 - A pnpm or dependency-install failure.
-- A 402 response without `donate` set.
+- Reviewed entries withheld because `donate` is not set.
 - A missing `donor-mnemonic` with `donate` set.
 - A facilitator outage or a 5xx response.
 - A spend-cap refusal.
@@ -132,7 +135,7 @@ first on `PATH`. Coverage includes:
 
 - A missing endpoint.
 - A failed dependency setup.
-- The no-retry donation-required exit.
+- A withheld-count warning when `donate` is not set.
 - A missing `donor-mnemonic` with `donate` set.
 - A generic CLI error.
 - Both `fail-on-mismatch` outcomes.

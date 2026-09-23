@@ -14,10 +14,12 @@ export function getStatusOrUnreviewed(pkg: string, version: string): StatusRow {
       version,
       status: 'UNREVIEWED',
       auditor_addr: null,
-      attest_txid: null,
+      anchor_txid: null,
       ts: null,
       integrity: null,
       reviewer: null,
+      review_scope: null,
+      repo: null,
     }
   )
 }
@@ -54,10 +56,25 @@ export function setStatus(
   version: string,
   status: string,
   auditorAddr: string | null = null,
-  attestTxid: string | null = null,
+  anchorTxid: string | null = null,
   integrity: string | null = null,
   /** Bare GitHub login of the human reviewer (e.g. "alice"), never "github:alice". */
   reviewer: string | null = null,
+  /** The auditor's free-text review scope from the anchor note (SPEC §14). */
+  reviewScope: string | null = null,
+  /** The repo-pool key: GitHub `owner/repo`, or `npm:<name>` (SPEC §13.1). */
+  repo: string | null = null,
 ): void {
-  upsertStatus.run(pkg, version, status, auditorAddr, attestTxid, Date.now(), integrity, reviewer)
+  upsertStatus.run(
+    pkg,
+    version,
+    status,
+    auditorAddr,
+    anchorTxid,
+    Date.now(),
+    integrity,
+    reviewer,
+    reviewScope,
+    repo,
+  )
 }

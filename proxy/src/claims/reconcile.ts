@@ -69,11 +69,11 @@ export interface SkippedInflow {
 }
 
 /**
- * Ledger one unmatched inflow as `unassigned` across the three ledgered
- * roles, using the same integer role-share split as a normal payment
- * (CLAUDE.md: money is always integer micro-units). route is recorded as
- * "unassigned" since no attribution data exists for a direct deposit or a
- * crash between settle and write.
+ * Ledger one unmatched inflow as `unassigned` across all six ledgered
+ * roles (SPEC.md §13.2), using the same integer role-share split as a
+ * normal payment (CLAUDE.md: money is always integer micro-units). route is
+ * recorded as "unassigned" since no attribution data exists for a direct
+ * deposit or a crash between settle and write.
  *
  * Returns the skip reason when the inflow was not ledgered (so the caller
  * can report it), or null when it was ledgered.

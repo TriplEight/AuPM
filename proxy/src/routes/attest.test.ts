@@ -348,14 +348,12 @@ describe('POST /v1/attest/lockfile', () => {
     const attribution = getAttribution()
     expect(attribution).toBeDefined()
     expect(attribution?.route).toBe('lockfile')
-    expect(attribution?.priceMicro).toBe(20_000)
+    expect(attribution?.priceMicro).toBe(1_000) // 1,000 microUSDC x 1 reviewed entry
     // No `reviewer` login stored on the row (only the on-chain `auditor_addr`
     // was set): the auditor identity must be null, never the Algorand
     // address — the ledger keys strictly on `github:<login>` and could never
     // find it under an address (defect: a stranded, unmatchable accrual).
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
   })
 
   test('attribution.auditor is "github:<login>" from the reviewer column, never the auditor_addr', async () => {
@@ -374,7 +372,7 @@ describe('POST /v1/attest/lockfile', () => {
     expect(res.status).toBe(200)
     const attribution = getAttribution()
     expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null },
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
     ])
     // predicate.packages[].reviewer must carry the same identity, never a
     // raw Algorand address — SPEC.md §12.3's lockfile statement shape.
@@ -383,6 +381,112 @@ describe('POST /v1/attest/lockfile', () => {
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
     expect(predicate.packages[0]?.reviewer).toBe('github:alice')
     expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
+  })
+})
+
+// SPEC.md §11.2, §12.3, ADR 0006: `X-SPM-Donate: 0` on a lockfile with
+// reviewed content returns a free partial attestation, before the payment
+// gate. Every reviewed entry whose integrity matches is left out of
+// predicate.packages and counted in predicate.withheld. An
+// INTEGRITY_MISMATCH or UNRESOLVABLE entry is never withheld (CLAUDE.md
+// invariant 4).
+describe('POST /v1/attest/lockfile: partial attestation (X-SPM-Donate: 0)', () => {
+  function mixedLockfileBody() {
+    return JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        'node_modules/ms': npmEntry('2.1.3', 'sha512-abc'),
+        'node_modules/lodash': npmEntry('4.17.21', 'sha512-def'),
+        'node_modules/tampered': npmEntry('1.0.0', 'sha512-bad'),
+        'node_modules/gitdep': {
+          version: '1.0.0',
+          resolved: 'git+https://github.com/example/gitdep.git#abc',
+        },
+      },
+    })
+  }
+
+  function seedMixedStatuses() {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-abc')
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null, 'sha512-def')
+    setStatus('tampered', '1.0.0', 'COMMUNITY_REVIEWED', null, null, 'sha512-good')
+  }
+
+  test('withholds the 2 matching-reviewed entries, lists the mismatch and the unresolvable one', async () => {
+    seedMixedStatuses()
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-SPM-Donate': '0' },
+      body: mixedLockfileBody(),
+    })
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as {
+      withheld: number
+      absentMeans: string
+      packages: { name: string; tier: string }[]
+    }
+    expect(predicate.withheld).toBe(2)
+    expect(predicate.absentMeans).toBe('UNREVIEWED_OR_WITHHELD')
+    expect(predicate.packages).toHaveLength(2)
+    expect(predicate.packages.find((p) => p.name === 'tampered')?.tier).toBe('INTEGRITY_MISMATCH')
+    expect(predicate.packages.find((p) => p.name === 'gitdep')?.tier).toBe('UNRESOLVABLE')
+    expect(predicate.packages.find((p) => p.name === 'ms')).toBeUndefined()
+    expect(predicate.packages.find((p) => p.name === 'lodash')).toBeUndefined()
+  })
+
+  test('a full attestation (no donate header) has withheld: 0 and drops the removed appId field', async () => {
+    seedMixedStatuses()
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: mixedLockfileBody(),
+    })
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as {
+      withheld: number
+      packages: { name: string }[]
+    }
+    expect(predicate.withheld).toBe(0)
+    expect(predicate.packages).toHaveLength(4)
+    // Split so this file never contains the removed field's literal name.
+    const removedField = ['registry', 'AppId'].join('')
+    expect(JSON.stringify(statement)).not.toContain(removedField)
+  })
+
+  test('the partial path shares the free-path rate limiter with the zero-coverage path', async () => {
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+    seedMixedStatuses()
+
+    const zeroCoverage = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '203.0.113.44' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/unreviewed-only': npmEntry('1.0.0') },
+      }),
+    })
+    expect(zeroCoverage.status).toBe(200)
+
+    const partial = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': '203.0.113.44',
+        'X-SPM-Donate': '0',
+      },
+      body: mixedLockfileBody(),
+    })
+    expect(partial.status).toBe(429)
   })
 })
 
@@ -536,9 +640,7 @@ describe('GET /v1/attest', () => {
     expect(attribution?.priceMicro).toBe(1_000)
     // No `reviewer` login stored (only auditor_addr): auditor must be null,
     // never the Algorand address the ledger cannot key on.
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
   })
 
   test('attribution.auditor and predicate.reviewer are "github:<login>", never the auditor_addr', async () => {
@@ -557,14 +659,47 @@ describe('GET /v1/attest', () => {
 
     expect(res.status).toBe(200)
     const attribution = getAttribution()
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'github:bob', maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: 'github:bob' }])
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
     expect(predicate.packages[0]?.reviewer).toBe('github:bob')
     expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
+  })
+
+  test('predicate.reviewScope comes from the stored review_scope column, never hardcoded null', async () => {
+    setStatus(
+      'ms',
+      '2.1.3',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID1',
+      SHA512_FIXTURE_B64,
+      'bob',
+      'source read, no build',
+    )
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewScope: string | null }[] }
+    expect(predicate.packages[0]?.reviewScope).toBe('source read, no build')
+  })
+
+  test('predicate.reviewScope is null when no review_scope is stored on the row', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewScope: string | null }[] }
+    expect(predicate.packages[0]?.reviewScope).toBeNull()
   })
 
   test('the subject digest equals the lowercase hex decoding of the stored integrity, computed independently', async () => {
@@ -629,6 +764,50 @@ describe('GET /v1/attest', () => {
     })
     expect(second.status).toBe(429)
   })
+
+  // SPEC.md §11.2, §12.3, ADR 0006: X-SPM-Donate: 0 on a reviewed version
+  // returns a free partial attestation, withholding the one entry this
+  // route could otherwise sell.
+  test('X-SPM-Donate: 0 on a reviewed version returns 200 partial, withheld 1', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'X-SPM-Donate': '0' },
+    })
+
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as {
+      withheld: number
+      absentMeans: string
+      packages: unknown[]
+    }
+    expect(predicate.withheld).toBe(1)
+    expect(predicate.absentMeans).toBe('UNREVIEWED_OR_WITHHELD')
+    expect(predicate.packages).toHaveLength(0)
+    // SPEC.md §12.3: the subject is not withheld, only predicate.packages —
+    // a partial attestation still carries the real, known-good digest.
+    expect(statement.subject[0]?.digest.sha512).toBe(SHA512_FIXTURE_HEX)
+    expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
+  })
+
+  test('the partial path (X-SPM-Donate: 0) shares the free-path rate limiter', async () => {
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+
+    const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.11', 'X-SPM-Donate': '0' },
+    })
+    expect(first.status).toBe(200)
+
+    const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'x-forwarded-for': '203.0.113.11', 'X-SPM-Donate': '0' },
+    })
+    expect(second.status).toBe(429)
+  })
 })
 
 // A paid-tier row can carry a legacy sha1- integrity from before this route
@@ -671,7 +850,7 @@ describe('GET /v1/attest: integrity-format gating', () => {
     expect(getAttribution()).toEqual({
       route: 'single-attest',
       priceMicro: 1_000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
 })
@@ -740,7 +919,7 @@ describe('GET /v1/attest: sha512 digest length gating', () => {
     expect(getAttribution()).toEqual({
       route: 'single-attest',
       priceMicro: 1_000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
 })

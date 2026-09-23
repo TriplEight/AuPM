@@ -157,7 +157,7 @@ export function createApp(
         : {
             route: 'tarball',
             priceMicro: TARBALL_PRICE_MICRO,
-            packages: [{ pkg: name, version, auditor: reviewerIdentity(status), maintainer: null }],
+            packages: [{ pkg: name, version, auditor: reviewerIdentity(status) }],
           },
     )
 

@@ -6,7 +6,7 @@ export type AuditStatusResult = {
   version: string
   status: string
   auditor_addr: string | null
-  attest_txid: string | null
+  anchor_txid: string | null
   ts: number | null
 }
 
