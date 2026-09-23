@@ -207,4 +207,9 @@ Next: `docs/TASK.md`, wave 1.
   SPEC §10.1 and ADR 0002 are amended. The `spm-payment-router` skill lines 53–54 still need it.
 - Blocked (human): `pnpm exec biome format --write .claude/settings.json`; `prek install
   --hook-type pre-commit --hook-type pre-push`; `algokit project run build` for PaymentRouter.
-- Next: wave 1 Q9 + Q10 (keys, env, both networks), then wave 2.
+- Q9 + Q10 `efdf4aa`: `PAY_TO_ADDRESS`, `PAYMENT_ROUTER_APP_ID`, split keys, `scripts/network.mjs`
+  (`NETWORK`, `--confirm-mainnet`). `deploy-testnet.sh` and `finish-setup.mjs` are deleted.
+  e2e fix for Q1 `d2df4f2`. `bash scripts/verify.sh`: VERIFY: PASS (on-chain step SKIP).
+- Open: e2e on-chain step still imports the deleted `SplitRouterClient` (R3);
+  `contracts/scripts/genaccounts.ts` makes SplitRouter-era roles (R2). Branch is not pushed.
+- Next: push `spm-mvp-v6`, open the PR into `master`, then wave 2 (Q2 → Q3; Q4; Q6; Q8).
