@@ -17,7 +17,7 @@ describe('check_audit_status', () => {
       version: '4.17.21',
       status: 'UNREVIEWED',
       auditor_addr: null,
-      attest_txid: null,
+      anchor_txid: null,
       ts: null,
     }
     const mockFetch = vi.fn().mockResolvedValue({
@@ -45,7 +45,7 @@ describe('check_audit_status', () => {
       version: '4.17.21',
       status: 'COMMUNITY_REVIEWED',
       auditor_addr: 'AUDITORADDR',
-      attest_txid: 'TXID123',
+      anchor_txid: 'TXID123',
       ts: 1700000000,
     }
     const mockFetch = vi.fn().mockResolvedValue({
@@ -58,7 +58,7 @@ describe('check_audit_status', () => {
 
     expect(result.status).toBe('COMMUNITY_REVIEWED')
     expect(result.auditor_addr).toBe('AUDITORADDR')
-    expect(result.attest_txid).toBe('TXID123')
+    expect(result.anchor_txid).toBe('TXID123')
     // Still only one fetch — no payment triggered even for paid packages
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
@@ -72,7 +72,7 @@ describe('check_audit_status', () => {
           version: '1.0.0',
           status: 'UNREVIEWED',
           auditor_addr: null,
-          attest_txid: null,
+          anchor_txid: null,
           ts: null,
         }),
     })

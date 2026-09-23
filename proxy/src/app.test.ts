@@ -406,6 +406,40 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 
+  // X-SPM-Donate: 0 opts into the free partial attestation (SPEC.md §11.2,
+  // §12.3, ADR 0006) before the payment gate runs — the gate must never see
+  // this request, on either attestation route.
+  test('POST /v1/attest/lockfile, X-SPM-Donate: 0: 200 partial, never 402', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-SPM-Donate': '0' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('GET /v1/attest, X-SPM-Donate: 0: 200 partial, never 402', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { 'X-SPM-Donate': '0' },
+    })
+    expect(res.status).toBe(200)
+    expect(res.status).not.toBe(402)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
   test('GET /v1/attest: UNREVIEWED never returns 402, and sends no payment header', async () => {
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
     expect(res.status).toBe(200)

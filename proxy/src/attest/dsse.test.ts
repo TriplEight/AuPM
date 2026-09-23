@@ -137,7 +137,7 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
         issuer: 'spm',
         issuedAt: '2026-09-19T00:00:00Z',
         network: 'testnet',
-        registryAppId: 0,
+        withheld: 0,
       },
     })
 

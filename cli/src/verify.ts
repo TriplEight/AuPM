@@ -13,7 +13,7 @@
 //
 // CAUTION: this module makes no network request. Verification level is L1
 // (offline) only: signature plus optional lockfile digest. L2 (fetching
-// each on-chain attestTxid) is out of scope.
+// each on-chain anchorTxid) is out of scope.
 
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'

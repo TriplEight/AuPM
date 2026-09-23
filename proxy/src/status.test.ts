@@ -39,7 +39,7 @@ describe('status store', () => {
     const row = getStatusOrUnreviewed('lodash', '4.17.21')
     expect(row.status).toBe('COMMUNITY_REVIEWED')
     expect(row.auditor_addr).toBe('0xAUD')
-    expect(row.attest_txid).toBe('txid123')
+    expect(row.anchor_txid).toBe('txid123')
   })
 
   test('auto-reset: different version defaults to UNREVIEWED', () => {

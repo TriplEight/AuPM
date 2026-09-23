@@ -24,7 +24,7 @@ export interface LockfilePackageEntry {
    * or null when unknown. Never an on-chain address — never fabricated. */
   reviewer: string | null
   reviewScope: string | null
-  attestTxid: string | null
+  anchorTxid: string | null
   /** null when there is no known-good integrity to compare against. */
   integrityMatch: boolean | null
 }
@@ -220,7 +220,7 @@ export function analyzeLockfile(
         tier: 'UNRESOLVABLE',
         reviewer: null,
         reviewScope: null,
-        attestTxid: null,
+        anchorTxid: null,
         integrityMatch: null,
       })
       continue
@@ -258,7 +258,7 @@ export function analyzeLockfile(
         tier: 'INTEGRITY_MISMATCH',
         reviewer: reviewerIdentity(status),
         reviewScope: null,
-        attestTxid: status.attest_txid,
+        anchorTxid: status.anchor_txid,
         integrityMatch: false,
       })
       continue
@@ -297,7 +297,7 @@ export function analyzeLockfile(
         tier: 'INTEGRITY_MISMATCH',
         reviewer: reviewerIdentity(status),
         reviewScope: null,
-        attestTxid: status.attest_txid,
+        anchorTxid: status.anchor_txid,
         integrityMatch: false,
       })
       continue
@@ -312,7 +312,7 @@ export function analyzeLockfile(
       tier: status.status,
       reviewer: reviewerIdentity(status),
       reviewScope: null,
-      attestTxid: status.attest_txid,
+      anchorTxid: status.anchor_txid,
       integrityMatch: true,
     })
     reviewedPackageRefs.push({ pkg: name, version, auditor: reviewerIdentity(status) })

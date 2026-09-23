@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import * as ed from '@noble/ed25519'
 import { describe, expect, test } from 'vitest'
 import {
   type Envelope,
@@ -293,6 +294,95 @@ describe('runVerify (end to end, exit code)', () => {
       expect(code).toBe(1)
       expect(logs.join('\n')).toContain('verify: FAIL')
       expect(logs.join('\n')).toContain('does not verify')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+
+// A partial attestation (SPEC.md §11.2, §12.3: X-SPM-Donate: 0) has the same
+// envelope and Statement shape as a full one — only predicate.packages,
+// predicate.withheld, and predicate.absentMeans differ. verify.ts checks the
+// signature and, optionally, the subject digest; it never inspects the
+// predicate. A fresh, independently signed fixture (this module never
+// imports proxy/src/attest/dsse.ts) proves `spm verify` accepts a partial
+// attestation exactly like a full one.
+describe('runVerify: partial attestation (X-SPM-Donate: 0 shape)', () => {
+  async function signPartialLockfileEnvelope(): Promise<{ envelope: Envelope; keyArg: string }> {
+    const privateKey = ed.utils.randomSecretKey()
+    const publicKey = await ed.getPublicKeyAsync(privateKey)
+    const keyid = 'partial-test-key'
+
+    const statement = {
+      _type: 'https://in-toto.io/Statement/v1',
+      subject: [{ name: 'package-lock.json', digest: { sha256: 'a'.repeat(64) } }],
+      predicateType: 'https://spm.dev/attestation/lockfile/v1',
+      predicate: {
+        issuer: 'https://spm.dev',
+        issuedAt: '2026-09-23T00:00:00Z',
+        network: 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
+        lockfileVersion: 3,
+        summary: { total: 3, reviewed: 2, unreviewed: 0, unresolvable: 1, integrityMismatch: 0 },
+        // The two matching-reviewed entries are withheld; only the
+        // UNRESOLVABLE entry is listed (CLAUDE.md invariant 4).
+        packages: [
+          {
+            name: 'gitdep',
+            version: '1.0.0',
+            integrity: null,
+            tier: 'UNRESOLVABLE',
+            reviewer: null,
+            reviewScope: null,
+            anchorTxid: null,
+            integrityMatch: null,
+          },
+        ],
+        withheld: 2,
+        absentMeans: 'UNREVIEWED_OR_WITHHELD',
+      },
+    }
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(statement))
+    const payloadType = 'application/vnd.in-toto+json'
+    const message = pae(payloadType, payloadBytes)
+    const sig = await ed.signAsync(message, privateKey)
+
+    const envelope: Envelope = {
+      payloadType,
+      payload: Buffer.from(payloadBytes).toString('base64'),
+      signatures: [{ keyid, sig: Buffer.from(sig).toString('base64') }],
+    }
+    const keyArg = `${keyid}:${Buffer.from(publicKey).toString('base64')}`
+    return { envelope, keyArg }
+  }
+
+  test('verifySignatures accepts a partial attestation envelope', async () => {
+    const { envelope, keyArg } = await signPartialLockfileEnvelope()
+    const [keyid, publicKeyB64] = keyArg.split(':') as [string, string]
+    const results = await verifySignatures(envelope, [
+      { keyid, publicKey: new Uint8Array(Buffer.from(publicKeyB64, 'base64')) },
+    ])
+    expect(results).toHaveLength(1)
+    // biome-ignore lint/style/noNonNullAssertion: length asserted above
+    expect(results[0]!.ok).toBe(true)
+  })
+
+  test('runVerify exits 0 (PASS) for a partial attestation, with no predicate inspection', async () => {
+    const { envelope, keyArg } = await signPartialLockfileEnvelope()
+    const dir = mkdtempSync(join(tmpdir(), 'spm-verify-partial-test-'))
+    const envelopePath = join(dir, 'partial-attestation.json')
+    writeFileSync(envelopePath, JSON.stringify(envelope))
+    try {
+      const logs: string[] = []
+      const originalLog = console.log
+      console.log = (...args: unknown[]) => logs.push(args.join(' '))
+      let code: number
+      try {
+        code = await runVerify([envelopePath, '--key', keyArg])
+      } finally {
+        console.log = originalLog
+      }
+      expect(code).toBe(0)
+      expect(logs.join('\n')).toContain('verify: PASS')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

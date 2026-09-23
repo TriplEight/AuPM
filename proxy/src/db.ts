@@ -13,7 +13,7 @@ db.exec(`
     version      TEXT NOT NULL,
     status       TEXT NOT NULL DEFAULT 'UNREVIEWED',
     auditor_addr TEXT,
-    attest_txid  TEXT,
+    anchor_txid  TEXT,
     ts           INTEGER,
     PRIMARY KEY (pkg, version)
   )
@@ -44,7 +44,7 @@ export type StatusRow = {
   version: string
   status: string
   auditor_addr: string | null
-  attest_txid: string | null
+  anchor_txid: string | null
   ts: number | null
   /** The known-good npm `integrity` string for the reviewed tarball, or null
    * when no independent integrity has been stored — see status.ts's
@@ -72,12 +72,12 @@ export const upsertStatus = db.prepare<
     string | null,
   ]
 >(
-  `INSERT INTO audit_status (pkg, version, status, auditor_addr, attest_txid, ts, integrity, reviewer)
+  `INSERT INTO audit_status (pkg, version, status, auditor_addr, anchor_txid, ts, integrity, reviewer)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(pkg, version) DO UPDATE SET
      status       = excluded.status,
      auditor_addr = excluded.auditor_addr,
-     attest_txid  = excluded.attest_txid,
+     anchor_txid  = excluded.anchor_txid,
      ts           = excluded.ts,
      integrity    = excluded.integrity,
      reviewer     = excluded.reviewer`,
