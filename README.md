@@ -1,12 +1,12 @@
 # SPM — Secure Package Manager
 
 SPM is an npm-compatible registry overlay for Algorand MainNet. It passes
-unreviewed packages through to npm for free. A human-reviewed package costs a
-small USDC micropayment, settled through the mandatory GoPlausible
-facilitator. Revenue splits 50/20/15/10/5 across auditor, maintainer,
-adversarial reviewer, treasury, and ops. Most supply-chain attacks land in
-packages nobody ever reviewed. SPM turns human review into a paid,
-verifiable, on-chain-anchored public good.
+unreviewed packages through to npm for free. A human-reviewed package costs
+1,000 microUSDC ($0.001), settled through the mandatory GoPlausible
+facilitator. Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor,
+60% to the operator until the other roles launch. See "Revenue split" below.
+Most supply-chain attacks land in packages nobody ever reviewed. SPM turns
+human review into a paid, verifiable, on-chain-anchored public good.
 
 WARNING: no MainNet deployment exists yet. Read "Current status" before you
 rely on any figure here.
@@ -46,15 +46,40 @@ client / spm CLI        SPM proxy              GoPlausible facilitator     Algor
       |<--------------------|                          |                        |
 ```
 
-USDC accrues at `payTo`. It does not split per payment. `distribute()`
-distributes atomically and permissionlessly, 50/20/15/10/5, whenever a human
-calls it. A version bump resets a package's review status to `UNREVIEWED`.
+USDC accrues at one fixed `payTo` address. A payment never splits per
+transfer. A nightly job reads the ledger and calls `PaymentRouter.credit()`
+in numbered batches, crediting the auditor and ops balances. Each payee then
+calls `claim()` for their own balance. A version bump resets a package's
+review status to `UNREVIEWED`.
+
+## Revenue split
+
+Target split, per 1,000 microUSDC of a reviewed payment:
+
+| Recipient | Share | Per 1,000 µUSDC |
+|---|---|---|
+| Auditor | 40% | 400 |
+| Contributor | 10% | 100 |
+| Maintainer | 20% | 200 |
+| Adversarial reviewer pool | 15% | 150 |
+| Treasury | 10% | 100 |
+| Ops | 5% | 50 |
+
+MVP split. Only the auditor and ops roles are onboarded so far:
+
+| Recipient | Share | Per 1,000 µUSDC |
+|---|---|---|
+| Auditor | 40% | 400 |
+| Ops | 60% | 600 |
+
+The MVP 60% is ops income now, not a debt owed to the other roles. Each role
+gets its target share once it onboards.
 
 ## Routes and prices
 
 | Route | Condition | Price |
 |---|---|---|
-| `POST /v1/attest/lockfile` | at least one reviewed package | $0.02 |
+| `POST /v1/attest/lockfile` | one or more reviewed packages | 1,000 µUSDC × reviewed packages |
 | `POST /v1/attest/lockfile` | zero reviewed packages | free, rate-limited |
 | `GET /v1/attest?name=&version=` | reviewed version | $0.001 |
 | `GET /v1/attest?name=&version=` | unreviewed version | free, rate-limited |
@@ -63,9 +88,10 @@ calls it. A version bump resets a package's review status to `UNREVIEWED`.
 | `GET /api/v1/status/...` | — | free |
 | `GET /api/v1/earnings/github/:login` | — | free |
 
-Every price is a multiple of 1,000 microUSDC. MainNet USDC asset id is
-31566704. Every paid route sets `extra.asset` explicitly, so a client never
-falls back to ALGO.
+Every price is a multiple of 1,000 microUSDC. The lockfile price has no cap
+and no discount: it is always 1,000 µUSDC times the reviewed-package count.
+MainNet USDC asset id is 31566704. Every paid route sets `extra.asset`
+explicitly, so a client never falls back to ALGO.
 
 ## How to call it
 
@@ -113,7 +139,10 @@ curl http://localhost:4873/api/v1/status/lodash/4.17.21
 
 Every paid route is opt-in. A 402 reports the price and no client signs
 anything unless the caller explicitly agrees to donate. A donation never
-signs above 20,000 microUSDC and never in an asset other than the USDC ASA.
+signs above 1,000 microUSDC times the number of reviewed entries in the
+request (1,000 microUSDC for one tarball or one single-package attestation),
+and never in an asset other than the network's USDC ASA. There is no config
+knob for either limit.
 
 ```bash
 export SPM_DONOR_MNEMONIC="<25-word mainnet mnemonic>"
@@ -131,6 +160,21 @@ The `spm-attest` GitHub Action installs `spm-cli` and runs `spm attest`. Its
 plain text. Use a GitHub Actions secret. The Action fails open: a
 facilitator outage, a 5xx, or a missing `donor-mnemonic` logs a warning and
 exits 0, so it never reddens a caller's CI.
+
+### Donor account setup
+
+Create a fresh Algorand account. Do not reuse an account that holds anything
+else. Fund it with about 0.3 ALGO: 0.1 ALGO for the account minimum balance,
+0.1 ALGO for the USDC asset opt-in, plus a small margin. Add a few dollars of
+USDC on Algorand MainNet (ASA 31566704). Opt in to that USDC asset before the
+first donation.
+
+The facilitator pays the payment transaction fee, so the ALGO only covers the
+minimum balance and the opt-in. A wallet with an in-app USDC purchase, for
+example Pera, avoids an exchange withdrawal to a fresh address.
+
+Set the account's 25-word mnemonic in `SPM_DONOR_MNEMONIC`. Never commit it
+and never log it.
 
 ## Verify an attestation offline
 
@@ -162,9 +206,8 @@ Each of these commands was run against this repository state and exits 0.
 
 ## Repository layout
 
-- `contracts/` — AlgoKit TypeScript. `SplitRouter`: `setRecipients`,
-  `optInToAsset`, `attest`, `distribute`, `releaseAuthority`,
-  `setAttestationKey`.
+- `contracts/` — AlgoKit TypeScript. `PaymentRouter`: `createApplication`,
+  `setCrediter`, `setIdentity`, `credit`, `claim`, `releaseAuthority`.
 - `proxy/` — Hono overlay: npm passthrough, SQLite status store, x402
   routes, attestation signing, claims ledger.
 - `mcp/` — MCP server: `check_audit_status`, `install_audited_package`.
@@ -178,10 +221,9 @@ Each of these commands was run against this repository state and exits 0.
 No MainNet deployment exists yet. No contract is deployed, and no payment
 has settled.
 
-`contracts/smart_contracts/artifacts/` is stale. The committed ARC-56
-specification still lists `pay()` and lacks `distribute()`. Regenerating it
-needs Docker and the AlgoKit CLI. Follow `docs/RUNBOOK-contract-build.md`
-before any MainNet deploy.
+`contracts/smart_contracts/artifacts/` holds a Puya build of `PaymentRouter`.
+No `PaymentRouter` application id is deployed on MainNet yet. Follow
+`docs/RUNBOOK-contract-build.md` before any MainNet deploy.
 
 Contract tests run under `algorand-typescript-testing`, in JavaScript. A
 passing test does not prove the contract compiles under Puya. Only

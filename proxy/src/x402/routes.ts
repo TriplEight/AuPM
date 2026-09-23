@@ -13,6 +13,24 @@ import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 export const LOCKFILE_ROUTE_KEY = 'POST /v1/attest/lockfile'
 export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 
+// SPEC §6.2 disclosure rule: every public text (README, `og:description`,
+// Bazaar descriptions) shows both the target split and the MVP split, in
+// this exact wording. Never claim the maintainer's target share is paid
+// out today: in the MVP it is unclaimed ops income until that role onboards.
+const SPLIT_DISCLOSURE =
+  'Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor, 60% to ' +
+  'the operator until the other roles launch.'
+
+// The canonical text for the `og:description` meta tag the operator sets
+// at the domain root for the Bazaar merchant card (SPEC §6.2, §11.2,
+// docs/RUNBOOK-mainnet-launch.md). Not wired to an HTTP response: hosting
+// sets the meta tag outside this codebase. This constant is the one place
+// that text is authored, so the disclosure rule and the price stay in sync
+// with the Bazaar route descriptions below.
+export const OG_DESCRIPTION =
+  'SPM turns human code review into a paid, verifiable, on-chain-anchored ' +
+  `public good on Algorand. $0.001 per reviewed package. ${SPLIT_DISCLOSURE}`
+
 export type SpmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
   | typeof SINGLE_ATTEST_ROUTE_KEY
@@ -45,7 +63,8 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
       description:
         'Signed in-toto attestation for every package in a package-lock.json: human ' +
         'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-        'each review. $0.001 per reviewed package; free when no package in the tree is reviewed.',
+        'each review. $0.001 per reviewed package; free when no package in the tree is ' +
+        `reviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -79,7 +98,8 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
     [SINGLE_ATTEST_ROUTE_KEY]: {
       accepts: accepts('$0.001', feePayer),
       description:
-        'Signed human-review attestation for one npm package version (query: name, version).',
+        'Signed human-review attestation for one npm package version (query: name, ' +
+        `version). $0.001 per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -94,7 +114,9 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
     },
     [TARBALL_ROUTE_KEY]: {
       accepts: tarballPaymentOption(feePayer),
-      description: 'npm tarball download, gated for human-reviewed versions only.',
+      description:
+        'npm tarball download, gated for human-reviewed versions only. $0.001 per ' +
+        `reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/octet-stream',
       extensions: {
         ...declareDiscoveryExtension({
