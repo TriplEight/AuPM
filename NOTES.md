@@ -267,3 +267,12 @@ Next: `docs/TASK.md`, wave 1.
   `spm:credit:<batchSeq>`; a pending batch already credited on chain is recovered by indexer note
   lookup, never resent. Limit: 8 foreign refs → at most 5 auditor identities + ops per batch; no
   batch-split tool exists yet. `docs/RUNBOOK-mainnet-launch.md` §6 still shows spm-reconcile (D1).
+- R2 `012cf58`: `contracts/smart_contracts/payment_router/deploy-config.ts` deploys PaymentRouter,
+  funds the app account (1 ALGO) for box MBR, sets the crediter, maps `AUDITORS` and `ops`
+  (`OPS_ADDRESS`). It refuses: MainNet without `CONFIRM_MAINNET=1`; algod genesis id not matching
+  `NETWORK`; crediter equal to deployer/admin/payTo; a mapped address not opted into USDC.
+  `scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network <net> [--confirm-mainnet]` refuses: payTo not
+  opted in; already rekeyed; genesis mismatch; app's `pto`/`ast` not this payTo/USDC;
+  `PAY_TO_ADDRESS` ≠ mnemonic address. Zero USDC balance does not block the rekey.
+  `scripts/optin-usdc.mjs` now loads algosdk from `proxy/` (the mcp package has none).
+  Contract unchanged; no Puya build needed for R2.
