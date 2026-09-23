@@ -1,0 +1,12 @@
+node_modules/
+**/node_modules/
+.git/
+.claude/
+.env
+.env.*
+!.env.example
+*.db
+*.log
+dist/
+.DS_Store
+.rtk/
