@@ -31,10 +31,10 @@ describe('spm attest', () => {
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
   })
 
-  it('without --donate, a donation_required result exits 2 and writes no file', async () => {
+  it('without --donate, a bare donation_required result (no attestation) exits 0 and writes no file', async () => {
     vi.mocked(attestLockfileTool.handler).mockResolvedValue({
       status: 'donation_required',
-      priceMicro: 20_000,
+      priceMicro: 1_000,
       resourceUrl: 'http://localhost:4873/v1/attest/lockfile',
       asset: '31566704',
     })
@@ -43,9 +43,37 @@ describe('spm attest', () => {
     const outPath = path.join(outDir, 'spm-attestation.json')
     const exitCode = await runAttest([lockfilePath, '--out', outPath])
 
-    expect(exitCode).toBe(2)
+    expect(exitCode).toBe(0)
     expect(attestLockfileTool.handler).toHaveBeenCalledWith({ lockfilePath, allowDonation: false })
     expect(fs.existsSync(outPath)).toBe(false)
+  })
+
+  it('without --donate, a partial donation_required result writes the attestation, prints the withheld count, and exits 0', async () => {
+    const attestation = {
+      payloadType: 'application/vnd.in-toto+json',
+      payload: 'xyz',
+      signatures: [],
+    }
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'donation_required',
+      priceMicro: 2_000,
+      resourceUrl: 'http://localhost:4873/v1/attest/lockfile',
+      asset: '31566704',
+      withheld: 2,
+      summary: { total: 2, reviewed: 2, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
+      attestation,
+    })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const { runAttest } = await import('./attest.js')
+    const outPath = path.join(outDir, 'spm-attestation.json')
+    const exitCode = await runAttest([lockfilePath, '--out', outPath])
+
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
+    const printed = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(printed).toContain('withheld 2 reviewed entries')
+    logSpy.mockRestore()
   })
 
   it('with --donate, writes the attestation envelope to --out and exits 0', async () => {

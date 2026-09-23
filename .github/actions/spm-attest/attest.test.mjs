@@ -27,14 +27,17 @@ fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({
   proxyUrl: process.env.SPM_PROXY_URL ?? null,
 }))
 const mode = ${JSON.stringify(mode)}
-if (mode === 'donation-required') {
-  process.exit(2)
-} else if (mode === 'error') {
+if (mode === 'error') {
   process.stderr.write('boom: cli error\\n')
   process.exit(1)
 } else if (mode === 'mismatch') {
   process.stdout.write('attestation written to out.json\\n')
   process.stdout.write(JSON.stringify({ total: 3, reviewed: 2, unreviewed: 1, integrityMismatch: 1 }) + '\\n')
+  process.exit(0)
+} else if (mode === 'withheld') {
+  process.stdout.write('attestation written to out.json\\n')
+  process.stdout.write('withheld 3 reviewed entries (3000 microUSDC) — retry with --donate to include them\\n')
+  process.stdout.write(JSON.stringify({ total: 3, reviewed: 3, unreviewed: 0, integrityMismatch: 0, withheld: 3 }) + '\\n')
   process.exit(0)
 } else {
   process.stdout.write('attestation written to out.json\\n')
@@ -85,14 +88,19 @@ test('no endpoint configured warns and exits 0 without spawning', async (t) => {
   assert.throws(() => readFileSync(recordPath))
 })
 
-test('CLI exit 2 (donation required) warns and exits 0', async (t) => {
+test('a withheld count (no donate opt-in) warns with the count and exits 0', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const { binDir } = makeFakeCli(dir, 'donation-required')
+  const { binDir } = makeFakeCli(dir, 'withheld')
+
+  const logCalls = t.mock.method(console, 'log')
 
   const code = await withFakeCliOnPath(binDir, () => run(baseOptions()))
 
   assert.equal(code, 0)
+  const logged = logCalls.mock.calls.map((call) => String(call.arguments[0])).join('\n')
+  assert.match(logged, /::warning::/)
+  assert.match(logged, /3 reviewed package\(s\) withheld/)
 })
 
 test('donate set without a donor-mnemonic warns, exits 0, and never starts the CLI', async (t) => {

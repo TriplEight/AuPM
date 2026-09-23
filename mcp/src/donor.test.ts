@@ -8,7 +8,7 @@ import {
 } from '@x402-avm/avm'
 import { encodePaymentResponseHeader } from '@x402-avm/core/http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { DONATION_CAP_MICRO, DonationRefusedError, fetchWithDonation } from './donor.js'
+import { DonationRefusedError, donationCapMicro, fetchWithDonation } from './donor.js'
 
 // Test mnemonic — fresh throwaway account, never funded
 const TEST_MNEMONIC =
@@ -101,6 +101,89 @@ describe('fetchWithDonation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
+  it('without allowDonation, sends X-SPM-Donate: 0 (SPEC.md §11.4)', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      return new Response(new Uint8Array([1]), { status: 200 })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await fetchWithDonation(RESOURCE_URL, undefined, false)
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial 402 and the paid retry', async () => {
+    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    const seenHeaderValues: (string | null)[] = []
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+
+      const request = input instanceof Request ? input : new Request(url, init)
+      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
+      if (!paymentSignature) return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
+
+      return new Response(new Uint8Array([1]), {
+        status: 200,
+        headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-header-value-ok') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await fetchWithDonation(RESOURCE_URL, undefined, true)
+
+    expect(seenHeaderValues).toEqual(['1', '1'])
+  })
+
+  it('a lockfile with 25 entries scales the cap: a 402 for exactly 25,000 microUSDC is paid', async () => {
+    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    let paidRequestCount = 0
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (!request.headers.get('PAYMENT-SIGNATURE')) {
+        return unpaid402(String(donationCapMicro(25)), USDC_MAINNET_ASA_ID)
+      }
+      paidRequestCount += 1
+      return new Response(new Uint8Array([1]), {
+        status: 200,
+        headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-25-entries-ok') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await fetchWithDonation(RESOURCE_URL, undefined, true, 25)
+
+    expect(result.kind).toBe('response')
+    expect(paidRequestCount).toBe(1)
+  })
+
+  it('a lockfile with 25 entries refuses a 402 one microUSDC over the scaled cap', async () => {
+    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    const overCap = String(donationCapMicro(25) + 1n)
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (request.headers.get('PAYMENT-SIGNATURE')) {
+        throw new Error('must never sign a requirement above the scaled donation cap')
+      }
+      return unpaid402(overCap, USDC_MAINNET_ASA_ID)
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(fetchWithDonation(RESOURCE_URL, undefined, true, 25)).rejects.toThrow(
+      DonationRefusedError,
+    )
+  })
+
   it('with allowDonation, a 402 at exactly the cap signs and retries exactly once', async () => {
     process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
     let paidRequestCount = 0
@@ -111,7 +194,7 @@ describe('fetchWithDonation', () => {
 
       const request = input instanceof Request ? input : new Request(url, init)
       const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
-      if (!paymentSignature) return unpaid402(String(DONATION_CAP_MICRO), USDC_MAINNET_ASA_ID)
+      if (!paymentSignature) return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
 
       paidRequestCount += 1
       return new Response(new Uint8Array([1, 2, 3]), {
@@ -133,7 +216,7 @@ describe('fetchWithDonation', () => {
 
   it('with allowDonation, a 402 one microUSDC over the cap does not sign', async () => {
     process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
-    const overCap = String(DONATION_CAP_MICRO + 1)
+    const overCap = String(donationCapMicro(1) + 1n)
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input)
@@ -190,7 +273,7 @@ describe('fetchWithDonation', () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input)
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
-      return unpaid402(String(DONATION_CAP_MICRO), USDC_MAINNET_ASA_ID)
+      return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
     })
     vi.stubGlobal('fetch', mockFetch)
 
@@ -223,7 +306,7 @@ describe('fetchWithDonation: paid transaction group shape', () => {
       const request = input instanceof Request ? input : new Request(url, init)
       const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
       if (!paymentSignature) {
-        return unpaid402(String(DONATION_CAP_MICRO), USDC_MAINNET_ASA_ID)
+        return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
       }
       capturedHeader = paymentSignature
       return new Response(new Uint8Array([1]), {

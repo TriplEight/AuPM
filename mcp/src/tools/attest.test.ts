@@ -13,7 +13,9 @@ const TEST_MNEMONIC =
 const PAY_TO = 'J6DSQYYXYO53B7PC6MZ5M2OO7V3RM4MIWTV7KCH5IQBUXF7KMGPVFWIRAM'
 const FEE_PAYER = 'EA4DXI4WJWSSJQAAKG5ZFNVA6U26NT7DBWHUKP5C3HSVKBAQ3KGPKVEN5A'
 const RESOURCE_URL = 'http://localhost:4873/v1/attest/lockfile'
-const LOCKFILE_PRICE = '20000'
+// The default lockfile fixture below has exactly one package entry, so its
+// spend cap (SPEC.md §11.4) is 1,000 microUSDC * 1 entry.
+const LOCKFILE_PRICE = '1000'
 
 function algodParamsResponse(): Response {
   return new Response(
@@ -29,7 +31,7 @@ function algodParamsResponse(): Response {
   )
 }
 
-function paymentRequiredHeader(): string {
+function paymentRequiredHeader(amount: string = LOCKFILE_PRICE): string {
   const paymentRequired = {
     x402Version: 2,
     resource: { url: RESOURCE_URL },
@@ -38,7 +40,7 @@ function paymentRequiredHeader(): string {
         scheme: 'exact',
         network: ALGORAND_MAINNET_CAIP2,
         asset: USDC_MAINNET_ASA_ID,
-        amount: LOCKFILE_PRICE,
+        amount,
         payTo: PAY_TO,
         maxTimeoutSeconds: 120,
         extra: {
@@ -50,6 +52,28 @@ function paymentRequiredHeader(): string {
     ],
   }
   return Buffer.from(JSON.stringify(paymentRequired)).toString('base64')
+}
+
+/** DSSE-shaped attestation whose payload decodes to a Statement with the given `withheld`. */
+function attestationWithWithheld(withheld: number): { payloadType: string; payload: string } {
+  const statement = {
+    _type: 'https://in-toto.io/Statement/v1',
+    predicateType: 'https://spm.example.com/attestation/lockfile/v1',
+    predicate: { withheld },
+  }
+  return {
+    payloadType: 'application/vnd.in-toto+json',
+    payload: Buffer.from(JSON.stringify(statement)).toString('base64'),
+  }
+}
+
+/** Builds a package-lock.json body with exactly `count` package entries. */
+function lockfileWithEntries(count: number): string {
+  const packages: Record<string, unknown> = {}
+  for (let i = 0; i < count; i += 1) {
+    packages[`node_modules/pkg-${i}`] = { version: '1.0.0' }
+  }
+  return JSON.stringify({ lockfileVersion: 3, packages })
 }
 
 function requestUrl(input: RequestInfo | URL): string {
@@ -66,13 +90,15 @@ function settleResponseHeader(transaction: string): string {
   })
 }
 
-function writeLockfile(): string {
+function writeLockfile(
+  content: string = JSON.stringify({
+    lockfileVersion: 3,
+    packages: { 'node_modules/ms': { version: '2.1.3' } },
+  }),
+): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-attest-test-'))
   const lockfilePath = path.join(dir, 'package-lock.json')
-  fs.writeFileSync(
-    lockfilePath,
-    JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/ms': { version: '2.1.3' } } }),
-  )
+  fs.writeFileSync(lockfilePath, content)
   return lockfilePath
 }
 
@@ -108,10 +134,215 @@ describe('attest_lockfile', () => {
 
     expect(result.status).toBe('donation_required')
     if (result.status !== 'donation_required') throw new Error('unreachable')
-    expect(result.priceMicro).toBe(20_000)
+    expect(result.priceMicro).toBe(1000)
     expect(result.resourceUrl).toBe(RESOURCE_URL)
     expect(result.asset).toBe(USDC_MAINNET_ASA_ID)
     expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('without allowDonation, sends X-SPM-Donate: 0', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      return new Response(
+        JSON.stringify({
+          summary: { total: 1, reviewed: 1, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
+          attestation: attestationWithWithheld(0),
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await attestLockfileTool.handler({ lockfilePath })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial and the paid retry', async () => {
+    const seenHeaderValues: (string | null)[] = []
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+
+      const request = input instanceof Request ? input : new Request(url, init)
+      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
+      if (!paymentSignature) {
+        return new Response(null, {
+          status: 402,
+          headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader() },
+        })
+      }
+      return new Response(
+        JSON.stringify({
+          summary: { total: 1, reviewed: 1, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
+          attestation: attestationWithWithheld(0),
+        }),
+        { status: 200, headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-header-ok') } },
+      )
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await attestLockfileTool.handler({ lockfilePath, allowDonation: true })
+
+    expect(seenHeaderValues).toEqual(['1', '1'])
+  })
+
+  it('a lockfile with 25 reviewed entries (402 amount 25,000) is paid', async () => {
+    const bigLockfilePath = writeLockfile(lockfileWithEntries(25))
+    let paidRequestCount = 0
+
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (!request.headers.get('PAYMENT-SIGNATURE')) {
+        return new Response(null, {
+          status: 402,
+          headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('25000') },
+        })
+      }
+
+      paidRequestCount += 1
+      return new Response(
+        JSON.stringify({
+          summary: {
+            total: 25,
+            reviewed: 25,
+            unreviewed: 0,
+            unresolvable: 0,
+            integrityMismatch: 0,
+          },
+          attestation: attestationWithWithheld(0),
+        }),
+        { status: 200, headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-25-ok') } },
+      )
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({
+      lockfilePath: bigLockfilePath,
+      allowDonation: true,
+    })
+
+    expect(result.status).toBe('attested')
+    expect(paidRequestCount).toBe(1)
+  })
+
+  it('a 402 above the cap (1,000 * entries + 1) is refused and nothing is signed', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (request.headers.get('PAYMENT-SIGNATURE')) {
+        throw new Error('must never sign a requirement above the spend cap')
+      }
+      return new Response(null, {
+        status: 402,
+        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('1001') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(attestLockfileTool.handler({ lockfilePath, allowDonation: true })).rejects.toThrow(
+      /refusing to donate/,
+    )
+  })
+
+  it('a 402 for a non-USDC asset is refused and nothing is signed', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (request.headers.get('PAYMENT-SIGNATURE')) {
+        throw new Error('must never sign a non-USDC requirement')
+      }
+      const paymentRequired = {
+        x402Version: 2,
+        resource: { url: RESOURCE_URL },
+        accepts: [
+          {
+            scheme: 'exact',
+            network: ALGORAND_MAINNET_CAIP2,
+            asset: '0',
+            amount: LOCKFILE_PRICE,
+            payTo: PAY_TO,
+            maxTimeoutSeconds: 120,
+            extra: { asset: '0', feePayer: FEE_PAYER, tag: 'x402-global-challenge' },
+          },
+        ],
+      }
+      return new Response(null, {
+        status: 402,
+        headers: {
+          'PAYMENT-REQUIRED': Buffer.from(JSON.stringify(paymentRequired)).toString('base64'),
+        },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(attestLockfileTool.handler({ lockfilePath, allowDonation: true })).rejects.toThrow(
+      /refusing to donate/,
+    )
+  })
+
+  it('without allowDonation, a partial 200 with withheld packages reports donation_required with the attestation', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            summary: {
+              total: 1,
+              reviewed: 1,
+              unreviewed: 0,
+              unresolvable: 0,
+              integrityMismatch: 0,
+            },
+            attestation: attestationWithWithheld(1),
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({ lockfilePath })
+
+    expect(result.status).toBe('donation_required')
+    if (result.status !== 'donation_required') throw new Error('unreachable')
+    expect(result.withheld).toBe(1)
+    expect(result.priceMicro).toBe(1000)
+    expect(result.resourceUrl).toBe(RESOURCE_URL)
+    expect(result.asset).toBe(USDC_MAINNET_ASA_ID)
+    expect(result.summary).toMatchObject({ reviewed: 1 })
+    expect(result.attestation).toBeDefined()
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('without allowDonation, a genuinely full (withheld: 0) 200 response reports status: attested', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            summary: {
+              total: 1,
+              reviewed: 0,
+              unreviewed: 1,
+              unresolvable: 0,
+              integrityMismatch: 0,
+            },
+            attestation: attestationWithWithheld(0),
+          }),
+          { status: 200 },
+        ),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({ lockfilePath })
+
+    expect(result.status).toBe('attested')
   })
 
   it('with allowDonation, POSTs the raw lockfile bytes and pays exactly one retry', async () => {

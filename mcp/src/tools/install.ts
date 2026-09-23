@@ -4,10 +4,10 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodePaymentResponseHeader } from '@x402-avm/core/http'
 import {
-  DONATION_CAP_MICRO,
   EXPLORER_NETWORK,
   fetchWithDonation,
   IS_TESTNET,
+  PRICE_PER_ENTRY_MICRO,
   USDC_ASSET_ID,
 } from '../donor.js'
 
@@ -77,7 +77,7 @@ export const installTool = {
   name: 'install_audited_package',
   description:
     'Install an npm package via SPM. If COMMUNITY_REVIEWED or higher, this route returns ' +
-    `402. Pass allowDonation: true to donate up to ${DONATION_CAP_MICRO} microUSDC on ` +
+    `402. Pass allowDonation: true to donate up to ${PRICE_PER_ENTRY_MICRO} microUSDC on ` +
     `Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) as a plain ` +
     'asset transfer to the merchant payTo address. Without allowDonation, a 402 is reported ' +
     "back as status: 'donation_required' with the price and resource URL, and nothing is " +

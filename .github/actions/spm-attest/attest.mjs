@@ -11,7 +11,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_LOCKFILE = 'package-lock.json'
 const DEFAULT_OUTPUT = 'spm-attestation.json'
-const EXIT_DONATION_REQUIRED = 2
 
 // cli/ lives three levels above this file: .github/actions/spm-attest/ -> repo root -> cli.
 const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
@@ -117,8 +116,10 @@ function runProcess(command, args, options, spawnFn) {
 /**
  * Run the full attest flow. Returns an exit code — never calls
  * process.exit itself, so callers (including tests) can inspect the result.
- * Fails open: every caught error, non-payment CLI exit, and infra setup
- * failure returns 0. The single exception is a reported integrityMismatch
+ * Fails open: every caught error, non-zero CLI exit, and infra setup
+ * failure returns 0. Without donate: true, the CLI still exits 0 with a
+ * partial attestation (SPEC.md §11.4); this only warns and reports the
+ * withheld count. The single exception is a reported integrityMismatch
  * above zero when failOnMismatch is true.
  */
 export async function run(options, { spawnFn = spawn } = {}) {
@@ -163,20 +164,25 @@ export async function run(options, { spawnFn = spawn } = {}) {
       return 0
     }
 
-    if (result.code === EXIT_DONATION_REQUIRED) {
-      warn(
-        'paid route returned 402; this run did not opt in with donate. ' +
-          "Set donate: 'true' and a donor-mnemonic secret to pay. Skipping.",
-      )
-      return 0
-    }
-
     if (result.code !== 0) {
       warn(`spm attest exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`)
       return 0
     }
 
     const summary = parseSummaryFromStdout(result.stdout)
+
+    // Without donate: true, the CLI still writes a partial attestation and
+    // reports how many reviewed entries it withheld (SPEC.md §11.4) — this
+    // is a normal, passing outcome, not an error. Report the count and
+    // keep going.
+    const withheldCount = summary?.withheld ?? 0
+    if (withheldCount > 0) {
+      warn(
+        `${withheldCount} reviewed package(s) withheld from this attestation. ` +
+          "Set donate: 'true' and a donor-mnemonic secret to include them.",
+      )
+    }
+
     const mismatchCount = summary?.integrityMismatch ?? 0
     if (normalizeBool(failOnMismatch) && mismatchCount > 0) {
       warn(`integrityMismatch is ${mismatchCount}; failing per fail-on-mismatch`)
