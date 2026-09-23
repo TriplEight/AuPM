@@ -234,3 +234,9 @@ Next: `docs/TASK.md`, wave 1.
   (private in the 2.6.1 types; recheck on any `@x402-avm/hono` bump). Ledger records six roles
   per package: 400/100/200/150/100/50; maintainer is always `unassigned`, ops is `ops`.
   Next: Q6 (anchor-review, record-review, repo key, delete `proxy/seed.sql`).
+- Q6 `5ca4fe7`: `scripts/anchor-review.mjs` (auditor, own machine) and `scripts/record-review.mjs`
+  (operator; `proxy/node_modules/.bin/tsx scripts/record-review.mjs <anchorTxid>`); logic in
+  `scripts/review-anchor.mjs`. `audit_status` gets `review_scope` and `repo`. Guard RULE 9: only
+  `record-review.mjs` writes a reviewed status. `e2e.mjs` writes its fixture row only when
+  `SQLITE_PATH` is inside `os.tmpdir()` (user decision). `proxy/seed.sql` deleted.
+  Next: Q8 image must carry the record-review scripts; then the human Docker check.
