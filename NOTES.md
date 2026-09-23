@@ -216,3 +216,12 @@ Next: `docs/TASK.md`, wave 1.
 - 2026-09-23 later: Puya rejected `for…of` over the `entries` ABI array; `8478ab6` uses an
   index loop (`clone()` broke the JS harness). Human build passed; artifacts `e348d58`.
   Skill updated for `claim(identity)` `8d35560`.
+
+## 2026-09-23 — wave 2 (branch `spm-mvp-v6-wave2`, from `master` e912431)
+- Q2 `90a2f73`: `X-SPM-Donate: 0` gives a free partial attestation on both attest routes
+  (`withheld`, `UNREVIEWED_OR_WITHHELD`); `registryAppId` removed; `attestTxid`/`attest_txid` →
+  `anchorTxid`/`anchor_txid` (proxy, cli verify test, mcp check, e2e). No app id involved.
+- Q8 `39fad03` (branch `wave2-q8`, not merged): Dockerfile, `compose.yaml`, `.dockerignore`.
+- Blocked: Q8 needs `docker compose up` by a user in the `docker` group (`undead` is not).
+  `proxy/seed.sql` still uses `attest_txid`; Q6 deletes it.
+- Next: run Q3 ‖ Q4 from `spm-mvp-v6-wave2`.
