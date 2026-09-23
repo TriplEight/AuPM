@@ -247,3 +247,14 @@ Next: `docs/TASK.md`, wave 1.
   `~` inherits a default ACL for `tripleight`, so apt fails with EINVAL; pass
   `--podman-args=--root=/var/tmp/spm-podman-1001/root` (+ `--runroot`, `--storage-driver=vfs`).
   Wave 2 is complete. Next: wave 3 (Q7; Q11; Q12; R2).
+
+## 2026-09-23 — wave 3 (branch `spm-mvp-v6-wave3`, from `master` f664466)
+- Q12 scope (user decision): `SplitRouter`/`distribute(` banned in `contracts/`, `proxy/`,
+  `mcp/`, `cli/`, `scripts/`, `.github/`, `README.md`; `attest(` banned in `contracts/` only.
+  Q12 deletes the dead SplitRouter step from `scripts/e2e.mjs`; R3 rebuilds the on-chain step.
+- Q11 `c5a173d`: README shows both splits, $0.001 per reviewed package, donor setup section,
+  PaymentRouter credit/claim text. `OG_DESCRIPTION` in `proxy/src/x402/routes.ts` is the canonical
+  og:description text; no HTTP route serves it, the operator sets the meta tag at the domain root.
+  The `20,000` test title in `attribution-rules.test.ts` is renamed inside Q7.
+  Quirk: empty untracked `.claude/launch.json` and `.claude/scheduled_tasks.json` make
+  `biome ci .` fail in the main tree; run biome over `git ls-files`.
