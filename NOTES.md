@@ -240,3 +240,10 @@ Next: `docs/TASK.md`, wave 1.
   `record-review.mjs` writes a reviewed status. `e2e.mjs` writes its fixture row only when
   `SQLITE_PATH` is inside `os.tmpdir()` (user decision). `proxy/seed.sql` deleted.
   Next: Q8 image must carry the record-review scripts; then the human Docker check.
+- Q8 `5e52f93`: `proxy/Dockerfile`, `compose.yaml` (service `proxy`, volume `spm-db` at `/data`,
+  `SQLITE_PATH=/data/audit.db`), `.dockerignore`; the image carries `scripts/record-review.mjs`.
+  Checked with podman-compose on TestNet config: status JSON 200, same `audit.db` inode after restart
+  and down/up, `record-review` no-TTY refusal in the container. Host quirk: podman storage under
+  `~` inherits a default ACL for `tripleight`, so apt fails with EINVAL; pass
+  `--podman-args=--root=/var/tmp/spm-podman-1001/root` (+ `--runroot`, `--storage-driver=vfs`).
+  Wave 2 is complete. Next: wave 3 (Q7; Q11; Q12; R2).
