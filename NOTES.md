@@ -229,3 +229,8 @@ Next: `docs/TASK.md`, wave 1.
   (`donationCapMicro`, `mcp/src/lockfile-entries.ts`); no opt-in → CLI prints withheld and exits 0,
   MCP `donation_required`, Action warns with the count. Gap: the CLI has no `install` command
   (pre-existing; `CLAUDE.md` repo map lists one). Next: accept Q3, then Q6.
+- Q3 `bda3a0d`: lockfile price is a `DynamicPrice` (1,000 × reviewed entries with matching
+  integrity), read from the pre-middleware analysis through the `HonoAdapter` `c` field
+  (private in the 2.6.1 types; recheck on any `@x402-avm/hono` bump). Ledger records six roles
+  per package: 400/100/200/150/100/50; maintainer is always `unassigned`, ops is `ops`.
+  Next: Q6 (anchor-review, record-review, repo key, delete `proxy/seed.sql`).
