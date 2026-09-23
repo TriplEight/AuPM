@@ -278,7 +278,6 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
         pkg: ref.pkg,
         version: ref.version,
         auditor: ref.auditor,
-        maintainer: null,
       })),
     }
   }

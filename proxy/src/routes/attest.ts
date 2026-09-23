@@ -528,10 +528,6 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       pkg: ref.pkg,
       version: ref.version,
       auditor: ref.auditor,
-      // Deriving the maintainer identity needs the npm packument's
-      // repository field (SPEC.md §13.2) — that's the claims-ledger work
-      // item's job, not this route's. Never fabricated here.
-      maintainer: null,
     }))
     const priceMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
     c.set('attribution', { route: 'lockfile', priceMicro, packages })
@@ -646,7 +642,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
             integrity: status.integrity,
             tier: status.status,
             reviewer: reviewerIdentity(status),
-            reviewScope: null,
+            reviewScope: status.review_scope,
             anchorTxid: status.anchor_txid,
             integrityMatch: true,
           },
@@ -658,9 +654,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     const payload = new TextEncoder().encode(JSON.stringify(statement))
     const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
 
-    const packages: AttributionEntry[] = [
-      { pkg: name, version, auditor: reviewerIdentity(status), maintainer: null },
-    ]
+    const packages: AttributionEntry[] = [{ pkg: name, version, auditor: reviewerIdentity(status) }]
     c.set('attribution', {
       route: 'single-attest',
       priceMicro: PRICE_PER_REVIEWED_PACKAGE_MICRO,

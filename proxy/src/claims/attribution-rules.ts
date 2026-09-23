@@ -87,8 +87,7 @@ export function resolveAuditorIdentity(entry: AttributionEntry): string {
 
 /**
  * maintainer -> `unassigned`, always (SPEC.md §13.2). No maintainer
- * identity is onboarded yet, so this ignores the entry entirely on purpose
- * — never derived from a packument's self-declared `repository` field.
+ * identity is onboarded yet, so this ignores the entry entirely on purpose.
  */
 export function resolveMaintainerIdentity(_entry: AttributionEntry): string {
   return UNASSIGNED

@@ -32,7 +32,7 @@ beforeEach(() => {
 const ATTRIBUTION: Attribution = {
   route: 'single-attest',
   priceMicro: 1000,
-  packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:bob' }],
+  packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
 }
 
 function buildApp(options: {

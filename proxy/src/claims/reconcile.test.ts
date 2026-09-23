@@ -46,7 +46,7 @@ describe('findUnmatchedInflows', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     writeAccruals(attribution, 'TXID-MATCHED')
     const unmatched = findUnmatchedInflows([
@@ -136,7 +136,7 @@ describe('reconcile', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [{ pkg: 'left-pad', version: '1.0.1', auditor: 'github:bob', maintainer: null }],
+      packages: [{ pkg: 'left-pad', version: '1.0.1', auditor: 'github:bob' }],
     }
     // Simulate the normal write path: the middleware writes real accruals
     // for this txid before this pass ever runs, exactly as it does inside

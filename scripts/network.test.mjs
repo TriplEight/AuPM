@@ -6,6 +6,7 @@ import {
   assertMainnetConfirmed,
   caip2NetworkId,
   hasConfirmMainnetFlag,
+  indexerEndpoint,
   parseNetworkFlag,
   usdcAssetId,
 } from './network.mjs'
@@ -67,6 +68,41 @@ test('algodEndpoint lets ALGOD_SERVER/ALGOD_PORT/ALGOD_TOKEN override the defaul
     server: 'https://custom.example',
     port: 1234,
     token: 'tok',
+  })
+})
+
+test('indexerEndpoint defaults to the per-network algonode.cloud indexer host', () => {
+  assert.deepEqual(indexerEndpoint('mainnet', {}), {
+    server: 'https://mainnet-idx.algonode.cloud',
+    port: 443,
+    token: '',
+  })
+  assert.deepEqual(indexerEndpoint('testnet', {}), {
+    server: 'https://testnet-idx.algonode.cloud',
+    port: 443,
+    token: '',
+  })
+})
+
+test('indexerEndpoint lets INDEXER_URL/INDEXER_PORT/INDEXER_TOKEN override the default', () => {
+  const env = {
+    INDEXER_URL: 'https://custom-idx.example',
+    INDEXER_PORT: '1234',
+    INDEXER_TOKEN: 'tok',
+  }
+  assert.deepEqual(indexerEndpoint('mainnet', env), {
+    server: 'https://custom-idx.example',
+    port: 1234,
+    token: 'tok',
+  })
+})
+
+test('indexerEndpoint never falls back to ALGOD_* overrides', () => {
+  const env = { ALGOD_SERVER: 'https://mainnet-api.algonode.cloud', ALGOD_TOKEN: 'algod-tok' }
+  assert.deepEqual(indexerEndpoint('mainnet', env), {
+    server: 'https://mainnet-idx.algonode.cloud',
+    port: 443,
+    token: '',
   })
 })
 

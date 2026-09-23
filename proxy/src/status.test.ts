@@ -125,4 +125,36 @@ describe('status store', () => {
     expect(reviewerIdentity(row)).toBeNull()
     expect(reviewerIdentity(row)).not.toBe('ONCHAIN_ADDR')
   })
+
+  // Defect pin: review_scope and repo are separate facts from anything else
+  // on the row — record-review.mjs (Q6) is the only writer of both.
+  test('a fresh unknown row has no stored review_scope or repo', () => {
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.review_scope).toBeNull()
+    expect(row.repo).toBeNull()
+  })
+
+  test('setStatus persists and reads back review_scope and repo', () => {
+    setStatus(
+      'lodash',
+      '4.17.21',
+      'COMMUNITY_REVIEWED',
+      'ONCHAIN_ADDR',
+      'tx',
+      'sha512-x',
+      'alice',
+      'source read, no build',
+      'lodash/lodash',
+    )
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.review_scope).toBe('source read, no build')
+    expect(row.repo).toBe('lodash/lodash')
+  })
+
+  test('setStatus without review_scope or repo arguments stores null, not a placeholder', () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', 'ONCHAIN_ADDR', 'tx', 'sha512-x', 'alice')
+    const row = getStatusOrUnreviewed('lodash', '4.17.21')
+    expect(row.review_scope).toBeNull()
+    expect(row.repo).toBeNull()
+  })
 })

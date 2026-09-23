@@ -41,9 +41,9 @@ describe('role shares', () => {
 describe('sortPackages', () => {
   test('sorts by pkg name then version', () => {
     const sorted = sortPackages([
-      { pkg: 'zeta', version: '1.0.0', auditor: null, maintainer: null },
-      { pkg: 'alpha', version: '2.0.0', auditor: null, maintainer: null },
-      { pkg: 'alpha', version: '1.0.0', auditor: null, maintainer: null },
+      { pkg: 'zeta', version: '1.0.0', auditor: null },
+      { pkg: 'alpha', version: '2.0.0', auditor: null },
+      { pkg: 'alpha', version: '1.0.0', auditor: null },
     ])
     expect(sorted.map((p) => `${p.pkg}@${p.version}`)).toEqual([
       'alpha@1.0.0',
@@ -60,24 +60,20 @@ describe('identity resolution', () => {
         pkg: 'ms',
         version: '2.1.3',
         auditor: 'github:alice',
-        maintainer: null,
       }),
     ).toBe('github:alice')
   })
 
   test('missing auditor maps to unassigned', () => {
-    expect(
-      resolveAuditorIdentity({ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }),
-    ).toBe(UNASSIGNED)
+    expect(resolveAuditorIdentity({ pkg: 'ms', version: '2.1.3', auditor: null })).toBe(UNASSIGNED)
   })
 
-  test('maintainer identity is always unassigned, even when AttributionEntry.maintainer is set', () => {
+  test('maintainer identity is always unassigned', () => {
     expect(
       resolveMaintainerIdentity({
         pkg: 'ms',
         version: '2.1.3',
         auditor: null,
-        maintainer: 'github:bob',
       }),
     ).toBe(UNASSIGNED)
   })
@@ -88,7 +84,6 @@ describe('identity resolution', () => {
         pkg: 'ms',
         version: '2.1.3',
         auditor: 'github:alice',
-        maintainer: 'github:bob',
       }),
     ).toBe(UNASSIGNED)
   })
@@ -99,7 +94,6 @@ describe('identity resolution', () => {
         pkg: 'ms',
         version: '2.1.3',
         auditor: 'github:alice',
-        maintainer: 'github:bob',
       }),
     ).toBe(UNASSIGNED)
   })
@@ -110,7 +104,6 @@ describe('identity resolution', () => {
         pkg: 'ms',
         version: '2.1.3',
         auditor: 'github:alice',
-        maintainer: 'github:bob',
       }),
     ).toBe(UNASSIGNED)
   })
@@ -121,7 +114,6 @@ describe('identity resolution', () => {
         pkg: 'ms',
         version: '2.1.3',
         auditor: 'github:alice',
-        maintainer: 'github:bob',
       }),
     ).toBe(OPS_IDENTITY)
   })
@@ -132,9 +124,7 @@ describe('buildAccrualInputs', () => {
     const attribution: Attribution = {
       route: 'lockfile',
       priceMicro: 0,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:bob' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     expect(buildAccrualInputs(attribution)).toEqual([])
   })
@@ -143,9 +133,7 @@ describe('buildAccrualInputs', () => {
     const attribution: Attribution = {
       route: 'tarball',
       priceMicro: 1000,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:bob' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     const rows = buildAccrualInputs(attribution)
     expect(rows).toHaveLength(6)
@@ -164,9 +152,9 @@ describe('buildAccrualInputs', () => {
       route: 'lockfile',
       priceMicro: 3000,
       packages: [
-        { pkg: 'zeta', version: '1.0.0', auditor: 'github:z', maintainer: null },
-        { pkg: 'alpha', version: '1.0.0', auditor: 'github:a', maintainer: null },
-        { pkg: 'mid', version: '1.0.0', auditor: 'github:m', maintainer: null },
+        { pkg: 'zeta', version: '1.0.0', auditor: 'github:z' },
+        { pkg: 'alpha', version: '1.0.0', auditor: 'github:a' },
+        { pkg: 'mid', version: '1.0.0', auditor: 'github:m' },
       ],
     }
     const rows = buildAccrualInputs(attribution)
@@ -191,7 +179,7 @@ describe('buildAccrualInputs', () => {
     const attribution: Attribution = {
       route: 'lockfile',
       priceMicro: 20000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     expect(() => buildAccrualInputs(attribution)).toThrow()
   })

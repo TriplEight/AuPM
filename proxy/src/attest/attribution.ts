@@ -22,8 +22,6 @@ export interface AttributionEntry {
   version: string
   /** "github:<login>", or null when unknown. */
   auditor: string | null
-  /** "github:<login>", or null when unknown. */
-  maintainer: string | null
 }
 
 /** Attribution data a paid attest handler sets on the request context. */

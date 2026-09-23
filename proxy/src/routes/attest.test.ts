@@ -353,9 +353,7 @@ describe('POST /v1/attest/lockfile', () => {
     // was set): the auditor identity must be null, never the Algorand
     // address — the ledger keys strictly on `github:<login>` and could never
     // find it under an address (defect: a stranded, unmatchable accrual).
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
   })
 
   test('attribution.auditor is "github:<login>" from the reviewer column, never the auditor_addr', async () => {
@@ -374,7 +372,7 @@ describe('POST /v1/attest/lockfile', () => {
     expect(res.status).toBe(200)
     const attribution = getAttribution()
     expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: null },
+      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
     ])
     // predicate.packages[].reviewer must carry the same identity, never a
     // raw Algorand address — SPEC.md §12.3's lockfile statement shape.
@@ -642,9 +640,7 @@ describe('GET /v1/attest', () => {
     expect(attribution?.priceMicro).toBe(1_000)
     // No `reviewer` login stored (only auditor_addr): auditor must be null,
     // never the Algorand address the ledger cannot key on.
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
   })
 
   test('attribution.auditor and predicate.reviewer are "github:<login>", never the auditor_addr', async () => {
@@ -663,14 +659,47 @@ describe('GET /v1/attest', () => {
 
     expect(res.status).toBe(200)
     const attribution = getAttribution()
-    expect(attribution?.packages).toEqual([
-      { pkg: 'ms', version: '2.1.3', auditor: 'github:bob', maintainer: null },
-    ])
+    expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: 'github:bob' }])
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
     expect(predicate.packages[0]?.reviewer).toBe('github:bob')
     expect(predicate.packages[0]?.reviewer).not.toBe('AUDITOR_ADDR')
+  })
+
+  test('predicate.reviewScope comes from the stored review_scope column, never hardcoded null', async () => {
+    setStatus(
+      'ms',
+      '2.1.3',
+      'COMMUNITY_REVIEWED',
+      'AUDITOR_ADDR',
+      'TXID1',
+      SHA512_FIXTURE_B64,
+      'bob',
+      'source read, no build',
+    )
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewScope: string | null }[] }
+    expect(predicate.packages[0]?.reviewScope).toBe('source read, no build')
+  })
+
+  test('predicate.reviewScope is null when no review_scope is stored on the row', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const statement = decodeStatement(body.attestation)
+    const predicate = statement.predicate as { packages: { reviewScope: string | null }[] }
+    expect(predicate.packages[0]?.reviewScope).toBeNull()
   })
 
   test('the subject digest equals the lowercase hex decoding of the stored integrity, computed independently', async () => {
@@ -821,7 +850,7 @@ describe('GET /v1/attest: integrity-format gating', () => {
     expect(getAttribution()).toEqual({
       route: 'single-attest',
       priceMicro: 1_000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
 })
@@ -890,7 +919,7 @@ describe('GET /v1/attest: sha512 digest length gating', () => {
     expect(getAttribution()).toEqual({
       route: 'single-attest',
       priceMicro: 1_000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null, maintainer: null }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
 })

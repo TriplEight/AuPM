@@ -171,6 +171,37 @@ done < <(tracked_under scripts .github/workflows \
   | grep -v -E '^scripts/guard\.sh$' \
   | xargs -r grep -nE '\bnpm[[:space:]]+(run|test|install|ci)\b|\byarn\b' -- 2>/dev/null)
 
+# ---------------------------------------------------------------------------
+# RULE 9 — only scripts/record-review.mjs writes a reviewed status.
+# A COMMUNITY_REVIEWED (or PEER_REVIEWED) row means a human read that exact
+# tarball, backed by an on-chain review anchor (SPEC §14, ADR 0007,
+# CLAUDE.md invariant 5). No other code path may write one: not a fixture,
+# not a seed script, not a route handler. Matched patterns: a setStatus(
+# call, or a raw INSERT/UPDATE against audit_status — the two ways this
+# codebase writes that table. Excludes the writer definitions themselves
+# (proxy/src/status.ts, proxy/src/db.ts), and every *.test.* file
+# (synthetic fixture data is a test file's whole job). scripts/e2e.mjs is
+# NOT whole-file excluded: its one fixture write carries its own
+# guard-allow marker instead, because that write's safety depends on a
+# runtime check (assertSqliteWriteAllowed(), scripts/e2e-guard.mjs) that
+# grep cannot see — a whole-file exemption would have hidden a regression
+# that removed the check. Also excludes this script itself, whose own
+# comment text above would otherwise match its own pattern literals.
+# ---------------------------------------------------------------------------
+rule9_scope() {
+  all_tracked \
+    | grep -v -E '\.test\.' \
+    | grep -v -E '^proxy/src/status\.ts$' \
+    | grep -v -E '^proxy/src/db\.ts$' \
+    | grep -v -E '^scripts/record-review\.mjs$' \
+    | grep -v -E '^scripts/guard\.sh$'
+}
+
+while IFS=: read -r f l text; do
+  [ -z "$f" ] && continue
+  report 9 "$f" "$l" "review-status write outside record-review.mjs: $text"
+done < <(rule9_scope | xargs -r grep -nE 'setStatus\(|(INSERT|UPDATE)[^;]*audit_status' -- 2>/dev/null)
+
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "guard.sh: $violations violation(s) found"

@@ -32,9 +32,9 @@ const LOCKFILE_ATTRIBUTION: Attribution = {
   route: 'lockfile',
   priceMicro: 3000,
   packages: [
-    { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
-    { pkg: 'lodash', version: '4.17.21', auditor: 'github:bob', maintainer: null },
-    { pkg: 'chalk', version: '5.3.0', auditor: 'github:alice', maintainer: 'github:chalk-owner' },
+    { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
+    { pkg: 'lodash', version: '4.17.21', auditor: 'github:bob' },
+    { pkg: 'chalk', version: '5.3.0', auditor: 'github:alice' },
   ],
 }
 
@@ -86,9 +86,7 @@ describe('writeAccruals', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     writeAccruals(attribution, 'TXID-SINGLE')
     const rows = getAccrualsForTxid('TXID-SINGLE')
@@ -138,9 +136,7 @@ describe('identity canonicalisation', () => {
   const MIXED_CASE_ATTRIBUTION: Attribution = {
     route: 'single-attest',
     priceMicro: 1000,
-    packages: [
-      { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
-    ],
+    packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
   }
 
   test('an accrual for reviewer alice resolves to github:alice; earnings reports the exact accrued amount', () => {
@@ -159,9 +155,7 @@ describe('identity canonicalisation', () => {
     const attribution: Attribution = {
       route: 'single-attest',
       priceMicro: 1000,
-      packages: [
-        { pkg: 'ms', version: '2.1.3', auditor: 'github:Alice', maintainer: 'github:ms-owner' },
-      ],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:Alice' }],
     }
     writeAccruals(attribution, 'TXID-CANON-2')
 
