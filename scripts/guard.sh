@@ -202,6 +202,123 @@ while IFS=: read -r f l text; do
   report 9 "$f" "$l" "review-status write outside record-review.mjs: $text"
 done < <(rule9_scope | xargs -r grep -nE 'setStatus\(|(INSERT|UPDATE)[^;]*audit_status' -- 2>/dev/null)
 
+# ---------------------------------------------------------------------------
+# RULE 10 — no SplitRouter, no distribute(), outside docs and NOTES.md.
+# SplitRouter was the old permissionless-split contract. PaymentRouter
+# replaced it: a trusted crediter batches credit() calls, payees claim()
+# (ADR 0005). A stray reference is almost always dead code or a stale
+# comment pointing at a deleted artifact.
+# Scoped to the surfaces that ship or run: contracts/, proxy/, mcp/, cli/,
+# scripts/, .github/, README.md. docs/, NOTES.md, SPEC.md, CLAUDE.md and
+# .claude/ may still discuss the old design historically, so none of them
+# are scanned. scripts/guard.sh is excluded so this rule's own pattern
+# text is never checked against itself.
+#
+# NUL-safe: contracts/.algokit/generators/ carries AlgoKit template
+# filenames with literal spaces and braces (Jinja2 syntax), so this rule
+# reads `git ls-files -z` and feeds each file to grep on its own — never
+# through a newline- or whitespace-splitting xargs.
+# ---------------------------------------------------------------------------
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  [ "$f" = "scripts/guard.sh" ] && continue
+  while IFS=: read -r l text; do
+    [ -z "$l" ] && continue
+    report 10 "$f" "$l" "SplitRouter/distribute(): $text"
+  done < <(grep -nE -- 'SplitRouter|distribute\(' "$f" 2>/dev/null)
+done < <(git ls-files -z -- contracts proxy mcp cli scripts .github README.md 2>/dev/null)
+
+# ---------------------------------------------------------------------------
+# RULE 11 — no attest() in contract code.
+# PaymentRouter has no attest() method (ADR 0007): a review anchor is a
+# 0-ALGO self-payment carrying an ARC-2 note, verified off-chain, never a
+# contract call. Scoped to contracts/ only. The proxy and CLI have
+# legitimate functions and routes named attest (POST /v1/attest/lockfile,
+# GET /v1/attest, the `spm attest` command) and this rule never reaches
+# them.
+# ---------------------------------------------------------------------------
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  while IFS=: read -r l text; do
+    [ -z "$l" ] && continue
+    report 11 "$f" "$l" "attest() in contract code: $text"
+  done < <(grep -n -- 'attest(' "$f" 2>/dev/null)
+done < <(git ls-files -z -- contracts 2>/dev/null)
+
+# ---------------------------------------------------------------------------
+# RULE 12 — no REAL, FLOAT or DOUBLE money column.
+# CLAUDE.md invariant 7: money is integer micro-units; SQLite money
+# columns are INTEGER. Matched case-insensitively, anywhere on the line, in
+# the shape a SQL column definition actually has: an identifier followed by
+# the type keyword, where that identifier opens the line, or follows `(`,
+# `,`, or `ADD COLUMN`. This also catches a mid-line second column
+# (`id INTEGER, amount REAL`) and `ALTER TABLE ... ADD COLUMN x REAL`, not
+# only a column definition alone on its own line.
+#
+# Comment lines (`//`, `/*`, `*`, `--`) are excluded before the pattern is
+# even tried. This is what keeps the rule off "real" as an English word: a
+# parenthetical or comma clause routinely reads "(a real ...)" or ", never
+# real ..." in prose, which would otherwise match the same shape as a
+# column definition. Code never puts a SQL column definition in a comment,
+# so dropping comment lines is cheap and costs the rule nothing. `\b` after
+# the keyword keeps it off REALLY and similar longer words.
+#
+# Scoped to proxy/ and scripts/, the only places SQL DDL lives, and to
+# .ts/.sql/.mjs, the only extensions that carry it there.
+# ---------------------------------------------------------------------------
+rule12_pattern='(^|[(,])[[:space:]]*[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+(REAL|FLOAT|DOUBLE)\b'
+rule12_pattern="${rule12_pattern}|ADD[[:space:]]+COLUMN[[:space:]]+[a-zA-Z_][a-zA-Z0-9_]*[[:space:]]+(REAL|FLOAT|DOUBLE)\\b"
+
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  case "$f" in
+    *.ts | *.sql | *.mjs) ;;
+    *) continue ;;
+  esac
+  while IFS=: read -r l text; do
+    [ -z "$l" ] && continue
+    [[ "$text" =~ ^[[:space:]]*(//|/\*|\*|--) ]] && continue
+    report 12 "$f" "$l" "non-integer money column: $text"
+  done < <(grep -inE -- "$rule12_pattern" "$f" 2>/dev/null)
+done < <(git ls-files -z -- proxy scripts 2>/dev/null)
+
+# ---------------------------------------------------------------------------
+# RULE 13 — no Postgres and no Drizzle, in code or as a dependency.
+# Store is SQLite, one writer (ADR 0001). Adding a Postgres client or an
+# ORM is a silent architecture change this project has not made.
+#
+# 13a — an import/require of the literal package name, or a subpath import
+# of it (`drizzle-orm/better-sqlite3`), in tracked source under proxy/,
+# mcp/, cli/, scripts/, contracts/. Restricted to source extensions so a
+# lockfile's transitive dependency graph, which this rule has no business
+# reading, can never trip it. scripts/guard.sh is excluded so this rule's
+# own pattern text is never checked against itself.
+#
+# 13b — the same names as a dependency key in any tracked package.json.
+# ---------------------------------------------------------------------------
+banned_db_pkg='(pg|postgres|drizzle-orm|drizzle-kit|@neondatabase/[a-zA-Z0-9_.-]+)'
+
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  [ "$f" = "scripts/guard.sh" ] && continue
+  case "$f" in
+    *.ts | *.tsx | *.js | *.jsx | *.mjs | *.cjs) ;;
+    *) continue ;;
+  esac
+  while IFS=: read -r l text; do
+    [ -z "$l" ] && continue
+    report 13 "$f" "$l" "Postgres/Drizzle import: $text"
+  done < <(grep -nE -- "['\"]${banned_db_pkg}(/[^'\"]+)?['\"]" "$f" 2>/dev/null)
+done < <(git ls-files -z -- proxy mcp cli scripts contracts 2>/dev/null)
+
+while IFS= read -r -d '' f; do
+  [ -z "$f" ] && continue
+  while IFS=: read -r l text; do
+    [ -z "$l" ] && continue
+    report 13 "$f" "$l" "Postgres/Drizzle dependency: $text"
+  done < <(grep -nE -- "\"${banned_db_pkg}\"[[:space:]]*:" "$f" 2>/dev/null)
+done < <(git ls-files -z -- '*package.json' 2>/dev/null)
+
 if [ "$violations" -gt 0 ]; then
   echo ""
   echo "guard.sh: $violations violation(s) found"
