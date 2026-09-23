@@ -14,18 +14,34 @@ import type { Attribution, AttributionEntry, Role } from '../attest/attribution.
 /** Identity used whenever a role cannot be mapped to a real contributor. */
 export const UNASSIGNED = 'unassigned'
 
+/** Identity recorded for the ops role — never `UNASSIGNED` (SPEC.md §13.2). */
+export const OPS_IDENTITY = 'ops'
+
 /**
- * The three ledgered roles and their share of every 1,000 micro-USDC paid
- * (CLAUDE.md "Canonical facts"). Treasury (100) and ops (50) are not
- * ledgered — distribute() pays them directly (SPEC.md 5.2).
+ * All six target roles' share of every 1,000 micro-USDC paid for one
+ * reviewed package (SPEC.md §13.2, CLAUDE.md "Canonical facts"). The
+ * ledger records all six for every payment, so Phase 2 can add attributed
+ * identities for contributor, treasury, and ops with no data loss, even
+ * though the MVP resolves all three (plus maintainer and the adversarial
+ * reviewer) to `unassigned` today.
  */
 export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
-  auditor: 500,
+  auditor: 400,
+  contributor: 100,
   maintainer: 200,
   reviewer: 150,
+  treasury: 100,
+  ops: 50,
 }
 
-export const ROLES: readonly Role[] = ['auditor', 'maintainer', 'reviewer']
+export const ROLES: readonly Role[] = [
+  'auditor',
+  'contributor',
+  'maintainer',
+  'reviewer',
+  'treasury',
+  'ops',
+]
 
 /**
  * Integer micro-USDC owed to `role` out of the whole payment.
@@ -49,25 +65,11 @@ export function computeRoleShareMicro(priceMicro: number, role: Role): number {
 }
 
 /**
- * Split `totalMicro` across `count` packages with integer arithmetic only.
- * The remainder goes to index 0, so the caller must pass packages already
- * sorted into the canonical order (see `sortPackages`) before calling this.
- * The sum of the returned amounts always equals `totalMicro` exactly.
- */
-export function splitProRata(totalMicro: number, count: number): number[] {
-  if (count <= 0) return []
-  const base = Math.floor(totalMicro / count)
-  const remainder = totalMicro - base * count
-  const amounts = new Array<number>(count).fill(base)
-  amounts[0] = base + remainder
-  return amounts
-}
-
-/**
- * Canonical sort order for pro-rata splits: by package name, then version.
- * Deterministic so the same lockfile always sends its remainder to the same
- * package (SPEC.md 5.2: "the remainder goes to the first package in sort
- * order, so ledger sums equal pool inflows exactly").
+ * Canonical sort order for ledger writes: by package name, then version.
+ * Deterministic so the same payment always writes its accrual rows in the
+ * same order — a debugging and snapshot-testing convenience only; every
+ * reviewed package now carries its own exact role shares (SPEC.md §13.2),
+ * so no split ever depends on this order for correctness.
  */
 export function sortPackages(packages: AttributionEntry[]): AttributionEntry[] {
   return [...packages].sort(
@@ -84,61 +86,59 @@ export function resolveAuditorIdentity(entry: AttributionEntry): string {
 }
 
 /**
- * maintainer -> `github:<owner>`, already resolved onto
- * AttributionEntry.maintainer by the packument parser. A non-GitHub or
- * missing repository maps to `unassigned`.
+ * maintainer -> `unassigned`, always (SPEC.md §13.2). No maintainer
+ * identity is onboarded yet, so this ignores the entry entirely on purpose
+ * — never derived from a packument's self-declared `repository` field.
  */
-export function resolveMaintainerIdentity(entry: AttributionEntry): string {
-  return entry.maintainer ?? UNASSIGNED
+export function resolveMaintainerIdentity(_entry: AttributionEntry): string {
+  return UNASSIGNED
 }
 
 /**
- * reviewer (the adversarial 15%) -> `unassigned` in the MVP. No adversarial
- * review exists yet; it stays in the reviewer pool as the future bounty
- * budget (SPEC.md 5.2). This ignores the entry entirely on purpose.
+ * contributor -> `unassigned`, always (SPEC.md §13.2). No contributor
+ * identity is onboarded yet.
+ */
+export function resolveContributorIdentity(_entry: AttributionEntry): string {
+  return UNASSIGNED
+}
+
+/**
+ * reviewer (the adversarial reviewer) -> `unassigned` in the MVP. No
+ * adversarial review exists yet; it stays in the reviewer pool as the
+ * future bounty budget (SPEC.md §13.2). This ignores the entry entirely on
+ * purpose.
  */
 export function resolveReviewerIdentity(_entry: AttributionEntry): string {
   return UNASSIGNED
 }
 
+/**
+ * treasury -> `unassigned`, always (SPEC.md §13.2). No treasury identity is
+ * onboarded yet.
+ */
+export function resolveTreasuryIdentity(_entry: AttributionEntry): string {
+  return UNASSIGNED
+}
+
+/**
+ * ops -> `ops`, always (SPEC.md §13.2) — the one non-`unassigned` MVP
+ * identity, credited on-chain to the ops balance.
+ */
+export function resolveOpsIdentity(_entry: AttributionEntry): string {
+  return OPS_IDENTITY
+}
+
 const IDENTITY_RESOLVERS: Readonly<Record<Role, (entry: AttributionEntry) => string>> = {
   auditor: resolveAuditorIdentity,
+  contributor: resolveContributorIdentity,
   maintainer: resolveMaintainerIdentity,
   reviewer: resolveReviewerIdentity,
+  treasury: resolveTreasuryIdentity,
+  ops: resolveOpsIdentity,
 }
 
 export function resolveIdentity(role: Role, entry: AttributionEntry): string {
   return IDENTITY_RESOLVERS[role](entry)
-}
-
-/**
- * Parse a GitHub `owner` out of an npm packument's `repository.url` for one
- * version (SPEC.md 5.2). Handles the common forms: `git+https://`,
- * `https://`, `git://`, and scp-style `git@github.com:owner/repo.git`. A
- * non-GitHub or unparsable URL returns null, which callers map to
- * `unassigned` — this mapping is self-declared by the publisher, so callers
- * must still mark it `repo_verified=false`.
- */
-export function parseMaintainerIdentity(repositoryUrl: string | null | undefined): string | null {
-  if (!repositoryUrl) return null
-  const cleaned = repositoryUrl.replace(/^git\+/, '')
-
-  const scpMatch = cleaned.match(/^git@github\.com:([^/]+)\/[^/]+?(?:\.git)?\/?$/)
-  if (scpMatch) return `github:${scpMatch[1]}`
-
-  try {
-    const url = new URL(cleaned)
-    if (url.hostname !== 'github.com' && url.hostname !== 'www.github.com') return null
-    const parts = url.pathname
-      .replace(/^\//, '')
-      .replace(/\.git$/, '')
-      .split('/')
-    const owner = parts[0]
-    if (!owner) return null
-    return `github:${owner}`
-  } catch {
-    return null
-  }
 }
 
 /** One row this module hands to the ledger writer — matches the `accruals` table. */
@@ -154,35 +154,48 @@ export interface AccrualInput {
 /**
  * Build every accrual row for one settled, paid request.
  *
- * - Tarball / single attest: `packages` has one entry, so each role's whole
- *   share goes to that package's identities (SPEC.md 5.2).
- * - Lockfile: each role's share splits pro-rata across the reviewed
- *   packages with integer division; the remainder lands on the first
- *   package in sort order.
+ * Every route prices each reviewed package at exactly 1,000 microUSDC
+ * (SPEC.md §11.2), so every package in `attribution.packages` gets its own
+ * full set of exact role shares (400 / 100 / 200 / 150 / 100 / 50) —
+ * tarball and single-attest (one package) the same way lockfile (N
+ * packages) does. No division, no remainder, and no cross-package split
+ * (SPEC.md §13.2).
  *
  * WARNING: never call this for a free request. Returns `[]` when
  * `priceMicro` is 0 or `packages` is empty, so the ledger writer never
  * accrues against an unpaid request.
+ *
+ * WARNING: throws if `priceMicro` does not equal `packages.length * 1000` —
+ * the one invariant that keeps the charged amount and the ledgered amount
+ * from ever disagreeing. A caller with a mismatched price has a bug
+ * upstream; this never silently reconciles it.
  */
 export function buildAccrualInputs(attribution: Attribution): AccrualInput[] {
   if (attribution.priceMicro === 0) return []
   const packages = sortPackages(attribution.packages)
   if (packages.length === 0) return []
 
+  const expectedPriceMicro = packages.length * 1000
+  if (attribution.priceMicro !== expectedPriceMicro) {
+    throw new Error(
+      `buildAccrualInputs: priceMicro ${attribution.priceMicro} does not match ` +
+        `${packages.length} reviewed package(s) at 1,000 microUSDC each ` +
+        `(expected ${expectedPriceMicro})`,
+    )
+  }
+
   const rows: AccrualInput[] = []
-  for (const role of ROLES) {
-    const shareMicro = computeRoleShareMicro(attribution.priceMicro, role)
-    const perPackage = splitProRata(shareMicro, packages.length)
-    packages.forEach((entry, i) => {
+  for (const entry of packages) {
+    for (const role of ROLES) {
       rows.push({
         route: attribution.route,
         pkg: entry.pkg,
         version: entry.version,
         role,
         identity: resolveIdentity(role, entry),
-        amountMicro: perPackage[i] ?? 0,
+        amountMicro: ROLE_SHARE_PER_1000[role],
       })
-    })
+    }
   }
   return rows
 }

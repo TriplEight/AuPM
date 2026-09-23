@@ -348,7 +348,7 @@ describe('POST /v1/attest/lockfile', () => {
     const attribution = getAttribution()
     expect(attribution).toBeDefined()
     expect(attribution?.route).toBe('lockfile')
-    expect(attribution?.priceMicro).toBe(20_000)
+    expect(attribution?.priceMicro).toBe(1_000) // 1,000 microUSDC x 1 reviewed entry
     // No `reviewer` login stored on the row (only the on-chain `auditor_addr`
     // was set): the auditor identity must be null, never the Algorand
     // address — the ledger keys strictly on `github:<login>` and could never

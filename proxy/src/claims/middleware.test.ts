@@ -67,7 +67,7 @@ describe('claimsLedgerMiddleware', () => {
     const app = buildApp({ attribution: ATTRIBUTION, settleSuccess: true, settleTxid: 'TXID-MW-1' })
     const res = await app.request('/x')
     expect(res.status).toBe(200)
-    expect(getAccrualsForTxid('TXID-MW-1')).toHaveLength(3)
+    expect(getAccrualsForTxid('TXID-MW-1')).toHaveLength(6)
   })
 
   test('writes nothing when PAYMENT-RESPONSE reports success: false', async () => {

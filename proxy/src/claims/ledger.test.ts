@@ -30,7 +30,7 @@ beforeEach(() => {
 
 const LOCKFILE_ATTRIBUTION: Attribution = {
   route: 'lockfile',
-  priceMicro: 20000,
+  priceMicro: 3000,
   packages: [
     { pkg: 'ms', version: '2.1.3', auditor: 'github:alice', maintainer: 'github:ms-owner' },
     { pkg: 'lodash', version: '4.17.21', auditor: 'github:bob', maintainer: null },
@@ -39,37 +39,40 @@ const LOCKFILE_ATTRIBUTION: Attribution = {
 }
 
 describe('writeAccruals', () => {
-  test('a paid lockfile call of 20,000 microUSDC accrues exactly 10,000 / 4,000 / 3,000 across the three roles', () => {
+  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 1,200 / 300 / 600 / 450 / 300 / 150 across the six roles', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1')
     const rows = getAccrualsForTxid('TXID-1')
 
     const byRole = new Map<string, number>()
     for (const row of rows) byRole.set(row.role, (byRole.get(row.role) ?? 0) + row.amount_micro)
 
-    expect(byRole.get('auditor')).toBe(10000)
-    expect(byRole.get('maintainer')).toBe(4000)
-    expect(byRole.get('reviewer')).toBe(3000)
+    expect(byRole.get('auditor')).toBe(1200)
+    expect(byRole.get('contributor')).toBe(300)
+    expect(byRole.get('maintainer')).toBe(600)
+    expect(byRole.get('reviewer')).toBe(450)
+    expect(byRole.get('treasury')).toBe(300)
+    expect(byRole.get('ops')).toBe(150)
 
     const total = rows.reduce((s, r) => s + r.amount_micro, 0)
-    expect(total).toBe(17000) // 10,000 + 4,000 + 3,000; the ledgered 850/1000 of 20,000
+    expect(total).toBe(3000) // every reviewed package's full 1,000 microUSDC is ledgered
   })
 
   test('replaying the same settle_txid writes no second accrual: row count and total unchanged', () => {
     const firstWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
-    expect(firstWritten).toBe(9) // 3 roles x 3 packages
+    expect(firstWritten).toBe(18) // 6 roles x 3 packages
 
     const before = getAccrualsForTxid('TXID-REPLAY')
     const totalBefore = before.reduce((s, r) => s + r.amount_micro, 0)
-    expect(before).toHaveLength(9)
+    expect(before).toHaveLength(18)
 
     const secondWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
     expect(secondWritten).toBe(0)
 
     const after = getAccrualsForTxid('TXID-REPLAY')
     const totalAfter = after.reduce((s, r) => s + r.amount_micro, 0)
-    expect(after).toHaveLength(9)
+    expect(after).toHaveLength(18)
     expect(totalAfter).toBe(totalBefore)
-    expect(accrualCountForTxid('TXID-REPLAY')).toBe(9)
+    expect(accrualCountForTxid('TXID-REPLAY')).toBe(18)
   })
 
   test('a free request (priceMicro 0) writes no accrual at all', () => {
@@ -91,7 +94,7 @@ describe('writeAccruals', () => {
     const rows = getAccrualsForTxid('TXID-SINGLE')
     const auditorRow = rows.find((r) => r.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(500)
+    expect(auditorRow?.amount_micro).toBe(400)
   })
 })
 
@@ -117,7 +120,9 @@ describe('getEarningsForLogin', () => {
     expect(aliceAuditor).toBeGreaterThan(0)
     expect(bobAuditor).toBeGreaterThan(0)
     expect(aliceAuditor).not.toBe(bobAuditor)
-    expect(aliceAuditor + bobAuditor).toBe(10000) // the whole auditor share, split between only these two
+    // 2 packages x 400 (alice) + 1 package x 400 (bob) = the full 1,200
+    // auditor share of this 3-package, 3,000-microUSDC payment.
+    expect(aliceAuditor + bobAuditor).toBe(1200)
   })
 
   test('claimed totals reflect recorded payouts', () => {
@@ -146,8 +151,8 @@ describe('identity canonicalisation', () => {
     const earnings = getEarningsForLogin('Alice')
     expect(earnings.identity).toBe('github:alice')
     const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorRole?.accruedMicro).toBe(500)
-    expect(earnings.totalAccruedMicro).toBe(500)
+    expect(auditorRole?.accruedMicro).toBe(400)
+    expect(earnings.totalAccruedMicro).toBe(400)
   })
 
   test('getEarningsForLogin is case-insensitive: an accrual for github:Alice is found under both alice and ALICE', () => {
@@ -165,9 +170,9 @@ describe('identity canonicalisation', () => {
 
     expect(lower.identity).toBe('github:alice')
     expect(upper.identity).toBe('github:alice')
-    expect(lower.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
-    expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
-    expect(lower.totalAccruedMicro).toBe(500)
-    expect(upper.totalAccruedMicro).toBe(500)
+    expect(lower.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
+    expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
+    expect(lower.totalAccruedMicro).toBe(400)
+    expect(upper.totalAccruedMicro).toBe(400)
   })
 })

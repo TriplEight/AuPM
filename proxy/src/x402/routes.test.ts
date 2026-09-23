@@ -15,6 +15,7 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-routes-test-${randomU
 
 const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } = await import('./routes.js')
 const { TARBALL_ROUTE_KEY } = await import('./tarball.js')
+const { lockfileDynamicPrice } = await import('../routes/attest.js')
 
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
@@ -32,16 +33,26 @@ describe('buildRoutes', () => {
     }
   })
 
-  test('lockfile route prices at $0.02, single attest and tarball at $0.001', () => {
+  test('lockfile route prices via lockfileDynamicPrice, single attest and tarball at $0.001', () => {
     const priceOf = (
       key: typeof LOCKFILE_ROUTE_KEY | typeof SINGLE_ATTEST_ROUTE_KEY | typeof TARBALL_ROUTE_KEY,
     ) => {
       const accepts = routes[key].accepts
       return Array.isArray(accepts) ? accepts[0]?.price : accepts.price
     }
-    expect(priceOf(LOCKFILE_ROUTE_KEY)).toBe('$0.02')
+    // SPEC §11.2, ADR 0008: the lockfile route is 1,000 microUSDC x N reviewed
+    // entries, no cap, no discount — a DynamicPrice function, never a flat
+    // dollar string. The single-attest and tarball routes stay flat: each
+    // charges for exactly one reviewed package.
+    expect(priceOf(LOCKFILE_ROUTE_KEY)).toBe(lockfileDynamicPrice)
     expect(priceOf(SINGLE_ATTEST_ROUTE_KEY)).toBe('$0.001')
     expect(priceOf(TARBALL_ROUTE_KEY)).toBe('$0.001')
+  })
+
+  test("the lockfile route's description states the per-package price, never a flat $0.02", () => {
+    const description = routes[LOCKFILE_ROUTE_KEY].description ?? ''
+    expect(description).toContain('$0.001 per reviewed package')
+    expect(description).not.toContain('$0.02')
   })
 
   test('validateDiscoveryExtension(decl.bazaar).valid === true for every paid route declaration', () => {

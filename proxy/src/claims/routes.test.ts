@@ -41,7 +41,7 @@ describe('GET /api/v1/earnings/github/:login', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     expect(body.identity).toBe('github:alice')
-    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
+    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
   })
 
   test("an unknown login reports zero, not another identity's data", async () => {
@@ -70,6 +70,6 @@ describe('GET /api/v1/earnings/github/:login', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     expect(body.identity).toBe('github:alice')
-    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(500)
+    expect(body.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
   })
 })

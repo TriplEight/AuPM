@@ -400,6 +400,100 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 
+  // SPEC §11.2, ADR 0008: the lockfile route prices at 1,000 microUSDC x N
+  // reviewed entries — a DynamicPrice function, resolved against the exact
+  // same LockfileAnalysis the pre-middleware already computed (never a
+  // second parse). N is `summary.reviewed`, not `summary.total`.
+  test('POST /v1/attest/lockfile: PAYMENT-REQUIRED amount is 1,000 x N for N reviewed entries', async () => {
+    setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/pkg-a': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-a/-/pkg-a-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+          'node_modules/pkg-b': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-b/-/pkg-b-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+          'node_modules/pkg-c': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-c/-/pkg-c-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+    expect(res.status).toBe(402)
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    const paymentRequired = decodePaymentRequiredHeader(header as string) as unknown as {
+      accepts: Array<{ amount?: string; asset?: string }>
+    }
+    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+    expect(paymentRequired.accepts[0]?.asset).toBe(USDC_ASA_ID)
+  })
+
+  // SPEC §10.4, §12.3: an INTEGRITY_MISMATCH or UNRESOLVABLE entry is never
+  // charged — N counts only COMMUNITY_REVIEWED entries whose integrity
+  // matches, never the tree's total entry count.
+  test('POST /v1/attest/lockfile: an INTEGRITY_MISMATCH and an UNRESOLVABLE entry are never charged', async () => {
+    setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    setStatus('pkg-mismatch', '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/pkg-a': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-a/-/pkg-a-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+          'node_modules/pkg-b': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-b/-/pkg-b-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+          'node_modules/pkg-c': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-c/-/pkg-c-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+          // Reviewed, but the lockfile's own integrity disagrees with the
+          // stored known-good value: INTEGRITY_MISMATCH, never charged.
+          'node_modules/pkg-mismatch': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/pkg-mismatch/-/pkg-mismatch-1.0.0.tgz',
+            integrity: `sha512-${'B'.repeat(86)}==`,
+          },
+          // Not resolved from the npm registry: UNRESOLVABLE, never charged.
+          'node_modules/pkg-unresolvable': {
+            version: '1.0.0',
+            resolved: 'git+https://github.com/example/pkg-unresolvable.git',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+    expect(res.status).toBe(402)
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    const paymentRequired = decodePaymentRequiredHeader(header as string) as unknown as {
+      accepts: Array<{ amount?: string }>
+    }
+    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+  })
+
   test('GET /v1/attest: 402 before the real handler runs (reviewed, with stored integrity)', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
@@ -510,7 +604,7 @@ describe('claims ledger, wired into the real app', () => {
     const accruals = getAccrualsForTxid('INTEGRATION-TX-1')
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(500)
+    expect(auditorRow?.amount_micro).toBe(400)
 
     const earningsRes = await paidApp.request('/api/v1/earnings/github/alice')
     expect(earningsRes.status).toBe(200)
@@ -518,7 +612,99 @@ describe('claims ledger, wired into the real app', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     const auditorEarnings = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(500)
+    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(400)
+  })
+
+  // SPEC §11.2, §13.2, ADR 0008: a settled lockfile payment for N reviewed
+  // packages ledgers each package's own full 400/100/200/150/100/50 role
+  // shares — never a cross-package split — and the accrual sum across all
+  // packages equals the exact amount charged.
+  test('a settled paid lockfile request accrues 400/100/200/150/100/50 per reviewed package', async () => {
+    setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_A', null, REVIEWED_INTEGRITY, 'alice')
+    setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_B', null, REVIEWED_INTEGRITY, 'bob')
+    setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_C', null, REVIEWED_INTEGRITY, 'carol')
+
+    const lockfileBody = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        'node_modules/pkg-a': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/pkg-a/-/pkg-a-1.0.0.tgz',
+          integrity: REVIEWED_INTEGRITY,
+        },
+        'node_modules/pkg-b': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/pkg-b/-/pkg-b-1.0.0.tgz',
+          integrity: REVIEWED_INTEGRITY,
+        },
+        'node_modules/pkg-c': {
+          version: '1.0.0',
+          resolved: 'https://registry.npmjs.org/pkg-c/-/pkg-c-1.0.0.tgz',
+          integrity: REVIEWED_INTEGRITY,
+        },
+      },
+    })
+
+    const { httpServer: paidHttpServer } = buildHttpServer(
+      stubSuccessFacilitatorClient('INTEGRATION-TX-LOCKFILE'),
+      FEE_PAYER,
+    )
+    const paidApp = createApp(paidHttpServer)
+
+    const unpaidRes = await paidApp.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: lockfileBody,
+    })
+    expect(unpaidRes.status).toBe(402)
+    const requiredHeader = unpaidRes.headers.get('PAYMENT-REQUIRED')
+    const paymentRequired = decodePaymentRequiredHeader(requiredHeader as string) as unknown as {
+      accepts: Array<Record<string, unknown>>
+    }
+    const accepted = paymentRequired.accepts[0]
+    expect(accepted?.amount).toBe('3000')
+
+    const paymentSignature = encodePaymentSignatureHeader({
+      x402Version: 2,
+      accepted,
+      payload: {},
+    } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
+
+    const paidRes = await paidApp.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'PAYMENT-SIGNATURE': paymentSignature,
+      },
+      body: lockfileBody,
+    })
+    expect(paidRes.status).toBe(200)
+    expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()
+
+    const accruals = getAccrualsForTxid('INTEGRATION-TX-LOCKFILE')
+    expect(accruals).toHaveLength(18) // 6 roles x 3 packages
+    expect(accruals.reduce((sum, row) => sum + row.amount_micro, 0)).toBe(3000)
+
+    for (const [pkg, login] of [
+      ['pkg-a', 'alice'],
+      ['pkg-b', 'bob'],
+      ['pkg-c', 'carol'],
+    ] as const) {
+      const pkgRows = accruals.filter((row) => row.pkg === pkg)
+      const byRole = Object.fromEntries(pkgRows.map((row) => [row.role, row]))
+      expect(byRole.auditor?.amount_micro).toBe(400)
+      expect(byRole.auditor?.identity).toBe(`github:${login}`)
+      expect(byRole.contributor?.amount_micro).toBe(100)
+      expect(byRole.contributor?.identity).toBe('unassigned')
+      expect(byRole.maintainer?.amount_micro).toBe(200)
+      expect(byRole.maintainer?.identity).toBe('unassigned')
+      expect(byRole.reviewer?.amount_micro).toBe(150)
+      expect(byRole.reviewer?.identity).toBe('unassigned')
+      expect(byRole.treasury?.amount_micro).toBe(100)
+      expect(byRole.treasury?.identity).toBe('unassigned')
+      expect(byRole.ops?.amount_micro).toBe(50)
+      expect(byRole.ops?.identity).toBe('ops')
+    }
   })
 
   // Defect pin: the paid tarball route never set `attribution`, so
@@ -573,7 +759,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:carol')
-    expect(auditorRow?.amount_micro).toBe(500)
+    expect(auditorRow?.amount_micro).toBe(400)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {

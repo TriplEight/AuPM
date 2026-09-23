@@ -266,16 +266,14 @@ describe('analyzeLockfile — classification', () => {
 })
 
 describe('analyzeLockfile — same package at more than one node_modules depth', () => {
-  // "$0.02" (CLAUDE.md lockfile-attest price), in integer micro-USDC.
-  const LOCKFILE_PRICE_MICRO = 20_000
-
+  // SPEC.md §11.2, ADR 0008: 1,000 microUSDC per reviewed entry, no flat
+  // rate — buildAccrualInputs enforces this exactly (attribution-rules.ts).
   function toAttribution(
     refs: { pkg: string; version: string; auditor: string | null }[],
-    priceMicro = LOCKFILE_PRICE_MICRO,
   ): Attribution {
     return {
       route: 'lockfile',
-      priceMicro,
+      priceMicro: refs.length * 1000,
       packages: refs.map((ref) => ({
         pkg: ref.pkg,
         version: ref.version,
@@ -378,13 +376,13 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     if (!result.ok) throw new Error('unreachable')
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    expect(rows).toHaveLength(3) // one row per ledgered role: auditor, maintainer, reviewer
+    expect(rows).toHaveLength(6) // one row per ledgered role: all six of SPEC.md §13.2
 
     const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(10_000) // (20,000 / 1,000) * 500, the whole auditor share
+    expect(auditorRow?.amountMicro).toBe(400) // the one package's whole 400 auditor share
 
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
-    expect(totalMicro).toBe(17_000) // (20,000 / 1,000) * (500 + 200 + 150)
+    expect(totalMicro).toBe(1_000) // the one reviewed package's full 1,000 microUSDC
   })
 
   test('the same package at two different versions still yields two reviewed refs', () => {
@@ -409,9 +407,9 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([5_000, 5_000])
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
-    expect(totalMicro).toBe(17_000)
+    expect(totalMicro).toBe(2_000)
   })
 
   test('an existing multi-package lockfile (1 reviewed + 200 unreviewed) still produces the same totals', () => {
@@ -433,12 +431,12 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(10_000)
+    expect(auditorRow?.amountMicro).toBe(400)
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
-    expect(totalMicro).toBe(17_000)
+    expect(totalMicro).toBe(1_000)
   })
 
-  test('several distinct reviewed packages each keep their own ref and split the auditor share evenly', () => {
+  test('several distinct reviewed packages each keep their own ref and each accrue their own full auditor share', () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
     setStatus(
       'lodash',
@@ -465,9 +463,9 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([5_000, 5_000])
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
-    expect(totalMicro).toBe(17_000)
+    expect(totalMicro).toBe(2_000)
   })
 
   // CAUTION: two node_modules entries for the same name@version can, in a

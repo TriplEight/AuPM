@@ -3,9 +3,11 @@
 // Route configuration for all three paid routes: price, the `extra` block,
 // the Bazaar discovery declaration, description, and mime type. Handler
 // ownership is split — see proxy/src/app.ts for the mount points.
-import type { PaymentOption, RouteConfig } from '@x402-avm/core/http'
+import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/http'
+import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
 import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
+import { lockfileDynamicPrice } from '../routes/attest.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
 export const LOCKFILE_ROUTE_KEY = 'POST /v1/attest/lockfile'
@@ -16,7 +18,7 @@ export type SpmRouteKey =
   | typeof SINGLE_ATTEST_ROUTE_KEY
   | typeof TARBALL_ROUTE_KEY
 
-function accepts(price: string, feePayer: string): PaymentOption {
+function accepts(price: Price | DynamicPrice, feePayer: string): PaymentOption {
   return {
     scheme: 'exact',
     network: CAIP2_NETWORK,
@@ -39,11 +41,11 @@ function accepts(price: string, feePayer: string): PaymentOption {
 export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> {
   return {
     [LOCKFILE_ROUTE_KEY]: {
-      accepts: accepts('$0.02', feePayer),
+      accepts: accepts(lockfileDynamicPrice, feePayer),
       description:
         'Signed in-toto attestation for every package in a package-lock.json: human ' +
         'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-        'each review. Free when no package in the tree is reviewed.',
+        'each review. $0.001 per reviewed package; free when no package in the tree is reviewed.',
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({

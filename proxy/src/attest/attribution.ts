@@ -8,8 +8,13 @@
 // zero-coverage lockfile path. The ledger must never accrue against an
 // unpaid request.
 
-/** A revenue-share role. Reserved for the claims-ledger work item. */
-export type Role = 'auditor' | 'maintainer' | 'reviewer'
+/**
+ * A revenue-share role (SPEC §13.2). All six target roles are ledgered for
+ * every payment, so Phase 2 can add attributed identities for contributor,
+ * treasury, and ops with no data loss — even though the MVP resolves all
+ * three to the `unassigned` identity today (proxy/src/claims/attribution-rules.ts).
+ */
+export type Role = 'auditor' | 'contributor' | 'maintainer' | 'reviewer' | 'treasury' | 'ops'
 
 /** One reviewed package's identity data for a paid attest response. */
 export interface AttributionEntry {

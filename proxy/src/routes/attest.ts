@@ -1,8 +1,9 @@
 // proxy/src/routes/attest.ts
 //
 // Handlers for the two paid attestation routes:
-//   POST /v1/attest/lockfile  — whole-tree attestation, $0.02, free when the
-//                                tree has zero reviewed packages.
+//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC per
+//                                reviewed entry (SPEC §11.2, ADR 0008), free
+//                                when the tree has zero reviewed packages.
 //   GET  /v1/attest           — single-package attestation, $0.001 (query:
 //                                name, version). Free when the requested
 //                                version resolves below COMMUNITY_REVIEWED,
@@ -16,6 +17,8 @@
 // `*Handler`s run *after* the gate, only once payment has cleared.
 
 import { getConnInfo } from '@hono/node-server/conninfo'
+import type { HTTPRequestContext } from '@x402-avm/core/http'
+import type { AssetAmount } from '@x402-avm/core/types'
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AppVariables } from '../app.js'
 import type { AttributionEntry } from '../attest/attribution.js'
@@ -32,21 +35,36 @@ import {
   DEFAULT_FREE_LOCKFILE_RATE_LIMIT,
   type RateLimiter,
 } from '../attest/ratelimit.js'
-import { CAIP2_NETWORK, ISSUER, LOCKFILE_PREDICATE_TYPE, SINGLE_PREDICATE_TYPE } from '../config.js'
+import {
+  CAIP2_NETWORK,
+  ISSUER,
+  LOCKFILE_PREDICATE_TYPE,
+  SINGLE_PREDICATE_TYPE,
+  USDC_ASA_ID,
+} from '../config.js'
 import { getStatusOrUnreviewed, isReviewedWithIntegrity, reviewerIdentity } from '../status.js'
 
 type AttestContext = Context<{ Variables: AppVariables }>
 
-export const LOCKFILE_PRICE_MICRO = 20_000
-export const SINGLE_ATTEST_PRICE_MICRO = 1_000
+/**
+ * Integer micro-USDC owed for one reviewed package, on every route (SPEC
+ * §11.2, ADR 0008, CLAUDE.md "Canonical facts"). Used directly for the
+ * single-attest route's flat price, and multiplied by N (the reviewed-entry
+ * count) for the lockfile route's DynamicPrice below.
+ */
+export const PRICE_PER_REVIEWED_PACKAGE_MICRO = 1_000
 
 const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 
 // The parsed, classified lockfile the pre-middleware hands to the paid
 // handler once payment clears, so the body is parsed and hashed exactly
 // once. The context variable key ('spmLockfileAnalysis') is declared on
-// AppVariables in app.ts.
-const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
+// AppVariables in app.ts. Exported so lockfileDynamicPrice (below) — and,
+// through it, proxy/src/x402/routes.ts, which wires it into the route's
+// `accepts.price` — can read the same value off the request context the
+// x402 payment gate resolves the price against, never a second parse of
+// the request body (see lockfileDynamicPrice's docstring).
+export const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
 
 /**
  * True only when TRUST_PROXY says this server runs behind a known reverse
@@ -266,6 +284,62 @@ async function signLockfileStatement(
   return signEnvelope(payload, PAYLOAD_TYPE, key)
 }
 
+/**
+ * Unwraps the Hono `Context` an `@x402-avm/hono` `HonoAdapter` wraps.
+ *
+ * `HTTPRequestContext` (the type `DynamicPrice` receives) exposes no public
+ * accessor for the underlying framework request — only `adapter.getHeader`,
+ * `adapter.getQueryParam`, and `adapter.getBody`. `getBody()` calls
+ * `c.req.json()`, which re-reads the request body: a second parse this
+ * route must never perform. The pre-middleware below already consumed the
+ * raw body stream (readLimitedBody) to compute the one true
+ * `LockfileAnalysis` for this request; a second `c.req.json()` call would
+ * throw on the now-exhausted stream.
+ *
+ * `HonoAdapter` is constructed once per request as `new HonoAdapter(c)`
+ * (the exact same Hono `Context` object every middleware in this request's
+ * chain shares) and stores it as a plain instance property named `c`
+ * (`@x402-avm/hono` 2.6.1's compiled output — a normal assignment, not a
+ * JavaScript private field). `private c` in its `.d.ts` is a
+ * compile-time-only annotation; reading it back here, by its actual
+ * runtime shape, is how `lockfileDynamicPrice` reaches the same context
+ * the lockfile pre-middleware already set `ANALYSIS_KEY` on.
+ */
+function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined {
+  return (context.adapter as unknown as { c?: AttestContext }).c
+}
+
+/**
+ * DynamicPrice for `POST /v1/attest/lockfile` (SPEC §11.2, ADR 0008): 1,000
+ * microUSDC × N, where N is `analysis.reviewedPackageRefs.length` — the
+ * identical count `lockfileHandler` below uses to build the signed
+ * attestation, so the price and the attestation can never disagree.
+ *
+ * The x402 payment gate only ever calls this once the pre-middleware has
+ * already called `next()`, which only happens for a lockfile with at least
+ * one reviewed entry and no `X-SPM-Donate: 0` — the zero-coverage and
+ * partial-attestation free paths answer the request themselves, earlier in
+ * the chain, and are never priced at all. `ANALYSIS_KEY` is therefore
+ * always set by the time this runs; a missing value means the wiring
+ * between app.ts's route registration and this function has drifted, so
+ * this fails closed (throws) rather than silently pricing the request at 0.
+ *
+ * Returns an `AssetAmount`, never a dollar string: the amount is computed
+ * with plain integer arithmetic, never a floating-point dollar
+ * multiplication (CLAUDE.md invariant 7), and `asset` is explicit
+ * (CLAUDE.md invariant 3 — an omitted asset can resolve to ALGO).
+ */
+export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
+  const analysis = honoContextFrom(context)?.get(ANALYSIS_KEY)
+  if (!analysis) {
+    throw new Error(
+      'internal error: lockfile analysis missing when the x402 gate resolved the price',
+    )
+  }
+  const amountMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
+  return { asset: USDC_ASA_ID, amount: String(amountMicro) }
+}
+
 /** A real sha512 digest is exactly 64 bytes. Anything else is not one. */
 const SHA512_BYTE_LENGTH = 64
 
@@ -459,7 +533,8 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       // item's job, not this route's. Never fabricated here.
       maintainer: null,
     }))
-    c.set('attribution', { route: 'lockfile', priceMicro: LOCKFILE_PRICE_MICRO, packages })
+    const priceMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
+    c.set('attribution', { route: 'lockfile', priceMicro, packages })
 
     return c.json({ summary: analysis.summary, attestation })
   }
@@ -588,7 +663,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     ]
     c.set('attribution', {
       route: 'single-attest',
-      priceMicro: SINGLE_ATTEST_PRICE_MICRO,
+      priceMicro: PRICE_PER_REVIEWED_PACKAGE_MICRO,
       packages,
     })
 
