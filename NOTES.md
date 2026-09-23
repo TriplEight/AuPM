@@ -258,3 +258,12 @@ Next: `docs/TASK.md`, wave 1.
   The `20,000` test title in `attribution-rules.test.ts` is renamed inside Q7.
   Quirk: empty untracked `.claude/launch.json` and `.claude/scheduled_tasks.json` make
   `biome ci .` fail in the main tree; run biome over `git ls-files`.
+- Q7 `7fc8082`: `accruals` gets `repo` and `batch_seq`; new `batches` table. Nightly job
+  `proxy/src/claims/nightly-main.ts` (local: `pnpm -C proxy nightly`; host: `spm-nightly.timer`
+  runs `docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`):
+  reconcile → `VACUUM INTO` `/backup` → credit. `compose.yaml` bind-mounts
+  `SPM_BACKUP_HOST_DIR` at `/backup`; compose refuses to start without it. Credit call uses algosdk
+  and a hand-kept ABI signature (the image has no contract artifacts). Each credit txn carries note
+  `spm:credit:<batchSeq>`; a pending batch already credited on chain is recovered by indexer note
+  lookup, never resent. Limit: 8 foreign refs → at most 5 auditor identities + ops per batch; no
+  batch-split tool exists yet. `docs/RUNBOOK-mainnet-launch.md` §6 still shows spm-reconcile (D1).
