@@ -1,4 +1,5 @@
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
+import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils/types/account'
 import { PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
 
 // USDC ASA id per network (CLAUDE.md canonical facts: MainNet 31566704,
@@ -158,35 +159,37 @@ export function parseAuditorMap(auditorsEnv: string | undefined): Map<string, st
   return map
 }
 
+export interface DeployPaymentRouterParams {
+  algorand: AlgorandClient
+  network: 'mainnet' | 'testnet'
+  deployer: TransactionSignerAccount
+  crediterAddress: string
+  payToAddress: string
+  /** Every identity to map, ops included (contract.algo.ts's OPS_IDENTITY). */
+  identityMap: Map<string, string>
+}
+
+export interface DeployPaymentRouterResult {
+  appId: bigint
+  appAddress: string
+}
+
 /**
  * Deploys PaymentRouter, funds the app account for box MBR, sets the
- * crediter key, and sets the auditor and ops identity map (docs/TASK.md
+ * crediter key, and maps every identity in `identityMap` (docs/TASK.md
  * R2). Does not rekey payTo — that is scripts/rekey-payto.mjs, run
  * separately with the payTo key, after payTo already holds USDC (SPEC
  * §10.2 order).
+ *
+ * Explicit-argument core of `deploy()` below, so a TestNet rehearsal script
+ * can deploy a fresh app for fresh, in-memory accounts without reading
+ * `deploy()`'s own environment variables (R3a).
  */
-export async function deploy(): Promise<void> {
-  const network = parseNetwork(process.env.NETWORK)
-  assertMainnetConfirmed(network, process.env.CONFIRM_MAINNET)
-
-  console.log(`=== Deploying PaymentRouter (${network}) ===`)
-
-  const algorand = AlgorandClient.fromEnvironment()
-
-  const sp = await algorand.client.algod.getTransactionParams().do()
-  assertNetworkMatchesGenesis(network, sp.genesisID ?? '')
-
-  const deployer = await algorand.account.fromEnvironment('DEPLOYER')
-  const crediter = await algorand.account.fromEnvironment('CREDITER')
-
-  const payToAddress = process.env.PAY_TO_ADDRESS
-  if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
-
-  const opsAddress = process.env.OPS_ADDRESS
-  if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
-
+export async function deployPaymentRouter(
+  params: DeployPaymentRouterParams,
+): Promise<DeployPaymentRouterResult> {
+  const { algorand, network, deployer, crediterAddress, payToAddress, identityMap } = params
   const deployerAddress = deployer.addr.toString()
-  const crediterAddress = crediter.addr.toString()
   // The deployer is Global.creatorAddress, i.e. the admin — contract.algo.ts
   // has no separate admin key. Checked once, under one label per role.
   assertCrediterDistinct(crediterAddress, {
@@ -194,9 +197,6 @@ export async function deploy(): Promise<void> {
     admin: deployerAddress,
     payTo: payToAddress,
   })
-
-  const identityMap = parseAuditorMap(process.env.AUDITORS)
-  identityMap.set(OPS_IDENTITY, opsAddress)
 
   const usdcAssetId = USDC_ASSET_ID[network]
   for (const [identity, address] of identityMap) {
@@ -239,4 +239,44 @@ export async function deploy(): Promise<void> {
     `PaymentRouter app id: ${appClient.appId}. Next: fund payTo with USDC, then run ` +
       'scripts/rekey-payto.mjs with the payTo key (SPEC §10.2 order).',
   )
+
+  return { appId: appClient.appId, appAddress: appClient.appAddress.toString() }
+}
+
+/**
+ * `algokit project deploy`'s entry point (docs/TASK.md R2): reads every
+ * role's address from the environment and calls `deployPaymentRouter()`
+ * with them. Behavior unchanged from before the R3a refactor.
+ */
+export async function deploy(): Promise<void> {
+  const network = parseNetwork(process.env.NETWORK)
+  assertMainnetConfirmed(network, process.env.CONFIRM_MAINNET)
+
+  console.log(`=== Deploying PaymentRouter (${network}) ===`)
+
+  const algorand = AlgorandClient.fromEnvironment()
+
+  const sp = await algorand.client.algod.getTransactionParams().do()
+  assertNetworkMatchesGenesis(network, sp.genesisID ?? '')
+
+  const deployer = await algorand.account.fromEnvironment('DEPLOYER')
+  const crediter = await algorand.account.fromEnvironment('CREDITER')
+
+  const payToAddress = process.env.PAY_TO_ADDRESS
+  if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
+
+  const opsAddress = process.env.OPS_ADDRESS
+  if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
+
+  const identityMap = parseAuditorMap(process.env.AUDITORS)
+  identityMap.set(OPS_IDENTITY, opsAddress)
+
+  await deployPaymentRouter({
+    algorand,
+    network,
+    deployer,
+    crediterAddress: crediter.addr.toString(),
+    payToAddress,
+    identityMap,
+  })
 }

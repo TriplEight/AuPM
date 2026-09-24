@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import fs from 'node:fs'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { assertMainnetConfirmed, parseNetworkFlag } from './network.mjs'
 import {
   assertAppRoutesForPayTo,
@@ -12,6 +16,68 @@ import {
 
 const requireFromProxy = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = requireFromProxy('algosdk')
+
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url))
+const repoRootEnvPath = path.join(scriptsDir, '..', '.env')
+const rekeyPayToModuleHref = pathToFileURL(path.join(scriptsDir, 'rekey-payto.mjs')).href
+
+// The root .env path is fixed (derived from each module's own real file
+// location), and node:test runs each test file in its own process, so this
+// test and claim.test.mjs's identical one could otherwise race on the same
+// file. An exclusive lock directory (mkdir is atomic) serializes them.
+const envFileLockPath = path.join(scriptsDir, '..', '.env.test-lock')
+
+async function withEnvFileLock(fn) {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      fs.mkdirSync(envFileLockPath)
+      break
+    } catch (err) {
+      if (err.code !== 'EEXIST') throw err
+      if (attempt > 400) throw new Error(`timed out waiting for ${envFileLockPath}`)
+      await new Promise((resolve) => setTimeout(resolve, 25))
+    }
+  }
+  try {
+    return await fn()
+  } finally {
+    fs.rmdirSync(envFileLockPath)
+  }
+}
+
+// R3a Result 2: the module must never read the root .env just because a
+// caller imports it — only main() (the CLI entry path) may. A regression
+// here would make scripts/verify.sh inherit a real donor key through this
+// module's own import chain (claim.mjs -> rekey-payto.mjs).
+test('importing rekey-payto.mjs does not load the root .env or mutate process.env', async () => {
+  await withEnvFileLock(async () => {
+    const marker = 'SPM_TEST_ENV_MUTATION_MARKER'
+    const hadEnvFile = fs.existsSync(repoRootEnvPath)
+    const originalContent = hadEnvFile ? fs.readFileSync(repoRootEnvPath, 'utf8') : null
+    fs.writeFileSync(repoRootEnvPath, `${marker}=leaked\n`, { flag: 'a' })
+    try {
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import(${JSON.stringify(rekeyPayToModuleHref)}).then(() => ` +
+            `process.stdout.write(process.env.${marker} ?? ''))`,
+        ],
+        { encoding: 'utf8' },
+      )
+      assert.equal(result.status, 0, `subprocess failed: ${result.stderr}`)
+      assert.equal(
+        result.stdout.trim(),
+        '',
+        `importing rekey-payto.mjs must never load the root .env (leaked: ${JSON.stringify(result.stdout)})`,
+      )
+    } finally {
+      if (hadEnvFile) fs.writeFileSync(repoRootEnvPath, originalContent)
+      else fs.rmSync(repoRootEnvPath, { force: true })
+    }
+  })
+})
 
 const PAYTO = 'PAYTO_ADDR'
 const APP_ADDR = 'APP_ADDR'

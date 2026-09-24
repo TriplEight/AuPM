@@ -21,9 +21,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = require('algosdk')
 
-// Load root .env
-const envPath = path.join(__dirname, '..', '.env')
-if (fs.existsSync(envPath)) {
+/**
+ * Loads the root `.env` into `process.env`, without overwriting a variable
+ * already set. Called only from the CLI entry path below, never at module
+ * import time — an importer (scripts/e2e.mjs and this module's own test
+ * file) must never gain a real mnemonic just by importing this file (R3a
+ * Result 2: the former top-level load made scripts/verify.sh inherit a
+ * real donor key through this module's own import chain).
+ */
+function loadRootEnv() {
+  const envPath = path.join(__dirname, '..', '.env')
+  if (!fs.existsSync(envPath)) return
   const lines = fs.readFileSync(envPath, 'utf8').split('\n')
   for (const line of lines) {
     const m = line.match(/^([A-Z_]+)=(.*)$/)
@@ -221,6 +229,8 @@ export async function submitClaim(algod, appId, identity, account, payToAddress,
 }
 
 async function main() {
+  loadRootEnv()
+
   const argv = process.argv.slice(2)
   const identity = argv[0]
   const envVarName = argv[1]
