@@ -15,7 +15,7 @@
 # interactively — never with `-T`/`--no-TTY`, and never from a non-interactive
 # CI job or cron entry.
 #
-# SPM_BACKUP_HOST_DIR (.env.example) is the off-host directory the nightly
+# SPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
 # job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
 # step 2), bind-mounted at the fixed container path /backup. BACKUP_DIR is
 # set here, not read from .env, so the nightly job always writes to the
@@ -45,7 +45,7 @@ services:
       - "${PORT:-4873}:4873"
     volumes:
       - spm-db:/data
-      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the off-host backup directory}:/backup
+      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the host backup directory}:/backup
     restart: unless-stopped
 
 volumes:

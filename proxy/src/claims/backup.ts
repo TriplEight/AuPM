@@ -1,8 +1,8 @@
 // proxy/src/claims/backup.ts
 //
 // Nightly backup step (SPEC.md §13.2 step 2). `VACUUM INTO` a dated copy
-// of the SQLite file, then move it into BACKUP_DIR — the off-host storage
-// the operator mounts there. A failed backup must stop the nightly job
+// of the SQLite file, then move it into BACKUP_DIR. The host's own backup
+// ships BACKUP_DIR off the host after the job. A failed backup must stop the nightly job
 // before it credits anything: nightly.ts lets any error from
 // `backupDatabase` propagate uncaught, out of `runNightly`, before the
 // credit step ever runs.
