@@ -49,6 +49,7 @@ describe('runNightly: order and stop conditions', () => {
         indexer: emptyIndexer(),
         backup,
         creditClient,
+        assertGenesisMatches: () => {},
         env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
         log: () => {},
       }),
@@ -68,6 +69,7 @@ describe('runNightly: order and stop conditions', () => {
         indexer: emptyIndexer(),
         backup,
         creditClient,
+        assertGenesisMatches: () => {},
         env: {},
         log: () => {},
       }),
@@ -85,6 +87,7 @@ describe('runNightly: order and stop conditions', () => {
         indexer: emptyIndexer(),
         backup,
         creditClient: null,
+        assertGenesisMatches: () => {},
         env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
         log: () => {},
       }),
@@ -119,10 +122,64 @@ describe('runNightly: order and stop conditions', () => {
       indexer,
       backup,
       creditClient,
+      assertGenesisMatches: () => {},
       env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
       log: () => {},
     })
 
     expect(calls).toEqual(['reconcile', 'backup', 'credit'])
+  })
+})
+
+describe('runNightly: genesis guard (R3c)', () => {
+  test('a genesis mismatch stops the job before reconcile: no reconcile, no backup, no credit', async () => {
+    const indexer = emptyIndexer()
+    const backup = vi.fn(() => '/backup/audit-2026.db')
+    const creditClient = stubCreditClient()
+
+    await expect(
+      runNightly({
+        indexer,
+        backup,
+        creditClient,
+        assertGenesisMatches: () => {
+          throw new Error(
+            'algod genesis id "mainnet-v1.0" from https://mainnet-api.algonode.cloud ' +
+              'does not match NETWORK=testnet; fix ALGOD_SERVER (or NETWORK)',
+          )
+        },
+        env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/algod genesis id .* does not match NETWORK=testnet.*ALGOD_SERVER/s)
+
+    expect(indexer.listUsdcInflows).not.toHaveBeenCalled()
+    expect(backup).not.toHaveBeenCalled()
+    expect(creditClient.isPayToRekeyed).not.toHaveBeenCalled()
+    expect(creditClient.submitCredit).not.toHaveBeenCalled()
+  })
+
+  test('an async assertGenesisMatches rejection also stops the job before reconcile', async () => {
+    const indexer = emptyIndexer()
+    const backup = vi.fn(() => '/backup/audit-2026.db')
+
+    await expect(
+      runNightly({
+        indexer,
+        backup,
+        creditClient: null,
+        assertGenesisMatches: async () => {
+          throw new Error(
+            'indexer genesis id "mainnet-v1.0" from https://mainnet-idx.algonode.cloud ' +
+              'does not match NETWORK=testnet; fix INDEXER_URL (or NETWORK)',
+          )
+        },
+        env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
+        log: () => {},
+      }),
+    ).rejects.toThrow(/indexer genesis id .* does not match NETWORK=testnet.*INDEXER_URL/s)
+
+    expect(indexer.listUsdcInflows).not.toHaveBeenCalled()
+    expect(backup).not.toHaveBeenCalled()
   })
 })

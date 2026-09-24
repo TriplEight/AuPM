@@ -85,6 +85,11 @@ else
   export PAY_TO_ADDRESS="$pay_to_address"
   attest_signing_key="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
   export ATTEST_SIGNING_KEY="$attest_signing_key"
+  # Reserved for documentation examples (RFC 2606); never a real, owned
+  # domain (Q13 — the server refuses to boot without this set, on every
+  # network).
+  export SPM_ISSUER_URL="https://spm-verify.invalid"
+  export SPM_KEY_VALID_FROM="2026-01-01T00:00:00Z"
 
   # Clear any proxy left running by an earlier, interrupted run — `tsx
   # watch` never exits on its own (see the cleanup comment below).

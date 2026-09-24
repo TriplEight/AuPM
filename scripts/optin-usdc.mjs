@@ -18,9 +18,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = require('algosdk')
 
-// Load root .env
-const envPath = path.join(__dirname, '..', '.env')
-if (fs.existsSync(envPath)) {
+/**
+ * Loads the root `.env` into `process.env`, without overwriting a variable
+ * already set. Called only from the CLI entry path below, never at module
+ * import time (R3a Result 2: an importer must never gain a real mnemonic
+ * just by importing this file).
+ */
+function loadRootEnv() {
+  const envPath = path.join(__dirname, '..', '.env')
+  if (!fs.existsSync(envPath)) return
   const lines = fs.readFileSync(envPath, 'utf8').split('\n')
   for (const line of lines) {
     const m = line.match(/^([A-Z_]+)=(.*)$/)
@@ -38,7 +44,43 @@ function printUsage() {
   console.error('Example: node scripts/optin-usdc.mjs SPM_DONOR_MNEMONIC --network testnet')
 }
 
+/**
+ * Opts `account` into `network`'s USDC asset, unless it already holds it.
+ * Returns the confirmed opt-in transaction id, or null when `account` was
+ * already opted in. Explicit-argument core of `main()` below, so a TestNet
+ * rehearsal script can opt in a fresh, in-memory account without this
+ * module's own CLI/.env plumbing (R3a).
+ *
+ * @param {object} params
+ * @param {import('algosdk').Algodv2} params.algod
+ * @param {'testnet'|'mainnet'} params.network
+ * @param {{addr: {toString(): string}, sk: Uint8Array}} params.account
+ * @returns {Promise<string|null>}
+ */
+export async function optinAccountToUsdc({ algod, network, account }) {
+  const usdcAsaId = Number(usdcAssetId(network))
+  const address = account.addr.toString()
+  const acctInfo = await algod.accountInformation(address).do()
+  const alreadyOptedIn = (acctInfo.assets ?? []).some((a) => Number(a.assetId) === usdcAsaId)
+  if (alreadyOptedIn) return null
+
+  const sp = await algod.getTransactionParams().do()
+  const optinTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
+    sender: address,
+    receiver: address,
+    amount: 0,
+    assetIndex: usdcAsaId,
+    suggestedParams: sp,
+  })
+  const signedTxn = optinTxn.signTxn(account.sk)
+  const { txid } = await algod.sendRawTransaction(signedTxn).do()
+  await algosdk.waitForConfirmation(algod, txid, 6)
+  return txid
+}
+
 async function main() {
+  loadRootEnv()
+
   const argv = process.argv.slice(2)
   const envVarName = argv[0]
   if (!envVarName || envVarName.startsWith('--')) {
@@ -61,32 +103,13 @@ async function main() {
 
   const account = algosdk.mnemonicToSecretKey(mnemonic)
 
-  // Check if already opted in
-  const acctInfo = await algod.accountInformation(account.addr.toString()).do()
-  // algosdk v3 uses camelCase: assetId (bigint)
-  const alreadyOptedIn = (acctInfo.assets ?? []).some((a) => Number(a.assetId) === usdcAsaId)
-  if (alreadyOptedIn) {
+  const txid = await optinAccountToUsdc({ algod, network, account })
+  if (!txid) {
     console.log(
       `${envVarName} (${account.addr}) already opted into USDC (ASA ${usdcAsaId}). Nothing to do.`,
     )
-    process.exit(0)
+    return
   }
-
-  console.log(
-    `Opting ${envVarName} (${account.addr}) into USDC (ASA ${usdcAsaId}) on ${network}...`,
-  )
-  const sp = await algod.getTransactionParams().do()
-  const optinTxn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-    sender: account.addr.toString(),
-    receiver: account.addr.toString(),
-    amount: 0,
-    assetIndex: usdcAsaId,
-    suggestedParams: sp,
-  })
-
-  const signedTxn = optinTxn.signTxn(account.sk)
-  const { txid } = await algod.sendRawTransaction(signedTxn).do()
-  await algosdk.waitForConfirmation(algod, txid, 6)
   console.log(`${envVarName} opted into USDC. txid: ${txid}`)
   if (network === 'testnet') {
     console.log(`\nNow fund ${envVarName} with USDC at:`)
@@ -95,7 +118,9 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(`FAIL  ${e.message}`)
-  process.exit(1)
-})
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main().catch((e) => {
+    console.error(`FAIL  ${e.message}`)
+    process.exit(1)
+  })
+}

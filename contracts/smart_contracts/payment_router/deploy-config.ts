@@ -1,5 +1,73 @@
+import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
+import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils/types/account'
+import type { AlgoClientConfig } from '@algorandfoundation/algokit-utils/types/network-client'
+import algosdk from 'algosdk'
+import type { BinaryState } from '../artifacts/payment_router/PaymentRouterClient'
 import { PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
+
+/**
+ * The subset of scripts/network.mjs this package reuses: the per-network
+ * algod/indexer endpoint defaults, overridable by ALGOD_SERVER/ALGOD_PORT/
+ * ALGOD_TOKEN and INDEXER_URL/INDEXER_PORT/INDEXER_TOKEN. scripts/network.mjs
+ * is the one place those defaults are written (scripts/e2e.mjs,
+ * scripts/optin-usdc.mjs already import it); repeating them here would be a
+ * second table to keep in sync.
+ */
+interface NetworkEndpoints {
+  algodEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
+  indexerEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
+}
+
+// scripts/ is a plain ESM directory with no package.json of its own (see the
+// banner comment in scripts/network.mjs); contracts/ compiles under
+// "module": "CommonJS" (tsconfig.json). A dynamic import() of a .mjs path
+// works at runtime under tsx (deploy:ci), ts-node-dev (deploy) and vitest —
+// the Node loader treats .mjs as ESM regardless of the importer's module
+// system — but only when the specifier is not a string literal TypeScript
+// can resolve at compile time: allowJs is false here, so a literal import()
+// of a path outside this package's rootDir would fail type-checking
+// (TS2307, "Cannot find module") because there is no .d.ts for it. Building
+// the specifier at runtime keeps the import untyped (cast below) without
+// that compile-time failure, so this package still has no build-time
+// dependency on the scripts/ directory's own module resolution.
+//
+// The specifier is resolved from `__dirname` to an absolute `file://` URL,
+// not left as a relative string: vitest runs this file through its own SSR
+// module graph (vite-node), which — unlike Node's native dynamic import()
+// — does not resolve a non-literal relative specifier against the
+// importing module's own path, so a relative string here fails only under
+// vitest ("Cannot find module '/scripts/network.mjs'", i.e. resolved
+// against something other than this file). An absolute `file://` URL needs
+// no importer-relative resolution, so it works identically under all three
+// runners.
+const NETWORK_MODULE_PATH = path.resolve(__dirname, '..', '..', '..', 'scripts', 'network.mjs')
+
+async function loadNetworkEndpoints(): Promise<NetworkEndpoints> {
+  return (await import(pathToFileURL(NETWORK_MODULE_PATH).href)) as NetworkEndpoints
+}
+
+/**
+ * The algod/indexer config `buildAlgorandClient` passes to
+ * `AlgorandClient.fromConfig()`, split out as a pure async step (no
+ * AlgorandClient construction, no network call) so a test can assert on the
+ * resolved `{ server, port, token }` values directly. Exported for
+ * deploy-config.spec.ts.
+ *
+ * @param network - the resolved network; picks the per-network default.
+ * @param env - defaults to process.env; a test passes a fake env instead.
+ */
+export async function resolveClientConfig(
+  network: 'mainnet' | 'testnet',
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ algodConfig: AlgoClientConfig; indexerConfig: AlgoClientConfig }> {
+  const { algodEndpoint, indexerEndpoint } = await loadNetworkEndpoints()
+  return {
+    algodConfig: algodEndpoint(network, env),
+    indexerConfig: indexerEndpoint(network, env),
+  }
+}
 
 // USDC ASA id per network (CLAUDE.md canonical facts: MainNet 31566704,
 // TestNet 10458941, rehearsal only). scripts/network.mjs reads the same ids
@@ -158,35 +226,151 @@ export function parseAuditorMap(auditorsEnv: string | undefined): Map<string, st
   return map
 }
 
+export interface DeployPaymentRouterParams {
+  algorand: AlgorandClient
+  network: 'mainnet' | 'testnet'
+  deployer: TransactionSignerAccount
+  crediterAddress: string
+  payToAddress: string
+  /** Every identity to map, ops included (contract.algo.ts's OPS_IDENTITY). */
+  identityMap: Map<string, string>
+  /**
+   * Overrides the app name algokit's idempotent `factory.deploy()` looks up
+   * by (creator address + name). `deploy()` below leaves this unset and
+   * keeps the operator's idempotent "PaymentRouter" behavior; the hermetic
+   * rehearsal (scripts/e2e.mjs) passes a unique name per run (R3d) so it
+   * never finds — and never touches — another run's leftover app.
+   */
+  appName?: string
+  /**
+   * Refuses unless this deploy performed a fresh "create" — never
+   * "nothing"/"update"/"replace" (R3d, assertAppCreatedFresh below). Only
+   * the hermetic rehearsal sets this: a live TestNet run found an earlier
+   * failed rehearsal's leftover "PaymentRouter" app for the same deployer
+   * and silently reused it, setting crediter/identities on the wrong app
+   * before its own rekey guard caught the mismatch. `deploy()` never sets
+   * this — its whole point is idempotent reuse.
+   */
+  requireFreshCreate?: boolean
+}
+
+export interface DeployPaymentRouterResult {
+  appId: bigint
+  appAddress: string
+  operationPerformed: string
+}
+
+/**
+ * Refuses unless `operationPerformed` is a fresh "create". Pure: covered
+ * directly by deploy-config.spec.ts. See DeployPaymentRouterParams.requireFreshCreate.
+ *
+ * @param operationPerformed - the deploy result's own operationPerformed.
+ */
+export function assertAppCreatedFresh(operationPerformed: string): void {
+  if (operationPerformed !== 'create') {
+    throw new Error(
+      `expected a fresh app creation but algokit's idempotent deploy performed ` +
+        `"${operationPerformed}" instead of "create" — the rehearsal must use a unique ` +
+        'app name per run (R3d)',
+    )
+  }
+}
+
+/**
+ * Refuses to touch an idempotently-reused app whose stored payTo or USDC
+ * asset does not match this deploy's own configuration. Pure: decoded
+ * values are passed in — readExistingAppRouting below does the actual
+ * (mockable) chain read. Call this — and let it pass — before any
+ * setCrediter/setIdentity call (R3d): algokit's idempotent
+ * `factory.deploy()` reuses any existing app with the same creator +
+ * appName, and this deployer may have already created an earlier
+ * PaymentRouter for a different payTo (SPEC §10.2: payTo never changes
+ * once set) — setting crediter/identities on that app would silently
+ * repoint an unrelated deployment.
+ *
+ * @param appId - the reused app's id (message only).
+ * @param storedPayTo - the reused app's own stored payTo, decoded to an address.
+ * @param storedAssetId - the reused app's own stored USDC asset id.
+ * @param expectedPayTo - this deploy's configured payTo.
+ * @param expectedAssetId - this deploy's configured USDC asset id.
+ */
+export function assertExistingAppMatchesConfig(
+  appId: bigint,
+  storedPayTo: string | undefined,
+  storedAssetId: bigint | undefined,
+  expectedPayTo: string,
+  expectedAssetId: number,
+): void {
+  const assetMatches = storedAssetId !== undefined && Number(storedAssetId) === expectedAssetId
+  if (storedPayTo !== expectedPayTo || !assetMatches) {
+    throw new Error(
+      `app id ${appId} already exists with stored payTo ${storedPayTo ?? '(none)'} and asset ` +
+        `${storedAssetId ?? '(none)'} — this deployer already owns a PaymentRouter for another ` +
+        'payTo; use a different deployer account',
+    )
+  }
+}
+
+/**
+ * Reads an existing (idempotently-reused) app's own stored payTo and asset
+ * id off its global state. `appClient` is the minimal shape this needs —
+ * a real typed PaymentRouterClient satisfies it, and so does a fabricated
+ * one in deploy-config.spec.ts, so assertExistingAppSafeToReuse below is
+ * unit-tested with the chain mocked, never a live algod call.
+ */
+async function readExistingAppRouting(appClient: {
+  appId: bigint
+  state: { global: { payTo(): Promise<BinaryState>; assetId(): Promise<bigint | undefined> } }
+}): Promise<{ appId: bigint; storedPayTo: string | undefined; storedAssetId: bigint | undefined }> {
+  const payToBytes = (await appClient.state.global.payTo()).asByteArray()
+  const storedPayTo = payToBytes ? algosdk.encodeAddress(payToBytes) : undefined
+  const storedAssetId = await appClient.state.global.assetId()
+  return { appId: appClient.appId, storedPayTo, storedAssetId }
+}
+
+/**
+ * Reads a reused app's routing and refuses if it does not match this
+ * deploy's configuration (assertExistingAppMatchesConfig). The one call
+ * site (deployPaymentRouter below) runs this before any
+ * setCrediter/setIdentity call, on both the operator and rehearsal paths.
+ */
+export async function assertExistingAppSafeToReuse(
+  appClient: {
+    appId: bigint
+    state: { global: { payTo(): Promise<BinaryState>; assetId(): Promise<bigint | undefined> } }
+  },
+  expectedPayTo: string,
+  expectedAssetId: number,
+): Promise<void> {
+  const { appId, storedPayTo, storedAssetId } = await readExistingAppRouting(appClient)
+  assertExistingAppMatchesConfig(appId, storedPayTo, storedAssetId, expectedPayTo, expectedAssetId)
+}
+
 /**
  * Deploys PaymentRouter, funds the app account for box MBR, sets the
- * crediter key, and sets the auditor and ops identity map (docs/TASK.md
+ * crediter key, and maps every identity in `identityMap` (docs/TASK.md
  * R2). Does not rekey payTo — that is scripts/rekey-payto.mjs, run
  * separately with the payTo key, after payTo already holds USDC (SPEC
  * §10.2 order).
+ *
+ * Explicit-argument core of `deploy()` below, so a TestNet rehearsal script
+ * can deploy a fresh app for fresh, in-memory accounts without reading
+ * `deploy()`'s own environment variables (R3a).
  */
-export async function deploy(): Promise<void> {
-  const network = parseNetwork(process.env.NETWORK)
-  assertMainnetConfirmed(network, process.env.CONFIRM_MAINNET)
-
-  console.log(`=== Deploying PaymentRouter (${network}) ===`)
-
-  const algorand = AlgorandClient.fromEnvironment()
-
-  const sp = await algorand.client.algod.getTransactionParams().do()
-  assertNetworkMatchesGenesis(network, sp.genesisID ?? '')
-
-  const deployer = await algorand.account.fromEnvironment('DEPLOYER')
-  const crediter = await algorand.account.fromEnvironment('CREDITER')
-
-  const payToAddress = process.env.PAY_TO_ADDRESS
-  if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
-
-  const opsAddress = process.env.OPS_ADDRESS
-  if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
-
+export async function deployPaymentRouter(
+  params: DeployPaymentRouterParams,
+): Promise<DeployPaymentRouterResult> {
+  const {
+    algorand,
+    network,
+    deployer,
+    crediterAddress,
+    payToAddress,
+    identityMap,
+    appName,
+    requireFreshCreate,
+  } = params
   const deployerAddress = deployer.addr.toString()
-  const crediterAddress = crediter.addr.toString()
   // The deployer is Global.creatorAddress, i.e. the admin — contract.algo.ts
   // has no separate admin key. Checked once, under one label per role.
   assertCrediterDistinct(crediterAddress, {
@@ -194,9 +378,6 @@ export async function deploy(): Promise<void> {
     admin: deployerAddress,
     payTo: payToAddress,
   })
-
-  const identityMap = parseAuditorMap(process.env.AUDITORS)
-  identityMap.set(OPS_IDENTITY, opsAddress)
 
   const usdcAssetId = USDC_ASSET_ID[network]
   for (const [identity, address] of identityMap) {
@@ -207,6 +388,7 @@ export async function deploy(): Promise<void> {
 
   const factory = algorand.client.getTypedAppFactory(PaymentRouterFactory, {
     defaultSender: deployer.addr,
+    ...(appName ? { appName } : {}),
   })
 
   const { appClient, result } = await factory.deploy({
@@ -217,6 +399,18 @@ export async function deploy(): Promise<void> {
     onUpdate: 'append',
     onSchemaBreak: 'append',
   })
+
+  if (result.operationPerformed !== 'create') {
+    // Idempotent reuse (R3d): factory.deploy() found and reused an
+    // existing app for this creator + appName. Refuse before touching it
+    // any further — requireFreshCreate (the rehearsal) refuses outright;
+    // the operator path only refuses if the reused app's own routing
+    // disagrees with this deploy's configuration.
+    if (requireFreshCreate) {
+      assertAppCreatedFresh(result.operationPerformed)
+    }
+    await assertExistingAppSafeToReuse(appClient, payToAddress, usdcAssetId)
+  }
 
   if (['create', 'replace'].includes(result.operationPerformed)) {
     await algorand.send.payment({
@@ -239,4 +433,63 @@ export async function deploy(): Promise<void> {
     `PaymentRouter app id: ${appClient.appId}. Next: fund payTo with USDC, then run ` +
       'scripts/rekey-payto.mjs with the payTo key (SPEC §10.2 order).',
   )
+
+  return {
+    appId: appClient.appId,
+    appAddress: appClient.appAddress.toString(),
+    operationPerformed: result.operationPerformed,
+  }
+}
+
+/**
+ * Builds the AlgorandClient from explicit algod/indexer config instead of
+ * `AlgorandClient.fromEnvironment()`, which reads `INDEXER_SERVER` — not
+ * this repo's `INDEXER_URL` (.env.example, scripts/network.mjs). Without
+ * this, an operator's INDEXER_URL is silently ignored and
+ * fromEnvironment() falls back to a LocalNet indexer that does not exist
+ * outside development, surfacing only as an opaque "Didn't receive an
+ * indexer client" error deep inside algokit's deploy path.
+ *
+ * @param network - the resolved network; picks the per-network default.
+ */
+async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<AlgorandClient> {
+  return AlgorandClient.fromConfig(await resolveClientConfig(network))
+}
+
+/**
+ * `algokit project deploy`'s entry point (docs/TASK.md R2): reads every
+ * role's address from the environment and calls `deployPaymentRouter()`
+ * with them. Behavior unchanged from before the R3a refactor.
+ */
+export async function deploy(): Promise<void> {
+  const network = parseNetwork(process.env.NETWORK)
+  assertMainnetConfirmed(network, process.env.CONFIRM_MAINNET)
+
+  console.log(`=== Deploying PaymentRouter (${network}) ===`)
+
+  const algorand = await buildAlgorandClient(network)
+
+  const sp = await algorand.client.algod.getTransactionParams().do()
+  assertNetworkMatchesGenesis(network, sp.genesisID ?? '')
+
+  const deployer = await algorand.account.fromEnvironment('DEPLOYER')
+  const crediter = await algorand.account.fromEnvironment('CREDITER')
+
+  const payToAddress = process.env.PAY_TO_ADDRESS
+  if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
+
+  const opsAddress = process.env.OPS_ADDRESS
+  if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
+
+  const identityMap = parseAuditorMap(process.env.AUDITORS)
+  identityMap.set(OPS_IDENTITY, opsAddress)
+
+  await deployPaymentRouter({
+    algorand,
+    network,
+    deployer,
+    crediterAddress: crediter.addr.toString(),
+    payToAddress,
+    identityMap,
+  })
 }

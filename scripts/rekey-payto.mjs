@@ -18,9 +18,17 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = require('algosdk')
 
-// Load root .env
-const envPath = path.join(__dirname, '..', '.env')
-if (fs.existsSync(envPath)) {
+/**
+ * Loads the root `.env` into `process.env`, without overwriting a variable
+ * already set. Called only from the CLI entry path below, never at module
+ * import time — an importer (claim.mjs, scripts/e2e.mjs, and this module's
+ * own test file) must never gain a real mnemonic just by importing this
+ * file (R3a Result 2: the former top-level load made scripts/verify.sh
+ * inherit a real donor key through this module's own import chain).
+ */
+function loadRootEnv() {
+  const envPath = path.join(__dirname, '..', '.env')
+  if (!fs.existsSync(envPath)) return
   const lines = fs.readFileSync(envPath, 'utf8').split('\n')
   for (const line of lines) {
     const m = line.match(/^([A-Z_]+)=(.*)$/)
@@ -160,7 +168,58 @@ export function decodeAppState(appInfo, algosdkImpl) {
   }
 }
 
+/**
+ * Rekeys `payToAccount` to PaymentRouter app `appId`'s address: checks
+ * payTo's current opt-in/auth-addr state and the app's own stored
+ * payTo/asset (assertPayToReadyForRekey, assertAppRoutesForPayTo), signs
+ * and sends the rekey payment, and returns the confirmed transaction id.
+ * Explicit-argument core of `main()` below, so a TestNet rehearsal script
+ * can rekey a fresh, in-memory payTo without this module's own CLI/.env
+ * plumbing (R3a).
+ *
+ * @param {object} params
+ * @param {import('algosdk').Algodv2} params.algod
+ * @param {'testnet'|'mainnet'} params.network
+ * @param {{addr: {toString(): string}, sk: Uint8Array}} params.payToAccount
+ * @param {bigint|number} params.appId
+ * @returns {Promise<string>} the confirmed rekey transaction id.
+ */
+export async function rekeyPayToToApp({ algod, network, payToAccount, appId }) {
+  const usdcAsaId = Number(usdcAssetId(network))
+  const payToAddress = payToAccount.addr.toString()
+
+  const acctInfo = await algod.accountInformation(payToAddress).do()
+  const assetEntry = (acctInfo.assets ?? []).find((a) => Number(a.assetId) === usdcAsaId)
+  const authAddr = acctInfo.authAddr ? acctInfo.authAddr.toString() : undefined
+  assertPayToReadyForRekey({ holdsAsset: Boolean(assetEntry), authAddr, payToAddress })
+
+  const appInfo = await algod.getApplicationByID(BigInt(appId)).do()
+  const appState = decodeAppState(appInfo, algosdk)
+  assertAppRoutesForPayTo({
+    appPayTo: appState.payTo,
+    payToAddress,
+    appAssetId: appState.assetId,
+    expectedAssetId: usdcAsaId,
+  })
+
+  const appAddress = algosdk.getApplicationAddress(BigInt(appId)).toString()
+  const sp = await algod.getTransactionParams().do()
+  const rekeyTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
+    sender: payToAddress,
+    receiver: payToAddress,
+    amount: 0,
+    rekeyTo: appAddress,
+    suggestedParams: sp,
+  })
+  const signedTxn = rekeyTxn.signTxn(payToAccount.sk)
+  const { txid } = await algod.sendRawTransaction(signedTxn).do()
+  await algosdk.waitForConfirmation(algod, txid, 6)
+  return txid
+}
+
 async function main() {
+  loadRootEnv()
+
   const argv = process.argv.slice(2)
   const envVarName = argv[0]
   if (!envVarName || envVarName.startsWith('--')) {
@@ -183,7 +242,6 @@ async function main() {
     process.exit(1)
   }
 
-  const usdcAsaId = Number(usdcAssetId(network))
   const { server, port, token } = algodEndpoint(network)
   const algod = new algosdk.Algodv2(token, server, port)
 
@@ -194,37 +252,11 @@ async function main() {
   const payToAddress = account.addr.toString()
   assertPayToAddressEnvMatches(process.env.PAY_TO_ADDRESS, payToAddress)
 
-  const acctInfo = await algod.accountInformation(payToAddress).do()
-  const assetEntry = (acctInfo.assets ?? []).find((a) => Number(a.assetId) === usdcAsaId)
-  const authAddr = acctInfo.authAddr ? acctInfo.authAddr.toString() : undefined
-
-  assertPayToReadyForRekey({ holdsAsset: Boolean(assetEntry), authAddr, payToAddress })
-
-  const appInfo = await algod.getApplicationByID(BigInt(appId)).do()
-  const appState = decodeAppState(appInfo, algosdk)
-  assertAppRoutesForPayTo({
-    appPayTo: appState.payTo,
-    payToAddress,
-    appAssetId: appState.assetId,
-    expectedAssetId: usdcAsaId,
-  })
-
   const appAddress = algosdk.getApplicationAddress(BigInt(appId)).toString()
-
   console.log(
     `Rekeying payTo (${payToAddress}) to PaymentRouter app ${appId} (${appAddress}) on ${network}...`,
   )
-  const rekeyTxn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-    sender: payToAddress,
-    receiver: payToAddress,
-    amount: 0,
-    rekeyTo: appAddress,
-    suggestedParams: sp,
-  })
-
-  const signedTxn = rekeyTxn.signTxn(account.sk)
-  const { txid } = await algod.sendRawTransaction(signedTxn).do()
-  await algosdk.waitForConfirmation(algod, txid, 6)
+  const txid = await rekeyPayToToApp({ algod, network, payToAccount: account, appId })
   console.log(`payTo rekeyed to PaymentRouter. txid: ${txid}`)
   console.log('The payTo key has no signing power from here on (SPEC §10.2).')
 }

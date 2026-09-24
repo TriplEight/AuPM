@@ -34,6 +34,11 @@ const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 process.env.PAY_TO_ADDRESS = FAKE_APP_ADDRESS
 process.env.NETWORK = 'mainnet'
+// Reserved for documentation examples (RFC 2606); never a real, owned
+// domain. Q13 removed the placeholder default in proxy/src/config.ts, so
+// every test that imports it now sets these explicitly.
+process.env.SPM_ISSUER_URL = 'https://spm-verify.invalid'
+process.env.SPM_KEY_VALID_FROM = '2026-01-01T00:00:00Z'
 // A 32-byte hex seed, not a real key — only the free attestation paths
 // (single-attest, zero-coverage lockfile) ever reach getAttestationSigningKey()
 // in this file; every paid path is blocked by the (stub, always-invalid)

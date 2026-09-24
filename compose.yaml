@@ -15,7 +15,7 @@
 # interactively — never with `-T`/`--no-TTY`, and never from a non-interactive
 # CI job or cron entry.
 #
-# SPM_BACKUP_HOST_DIR (.env.example) is the off-host directory the nightly
+# SPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
 # job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
 # step 2), bind-mounted at the fixed container path /backup. BACKUP_DIR is
 # set here, not read from .env, so the nightly job always writes to the
@@ -36,11 +36,16 @@ services:
     environment:
       SQLITE_PATH: /data/audit.db
       BACKUP_DIR: /backup
+      # Q13: public config that goes into every signed attestation. Set
+      # here (not left to env_file alone) so `docker compose up` refuses
+      # to start without them, the same way SPM_BACKUP_HOST_DIR does below.
+      SPM_ISSUER_URL: ${SPM_ISSUER_URL:?set SPM_ISSUER_URL in .env to the https origin the team controls}
+      SPM_KEY_VALID_FROM: ${SPM_KEY_VALID_FROM:?set SPM_KEY_VALID_FROM in .env to the attestation key's ISO-8601 UTC provisioning date}
     ports:
       - "${PORT:-4873}:4873"
     volumes:
       - spm-db:/data
-      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the off-host backup directory}:/backup
+      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the host backup directory}:/backup
     restart: unless-stopped
 
 volumes:

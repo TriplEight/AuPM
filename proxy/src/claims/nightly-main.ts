@@ -4,19 +4,20 @@
 // ADR 0005; replaces reconcile-main.ts). A host systemd timer starts this
 // inside the proxy Docker image (`docker compose run --rm proxy pnpm
 // nightly`, see deploy/systemd/spm-nightly.*) — it holds no scheduling,
-// reconcile, backup, or credit logic of its own; it only wires the real
-// indexer, algod client, and SQLite backup step and calls runNightly()
-// (nightly.ts). runNightly()'s own tests exercise the actual behavior with
-// stubs (nightly.test.ts, credit.test.ts, backup.test.ts) — this file is
-// never imported by a test.
+// genesis-guard, reconcile, backup, or credit logic of its own; it only
+// wires the real indexer, algod client, SQLite backup step, and genesis
+// check (R3c, genesis.ts) and calls runNightly() (nightly.ts). runNightly()'s
+// own tests exercise the actual behavior with stubs (nightly.test.ts,
+// credit.test.ts, backup.test.ts) — this file is never imported by a test.
 //
 // Run with: pnpm -C proxy nightly
 
 import algosdk from 'algosdk'
-import { assertValidPayTo, PAY_TO, USDC_ASA_ID } from '../config.js'
+import { assertValidPayTo, NETWORK, PAY_TO, USDC_ASA_ID } from '../config.js'
 import db from '../db.js'
 import { backupDatabase } from './backup.js'
 import { buildAlgodCreditClient, type CreditChainClient } from './credit.js'
+import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
 import { createIndexerClient } from './indexer.js'
 import { runNightly } from './nightly.js'
 
@@ -25,6 +26,45 @@ import { runNightly } from './nightly.js'
 // offline runner does (see indexer.ts's createIndexerClient doc comment).
 const DEFAULT_INDEXER_URL = 'https://mainnet-idx.algonode.cloud'
 const DEFAULT_ALGOD_SERVER = 'https://mainnet-api.algonode.cloud'
+
+const ALGOD_TOKEN_HEADER = 'X-Algo-API-Token'
+const INDEXER_TOKEN_HEADER = 'X-Indexer-API-Token'
+// The indexer has no dedicated genesis endpoint and /health carries no
+// genesis-id (checked against the live indexers, R3c fix attempt 1); round
+// 1's header does, alongside genesis-hash.
+const INDEXER_GENESIS_PATH = '/v2/blocks/1?header-only=true'
+
+/**
+ * Refuses when NETWORK does not match the connected algod's or indexer's
+ * own reported genesis id (R3c). Fetches both over HTTP (genesis.ts's
+ * fetchGenesisId), then reuses genesis.ts's pure assertGenesisMatchesNetwork
+ * for the comparison — called first inside runNightly, before any on-chain
+ * read (nightly.ts).
+ */
+function buildGenesisGuard(
+  algodServer: string,
+  algodToken: string,
+  indexerUrl: string,
+  indexerToken: string,
+): () => Promise<void> {
+  return async () => {
+    const algodGenesisId = await fetchGenesisId(
+      algodServer,
+      '/v2/transactions/params',
+      algodToken,
+      ALGOD_TOKEN_HEADER,
+    )
+    assertGenesisMatchesNetwork('algod', NETWORK, algodGenesisId, algodServer, 'ALGOD_SERVER')
+
+    const indexerGenesisId = await fetchGenesisId(
+      indexerUrl,
+      INDEXER_GENESIS_PATH,
+      indexerToken,
+      INDEXER_TOKEN_HEADER,
+    )
+    assertGenesisMatchesNetwork('indexer', NETWORK, indexerGenesisId, indexerUrl, 'INDEXER_URL')
+  }
+}
 
 /**
  * algosdk's Indexer constructor always sets `URL.port` from this argument —
@@ -60,11 +100,15 @@ async function main(): Promise<void> {
 
   const indexerUrl = process.env.INDEXER_URL ?? DEFAULT_INDEXER_URL
   const indexer = createIndexerClient(indexerUrl, USDC_ASA_ID)
+  const algodServer = process.env.ALGOD_SERVER ?? DEFAULT_ALGOD_SERVER
+  const algodToken = process.env.ALGOD_TOKEN ?? ''
+  const indexerToken = process.env.INDEXER_TOKEN ?? ''
 
   await runNightly({
     indexer,
     backup: () => backupDatabase(db, process.env.BACKUP_DIR ?? ''),
     creditClient: buildCreditClient(indexerUrl),
+    assertGenesisMatches: buildGenesisGuard(algodServer, algodToken, indexerUrl, indexerToken),
   })
 }
 

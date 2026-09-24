@@ -284,3 +284,143 @@ Next: `docs/TASK.md`, wave 1.
   Quirks: `rg -E` means `--encoding`; `grep` here is ugrep. `trash` works only outside the sandbox.
   Wave 3 is complete. `verify.sh` → VERIFY: PASS. Next: human qualification (SPEC §17 Q1–6), then
   wave 4 (R3 → R4 → MainNet rekey → D1). Human: set `SPM_BACKUP_HOST_DIR` and `OPS_ADDRESS`.
+
+## 2026-09-23 — wave 4: R3 (branch `spm-mvp-v6-wave4`, from `master` 09a428e)
+- R3 `8b948ca`: `scripts/claim.mjs` claims one identity. The e2e on-chain step pays one lockfile
+  of 250 reviewed `express` versions, runs the nightly job, checks the credit deltas, and claims
+  `github:spm-e2e-auditor` and `ops`. TestNet only. It SKIPs and names each missing variable.
+- Decision (user): no contract change for `MIN_CLAIM`. 250 entries, one repo, one identity →
+  auditor 100,000, ops 150,000. The R4 text in TASK.md is updated.
+- Files: scripts/{claim,claim.test,e2e,e2e.test}.mjs, scripts/fixtures/e2e-lockfile-packages.json,
+  scripts/demo.sh (single operator entry point), .env.example (two e2e claimant keys).
+- State: no TestNet PaymentRouter, no `.env`. VERIFY: PASS. Quirk: `$TMPDIR` differs with the
+  sandbox off.
+- Blocked (human): funded TestNet keys for payTo, deployer, crediter, donor (≥0.25 USDC), and
+  the auditor and ops claimants (opted into USDC). `AUDITORS` maps `github:spm-e2e-auditor`.
+- Next: fill `.env` for TestNet, then R4: opt-in → deploy → rekey →
+  `NETWORK=testnet bash scripts/demo.sh`. Record each txid here.
+
+## 2026-09-24 — wave 4: Q13, and a verify.sh regression found
+- Q13 `c65edd5`: `SPM_ISSUER_URL` (https origin) and `SPM_KEY_VALID_FROM` (ISO UTC) have no
+  default; boot and `compose.yaml` refuse without them on every network. Verify uses
+  `https://spm-verify.invalid`. `cli/src/verify.test.ts` still has `spm.dev` test data (harmless).
+- Open bug (R3a): `scripts/rekey-payto.mjs` loads the root `.env` at import. `claim.mjs` imports
+  it, so `verify.sh` inherits the real `.env` donor key. Step 8 then runs and FAILs
+  ("expected paid, got free": `installTool.handler` has no `allowDonation`). With no `.env`,
+  VERIFY: PASS.
+- Decision pending (user): two TestNet payTo/app pairs. One app holds one ledger, and each e2e
+  run starts at batch 1.
+- Next: approve and run R3a (import side effect, step 8 opt-in, fresh-app precondition).
+
+## 2026-09-24 — wave 4: R3a
+- R3a `faa59b2` + `8c9e0b2`: self-contained rehearsal. Each run makes a new payTo, auditor and
+  ops account, app and proxy. Keys: deployer (~1.72 ALGO/run), crediter, donor (0.25 USDC).
+  The two e2e claimant keys are removed. `loadRootEnv()` runs only on the CLI path.
+  `scripts/assert-no-env-import.mjs` proves it without opening `.env`.
+- Rejected on the first try: the tests appended to the real root `.env` and restored it.
+- Checked in the main tree with the real `.env`: 165 script tests, 39 contract tests,
+  VERIFY: PASS, `.env` checksum unchanged.
+- Decision (user): the domains changed; they live in `.env` only.
+- Open: the backup via Backrest instead of sshfs (awaiting the user's confirmation; then
+  SPEC §13.2, TASK D1 item 6, the backup comments).
+- Next: R4 part 1, `NETWORK=testnet bash scripts/demo.sh` with the user.
+
+## 2026-09-24 — wave 4: R4 part 1, first live run; R3b; backup decision
+- First live `NETWORK=testnet bash scripts/demo.sh`: 9 PASS, 3 FAIL. Paid install settled:
+  `[redacted-txid]` (round 67617382, 1,000 µUSDC to payTo).
+  FAILs: indexer-less txid lookup (404), key parsing for a mnemonic `ATTEST_SIGNING_KEY`,
+  deployer with 0 ALGO.
+- R3b `6740615`: fixes the first two; precondition errors name the address.
+- Backup `f51e01d` (user decision): the host's restic/Backrest plan ships `BACKUP_DIR` daily;
+  SPM runs no status check. SPEC §13.2 and TASK D1 item 6 updated.
+- Blocked (human): fund the TestNet deployer with ≥1.8 ALGO.
+- Next: rerun R4 part 1; each rerun sends one more 1,000 µUSDC step-8 payment to payTo.
+
+## 2026-09-24 — wave 4: R3c and R4 part 1 retries
+- Run 2 FAIL: `.env` had MainNet `ALGOD_SERVER`/`INDEXER_URL` with `NETWORK=testnet` (fixed by
+  the user). Step 8 paid `[redacted-txid]` (TestNet 67618437).
+- Run 3 FAIL at `setIdentity`: the deployer budget missed the creator app MBR (short by 500
+  µALGO). Step 8 paid `[redacted-txid]`. Stranded
+  throwaway app 772548283 (create `[redacted-txid]`).
+- R3c `cb15d02`: genesis guard in the e2e and the nightly job; budget 2,007,500 µALGO/run.
+- Next: fund the deployer (E3P6K5E5…) with ~5 TestNet ALGO, then rerun R4 part 1.
+- Run 4 FAIL before any chain write: the indexer `/health` has no `genesis-id` (my brief was
+  wrong). Fixed in `8465742` (`/v2/blocks/1?header-only=true`).
+- Run 5 FAIL at rekey: the idempotent deploy reused app 772548283 (same deployer and name).
+  Step 8 paid `[redacted-txid]`. No donor USDC spent.
+- R3d `95e3f27`: unique rehearsal app name; operator deploy refuses a payTo mismatch.
+- Blocked (human): deployer E3P6K5E5… owns "PaymentRouter" 772548283 on TestNet (throwaway
+  payTo). Use a new TestNet deployer (~7 ALGO) in `DEPLOYER_MNEMONIC` for R4.
+
+## 2026-09-24 — R4 part 1 PASS on TestNet (run 6, E2E 22/22, DEMO: PASS)
+New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Checked on the indexer:
+- Step 8 paid install: `[redacted-txid]` (1,000 µUSDC → operator payTo).
+- Rehearsal payTo `MEIIAZ2R…` opt-in `[redacted-txid]` (67620520).
+- Deploy app 772551142: `[redacted-txid]`; setCrediter
+  `[redacted-txid]`.
+- Rekey payTo → app: `[redacted-txid]` (67620540).
+- Lockfile payment, 250 reviewed entries: `[redacted-txid]`
+  (250,000 µUSDC, 67620544).
+- Nightly credit, batch 1: `[redacted-txid]` (67620547).
+- Claim auditor: `[redacted-txid]` (inner 100,000 → GGDELU…).
+- Claim ops: `[redacted-txid]` (inner 150,000 → IRLM4C…).
+- Operator payTo `UXWBBW…` holds 5,000 µUSDC (checked): the step-8 payments of runs 1, 2, 3, 5
+  and 6 (run 4 stopped before paying). Not rekeyed. Part 2's reconcile records them as
+  `unassigned` ops income.
+- Next: R4 part 2 — the persistent TestNet deploy (`spm-test` domain, Compose, anchored review).
+
+## 2026-09-24 — R4 part 2 started; guide for the next session
+- Deployed (local machine, deployer DFEMIN…): PaymentRouter **772553842**, app address
+  `EFYLTVK44STQW6U4ZAROCKXLFBZDAC34FDOEGDZBWRDF37WXUJDSF7PHZU`. Create
+  `[redacted-txid]`, setCrediter
+  `[redacted-txid]`, mapped `github:heavyfailry` and `ops`.
+- Workaround used (fixed by R3e `f9bfe38`; now `( set -a; . ./.env; set +a; cd contracts &&
+  pnpm run deploy:ci )` works): `cd contracts && ../proxy/node_modules/.bin/tsx --tsconfig
+  tsconfig.json smart_contracts/index.ts` with `INDEXER_SERVER=$INDEXER_URL`. Bugs:
+  `deploy:ci` has no `tsx`; `fromEnvironment()` ignores `INDEXER_URL`; a failed deploy exits 0.
+
+### Part 2 guide. Where each step runs matters: cold keys never touch the server.
+
+**A. Rekey `payTo` (local machine, repo root).**
+1. Set `PAYMENT_ROUTER_APP_ID=772553842` in the local `.env`.
+2. `! node scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network testnet`
+3. Check: the payTo account's `auth-addr` is the app address `EFYLTVK4…`.
+
+**B. Anchor one real review (local machine, the auditor's key).**
+1. Read the exact tarball of one small package version (for example `ms@2.1.3`). A human must
+   read it (invariant 5).
+2. Put the auditor mnemonic in a file with an editor, one line: `~/.spm/auditor-testnet.key`,
+   then `chmod 600` it. The script refuses a looser file.
+3. `node scripts/anchor-review.mjs ms 2.1.3 --reviewer heavyfailry --scope "<what you read,
+   e.g. full source>" --key-file ~/.spm/auditor-testnet.key --network testnet`, type `yes`.
+4. Check: the script prints the anchor txid. Keep it for C.
+
+**C. Server `.env` and Compose (host, `/opt/spm` for TestNet).** The server `.env` holds only:
+`NETWORK=testnet`, TestNet `ALGOD_SERVER`/`INDEXER_URL`, `PAY_TO_ADDRESS`,
+`PAYMENT_ROUTER_APP_ID=772553842`, `CREDITER_MNEMONIC`, `ATTEST_SIGNING_KEY`,
+`SPM_ISSUER_URL` (the TestNet URL), `SPM_KEY_VALID_FROM`, `AUDITORS`,
+`SPM_BACKUP_HOST_DIR=/var/backups/spm`. Never the payTo, deployer, donor or auditor keys.
+1. `docker compose up -d`. Check: `curl -s https://<test domain>/api/v1/status/ms/2.1.3`.
+2. `docker compose run --rm proxy node --import tsx/esm scripts/record-review.mjs <anchorTxid>
+   --network testnet`, type `yes`. Check: status for `ms/2.1.3` is `COMMUNITY_REVIEWED`.
+
+**D. One paid request (local machine, donor key).**
+1. `( set -a; . ./.env; set +a; SPM_PROXY_URL=https://<test domain> pnpm -C cli start install
+   ms 2.1.3 --donate )`
+2. Check: it prints a settle txid; 1,000 µUSDC arrives at payTo.
+
+**E. Nightly job (host).**
+1. `cd /opt/spm && docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`
+2. Check: log line `credited batch 1, txid …`. Expected batch: attributed 1,000 (auditor 400),
+   unattributed 5,000 (the earlier step-8 deposits) → ops 5,600. A new `audit-*.db` is in
+   `/var/backups/spm`.
+3. Install `deploy/systemd/spm-nightly.{service,timer}`.
+
+Gap for D1: TestNet and MainNet share one host. Each needs its own directory, Compose project
+name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/spm`), and its own
+`cloudflared` ingress rule.
+- R3e `f9bfe38`: `deploy:ci` has `tsx` (4.22.4, exact); the client reads `INDEXER_URL` with
+  network defaults from `scripts/network.mjs`; a failed deployer exits 1. 60 contract tests.
+- Found: `pnpm audit` shows 47 advisories on `master` too (hono, @hono/node-server among them).
+  Logged as S1 in TASK.md. R3e adds none.
+- PR #24 open (not merged).

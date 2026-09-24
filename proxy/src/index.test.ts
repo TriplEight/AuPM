@@ -49,6 +49,12 @@ if (algosdk.isValidAddress(MALFORMED_APP_ADDRESS)) {
   throw new Error('test fixture error: MALFORMED_APP_ADDRESS is a valid address')
 }
 
+// Reserved for documentation examples (RFC 2606); never a real, owned
+// domain. Every subprocess in this file that needs to get past the ISSUER
+// and KEY_VALID_FROM guards uses these two values.
+const VALID_ISSUER_URL = 'https://spm-verify.invalid'
+const VALID_KEY_VALID_FROM = '2026-01-01T00:00:00Z'
+
 type RunResult = {
   code: number | null
   stdout: string
@@ -181,6 +187,11 @@ describe('index.ts startup guard (subprocess)', () => {
           // Must be a *valid* address here — this test proves the
           // facilitator-reachability guard fires, not the PAY_TO guard.
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          // Must also be valid here — otherwise the ISSUER or
+          // KEY_VALID_FROM guard fires first and the facilitator is never
+          // contacted, which is what this test is meant to prove.
+          SPM_ISSUER_URL: VALID_ISSUER_URL,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
         },
         SUBPROCESS_TIMEOUT_MS,
       )
@@ -282,6 +293,8 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           NETWORK: 'mainnet',
           FACILITATOR_URL: facilitator.url,
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_ISSUER_URL: VALID_ISSUER_URL,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
         },
       })
 
@@ -302,6 +315,104 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
       // stderr check below guards against a false positive from some other
       // process already holding the port.
       expect(stderr).not.toMatch(/PAY_TO/)
+      expect(stderr).not.toMatch(/SPM_ISSUER_URL/)
+      expect(stderr).not.toMatch(/SPM_KEY_VALID_FROM/)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+})
+
+describe('index.ts ISSUER guard (subprocess)', () => {
+  // WARNING: Q13 — SPM_ISSUER_URL is `predicate.issuer` on every signed
+  // attestation. A missing value can never be corrected after the fact, so
+  // this guard must run on every network (not just MainNet) and must fire
+  // before the facilitator is ever contacted.
+  const DEAD_FACILITATOR = 'http://127.0.0.1:9'
+
+  test(
+    'refuses to boot and never opens the port when SPM_ISSUER_URL is unset',
+    async () => {
+      const PORT = 39875
+
+      const result = await runIndex(
+        {
+          FACILITATOR_URL: DEAD_FACILITATOR,
+          PORT: String(PORT),
+          NETWORK: 'mainnet',
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          // No SPM_ISSUER_URL key at all.
+        },
+        SUBPROCESS_TIMEOUT_MS,
+      )
+
+      expect(result.code).not.toBe(0)
+      expect(result.code).not.toBeNull()
+      expect(result.stderr).toMatch(/SPM_ISSUER_URL/)
+      expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
+
+      const listening = await isPortListening(PORT)
+      expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  test(
+    'refuses to boot and never opens the port when SPM_ISSUER_URL is unset on TestNet',
+    async () => {
+      const PORT = 39876
+
+      // TestNet rehearsal tests the same public config MainNet will carry —
+      // this guard must not be MainNet-only.
+      const result = await runIndex(
+        {
+          FACILITATOR_URL: DEAD_FACILITATOR,
+          PORT: String(PORT),
+          NETWORK: 'testnet',
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+        },
+        SUBPROCESS_TIMEOUT_MS,
+      )
+
+      expect(result.code).not.toBe(0)
+      expect(result.code).not.toBeNull()
+      expect(result.stderr).toMatch(/SPM_ISSUER_URL/)
+
+      const listening = await isPortListening(PORT)
+      expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+})
+
+describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
+  const DEAD_FACILITATOR = 'http://127.0.0.1:9'
+
+  test(
+    'refuses to boot and never opens the port when SPM_KEY_VALID_FROM is unset',
+    async () => {
+      const PORT = 39877
+
+      const result = await runIndex(
+        {
+          FACILITATOR_URL: DEAD_FACILITATOR,
+          PORT: String(PORT),
+          NETWORK: 'mainnet',
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_ISSUER_URL: VALID_ISSUER_URL,
+          // No SPM_KEY_VALID_FROM key at all.
+        },
+        SUBPROCESS_TIMEOUT_MS,
+      )
+
+      expect(result.code).not.toBe(0)
+      expect(result.code).not.toBeNull()
+      expect(result.stderr).toMatch(/SPM_KEY_VALID_FROM/)
+      expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
+
+      const listening = await isPortListening(PORT)
+      expect(listening).toBe(false)
     },
     SUBPROCESS_TIMEOUT_MS + 5_000,
   )

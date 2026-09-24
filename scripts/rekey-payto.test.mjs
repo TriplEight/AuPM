@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
+import path from 'node:path'
 import { test } from 'node:test'
+import { fileURLToPath, pathToFileURL } from 'node:url'
+import { importWithoutEnvMutation } from './assert-no-env-import.mjs'
 import { assertMainnetConfirmed, parseNetworkFlag } from './network.mjs'
 import {
   assertAppRoutesForPayTo,
@@ -12,6 +15,22 @@ import {
 
 const requireFromProxy = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = requireFromProxy('algosdk')
+
+const scriptsDir = path.dirname(fileURLToPath(import.meta.url))
+const rekeyPayToModuleHref = pathToFileURL(path.join(scriptsDir, 'rekey-payto.mjs')).href
+
+// R3a Result 2: the module must never read the root .env just because a
+// caller imports it — only main() (the CLI entry path) may. A regression
+// here would make scripts/verify.sh inherit a real donor key through this
+// module's own import chain (claim.mjs -> rekey-payto.mjs). Checked in a
+// child process that never opens the real root .env (assert-no-env-import.mjs) —
+// the main tree's .env holds real TestNet keys, and this test runs on
+// every push.
+test('importing rekey-payto.mjs never touches .env and never mutates process.env', () => {
+  const report = importWithoutEnvMutation(rekeyPayToModuleHref)
+  assert.deepEqual(report.envPaths, [])
+  assert.equal(report.envKeysChanged, false)
+})
 
 const PAYTO = 'PAYTO_ADDR'
 const APP_ADDR = 'APP_ADDR'
