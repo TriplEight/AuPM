@@ -1,6 +1,10 @@
-import { describe, expect, test } from 'vitest'
+import algosdk from 'algosdk'
+import { describe, expect, test, vi } from 'vitest'
 import {
+  assertAppCreatedFresh,
   assertCrediterDistinct,
+  assertExistingAppMatchesConfig,
+  assertExistingAppSafeToReuse,
   assertMainnetConfirmed,
   assertNetworkMatchesGenesis,
   assertOptedIntoUsdc,
@@ -135,5 +139,99 @@ describe('parseAuditorMap', () => {
 
   test('rejects an entry with an empty address', () => {
     expect(() => parseAuditorMap('github:alice=')).toThrow(/malformed AUDITORS/)
+  })
+})
+
+// --- R3d: a hermetic rehearsal must never reuse another run's app -----------
+
+describe('assertAppCreatedFresh', () => {
+  test('passes for a fresh create', () => {
+    expect(() => assertAppCreatedFresh('create')).not.toThrow()
+  })
+
+  test('refuses an idempotently-reused app ("nothing")', () => {
+    expect(() => assertAppCreatedFresh('nothing')).toThrow(
+      /expected a fresh app creation.*"nothing"/s,
+    )
+  })
+
+  test('refuses an updated app ("update")', () => {
+    expect(() => assertAppCreatedFresh('update')).toThrow(/"update"/)
+  })
+
+  test('refuses a replaced app ("replace")', () => {
+    expect(() => assertAppCreatedFresh('replace')).toThrow(/"replace"/)
+  })
+})
+
+describe('assertExistingAppMatchesConfig', () => {
+  const PAY_TO = 'PAYTO_ADDR'
+
+  test("passes when the reused app's stored payTo and asset match", () => {
+    expect(() =>
+      assertExistingAppMatchesConfig(123n, PAY_TO, 31566704n, PAY_TO, 31566704),
+    ).not.toThrow()
+  })
+
+  test('refuses when the stored payTo differs, naming the app id, the stored payTo, and the fix', () => {
+    expect(() =>
+      assertExistingAppMatchesConfig(123n, 'OTHER_PAYTO', 31566704n, PAY_TO, 31566704),
+    ).toThrow(
+      /app id 123.*OTHER_PAYTO.*already owns a PaymentRouter for another payTo.*different deployer account/s,
+    )
+  })
+
+  test('refuses when the stored asset differs', () => {
+    expect(() => assertExistingAppMatchesConfig(123n, PAY_TO, 10458941n, PAY_TO, 31566704)).toThrow(
+      /app id 123/,
+    )
+  })
+
+  test('refuses when the reused app has no stored payTo or asset at all', () => {
+    expect(() =>
+      assertExistingAppMatchesConfig(123n, undefined, undefined, PAY_TO, 31566704),
+    ).toThrow(/\(none\)/)
+  })
+})
+
+describe('assertExistingAppSafeToReuse (chain mocked — no real algod call)', () => {
+  const payToAccount = algosdk.generateAccount()
+  const PAY_TO = payToAccount.addr.toString()
+  const PAY_TO_BYTES = algosdk.decodeAddress(PAY_TO).publicKey
+
+  function fakeAppClient(
+    appId: bigint,
+    storedPayToBytes: Uint8Array | undefined,
+    storedAssetId: bigint | undefined,
+  ) {
+    return {
+      appId,
+      state: {
+        global: {
+          payTo: vi.fn().mockResolvedValue({ asByteArray: () => storedPayToBytes }),
+          assetId: vi.fn().mockResolvedValue(storedAssetId),
+        },
+      },
+    }
+  }
+
+  test("passes when the reused app's own on-chain routing matches this deploy", async () => {
+    await expect(
+      assertExistingAppSafeToReuse(fakeAppClient(123n, PAY_TO_BYTES, 31566704n), PAY_TO, 31566704),
+    ).resolves.toBeUndefined()
+  })
+
+  test('refuses when the reused app belongs to another payTo', async () => {
+    const otherAccount = algosdk.generateAccount()
+    const otherBytes = algosdk.decodeAddress(otherAccount.addr.toString()).publicKey
+    await expect(
+      assertExistingAppSafeToReuse(fakeAppClient(123n, otherBytes, 31566704n), PAY_TO, 31566704),
+    ).rejects.toThrow(/already owns a PaymentRouter for another payTo/)
+  })
+
+  test('refuses when the reused app has no stored payTo at all', async () => {
+    await expect(
+      assertExistingAppSafeToReuse(fakeAppClient(123n, undefined, 31566704n), PAY_TO, 31566704),
+    ).rejects.toThrow(/already owns a PaymentRouter for another payTo/)
   })
 })

@@ -1,5 +1,7 @@
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
 import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils/types/account'
+import algosdk from 'algosdk'
+import type { BinaryState } from '../artifacts/payment_router/PaymentRouterClient'
 import { PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
 
 // USDC ASA id per network (CLAUDE.md canonical facts: MainNet 31566704,
@@ -167,11 +169,116 @@ export interface DeployPaymentRouterParams {
   payToAddress: string
   /** Every identity to map, ops included (contract.algo.ts's OPS_IDENTITY). */
   identityMap: Map<string, string>
+  /**
+   * Overrides the app name algokit's idempotent `factory.deploy()` looks up
+   * by (creator address + name). `deploy()` below leaves this unset and
+   * keeps the operator's idempotent "PaymentRouter" behavior; the hermetic
+   * rehearsal (scripts/e2e.mjs) passes a unique name per run (R3d) so it
+   * never finds — and never touches — another run's leftover app.
+   */
+  appName?: string
+  /**
+   * Refuses unless this deploy performed a fresh "create" — never
+   * "nothing"/"update"/"replace" (R3d, assertAppCreatedFresh below). Only
+   * the hermetic rehearsal sets this: a live TestNet run found an earlier
+   * failed rehearsal's leftover "PaymentRouter" app for the same deployer
+   * and silently reused it, setting crediter/identities on the wrong app
+   * before its own rekey guard caught the mismatch. `deploy()` never sets
+   * this — its whole point is idempotent reuse.
+   */
+  requireFreshCreate?: boolean
 }
 
 export interface DeployPaymentRouterResult {
   appId: bigint
   appAddress: string
+  operationPerformed: string
+}
+
+/**
+ * Refuses unless `operationPerformed` is a fresh "create". Pure: covered
+ * directly by deploy-config.spec.ts. See DeployPaymentRouterParams.requireFreshCreate.
+ *
+ * @param operationPerformed - the deploy result's own operationPerformed.
+ */
+export function assertAppCreatedFresh(operationPerformed: string): void {
+  if (operationPerformed !== 'create') {
+    throw new Error(
+      `expected a fresh app creation but algokit's idempotent deploy performed ` +
+        `"${operationPerformed}" instead of "create" — the rehearsal must use a unique ` +
+        'app name per run (R3d)',
+    )
+  }
+}
+
+/**
+ * Refuses to touch an idempotently-reused app whose stored payTo or USDC
+ * asset does not match this deploy's own configuration. Pure: decoded
+ * values are passed in — readExistingAppRouting below does the actual
+ * (mockable) chain read. Call this — and let it pass — before any
+ * setCrediter/setIdentity call (R3d): algokit's idempotent
+ * `factory.deploy()` reuses any existing app with the same creator +
+ * appName, and this deployer may have already created an earlier
+ * PaymentRouter for a different payTo (SPEC §10.2: payTo never changes
+ * once set) — setting crediter/identities on that app would silently
+ * repoint an unrelated deployment.
+ *
+ * @param appId - the reused app's id (message only).
+ * @param storedPayTo - the reused app's own stored payTo, decoded to an address.
+ * @param storedAssetId - the reused app's own stored USDC asset id.
+ * @param expectedPayTo - this deploy's configured payTo.
+ * @param expectedAssetId - this deploy's configured USDC asset id.
+ */
+export function assertExistingAppMatchesConfig(
+  appId: bigint,
+  storedPayTo: string | undefined,
+  storedAssetId: bigint | undefined,
+  expectedPayTo: string,
+  expectedAssetId: number,
+): void {
+  const assetMatches = storedAssetId !== undefined && Number(storedAssetId) === expectedAssetId
+  if (storedPayTo !== expectedPayTo || !assetMatches) {
+    throw new Error(
+      `app id ${appId} already exists with stored payTo ${storedPayTo ?? '(none)'} and asset ` +
+        `${storedAssetId ?? '(none)'} — this deployer already owns a PaymentRouter for another ` +
+        'payTo; use a different deployer account',
+    )
+  }
+}
+
+/**
+ * Reads an existing (idempotently-reused) app's own stored payTo and asset
+ * id off its global state. `appClient` is the minimal shape this needs —
+ * a real typed PaymentRouterClient satisfies it, and so does a fabricated
+ * one in deploy-config.spec.ts, so assertExistingAppSafeToReuse below is
+ * unit-tested with the chain mocked, never a live algod call.
+ */
+async function readExistingAppRouting(appClient: {
+  appId: bigint
+  state: { global: { payTo(): Promise<BinaryState>; assetId(): Promise<bigint | undefined> } }
+}): Promise<{ appId: bigint; storedPayTo: string | undefined; storedAssetId: bigint | undefined }> {
+  const payToBytes = (await appClient.state.global.payTo()).asByteArray()
+  const storedPayTo = payToBytes ? algosdk.encodeAddress(payToBytes) : undefined
+  const storedAssetId = await appClient.state.global.assetId()
+  return { appId: appClient.appId, storedPayTo, storedAssetId }
+}
+
+/**
+ * Reads a reused app's routing and refuses if it does not match this
+ * deploy's configuration (assertExistingAppMatchesConfig). The one call
+ * site (deployPaymentRouter below) runs this before any
+ * setCrediter/setIdentity call, on both the operator and rehearsal paths.
+ */
+export async function assertExistingAppSafeToReuse(
+  appClient: {
+    appId: bigint
+    state: { global: { payTo(): Promise<BinaryState>; assetId(): Promise<bigint | undefined> } }
+  },
+  expectedPayTo: string,
+  expectedAssetId: number,
+): Promise<void> {
+  const { appId, storedPayTo, storedAssetId } = await readExistingAppRouting(appClient)
+  assertExistingAppMatchesConfig(appId, storedPayTo, storedAssetId, expectedPayTo, expectedAssetId)
 }
 
 /**
@@ -188,7 +295,16 @@ export interface DeployPaymentRouterResult {
 export async function deployPaymentRouter(
   params: DeployPaymentRouterParams,
 ): Promise<DeployPaymentRouterResult> {
-  const { algorand, network, deployer, crediterAddress, payToAddress, identityMap } = params
+  const {
+    algorand,
+    network,
+    deployer,
+    crediterAddress,
+    payToAddress,
+    identityMap,
+    appName,
+    requireFreshCreate,
+  } = params
   const deployerAddress = deployer.addr.toString()
   // The deployer is Global.creatorAddress, i.e. the admin — contract.algo.ts
   // has no separate admin key. Checked once, under one label per role.
@@ -207,6 +323,7 @@ export async function deployPaymentRouter(
 
   const factory = algorand.client.getTypedAppFactory(PaymentRouterFactory, {
     defaultSender: deployer.addr,
+    ...(appName ? { appName } : {}),
   })
 
   const { appClient, result } = await factory.deploy({
@@ -217,6 +334,18 @@ export async function deployPaymentRouter(
     onUpdate: 'append',
     onSchemaBreak: 'append',
   })
+
+  if (result.operationPerformed !== 'create') {
+    // Idempotent reuse (R3d): factory.deploy() found and reused an
+    // existing app for this creator + appName. Refuse before touching it
+    // any further — requireFreshCreate (the rehearsal) refuses outright;
+    // the operator path only refuses if the reused app's own routing
+    // disagrees with this deploy's configuration.
+    if (requireFreshCreate) {
+      assertAppCreatedFresh(result.operationPerformed)
+    }
+    await assertExistingAppSafeToReuse(appClient, payToAddress, usdcAssetId)
+  }
 
   if (['create', 'replace'].includes(result.operationPerformed)) {
     await algorand.send.payment({
@@ -240,7 +369,11 @@ export async function deployPaymentRouter(
       'scripts/rekey-payto.mjs with the payTo key (SPEC §10.2 order).',
   )
 
-  return { appId: appClient.appId, appAddress: appClient.appAddress.toString() }
+  return {
+    appId: appClient.appId,
+    appAddress: appClient.appAddress.toString(),
+    operationPerformed: result.operationPerformed,
+  }
 }
 
 /**
