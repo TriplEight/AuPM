@@ -324,3 +324,14 @@ Next: `docs/TASK.md`, wave 1.
 - Open: the backup via Backrest instead of sshfs (awaiting the user's confirmation; then
   SPEC §13.2, TASK D1 item 6, the backup comments).
 - Next: R4 part 1, `NETWORK=testnet bash scripts/demo.sh` with the user.
+
+## 2026-09-24 — wave 4: R4 part 1, first live run; R3b; backup decision
+- First live `NETWORK=testnet bash scripts/demo.sh`: 9 PASS, 3 FAIL. Paid install settled:
+  `[redacted-txid]` (round 67617382, 1,000 µUSDC to payTo).
+  FAILs: indexer-less txid lookup (404), key parsing for a mnemonic `ATTEST_SIGNING_KEY`,
+  deployer with 0 ALGO.
+- R3b `6740615`: fixes the first two; precondition errors name the address.
+- Backup `f51e01d` (user decision): the host's restic/Backrest plan ships `BACKUP_DIR` daily;
+  SPM runs no status check. SPEC §13.2 and TASK D1 item 6 updated.
+- Blocked (human): fund the TestNet deployer with ≥1.8 ALGO.
+- Next: rerun R4 part 1; each rerun sends one more 1,000 µUSDC step-8 payment to payTo.
