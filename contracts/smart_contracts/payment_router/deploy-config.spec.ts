@@ -10,6 +10,7 @@ import {
   assertOptedIntoUsdc,
   parseAuditorMap,
   parseNetwork,
+  resolveClientConfig,
 } from './deploy-config'
 
 describe('parseNetwork', () => {
@@ -191,6 +192,56 @@ describe('assertExistingAppMatchesConfig', () => {
     expect(() =>
       assertExistingAppMatchesConfig(123n, undefined, undefined, PAY_TO, 31566704),
     ).toThrow(/\(none\)/)
+  })
+})
+
+// --- R3e: AlgorandClient config reads INDEXER_URL, not INDEXER_SERVER -------
+// Pure data resolution, no AlgorandClient construction and no network call:
+// scripts/network.mjs's algodEndpoint/indexerEndpoint are themselves pure
+// functions, so importing and calling them is not a chain call.
+
+describe('resolveClientConfig', () => {
+  test('defaults to the MainNet algod/indexer endpoints when env is empty', async () => {
+    const config = await resolveClientConfig('mainnet', {})
+    expect(config.algodConfig).toEqual({
+      server: 'https://mainnet-api.algonode.cloud',
+      port: 443,
+      token: '',
+    })
+    expect(config.indexerConfig).toEqual({
+      server: 'https://mainnet-idx.algonode.cloud',
+      port: 443,
+      token: '',
+    })
+  })
+
+  test('defaults to the TestNet algod/indexer endpoints when env is empty', async () => {
+    const config = await resolveClientConfig('testnet', {})
+    expect(config.algodConfig.server).toBe('https://testnet-api.algonode.cloud')
+    expect(config.indexerConfig.server).toBe('https://testnet-idx.algonode.cloud')
+  })
+
+  test('reads the indexer server from INDEXER_URL', async () => {
+    const config = await resolveClientConfig('mainnet', { INDEXER_URL: 'http://localhost:8980' })
+    expect(config.indexerConfig.server).toBe('http://localhost:8980')
+  })
+
+  test('ignores INDEXER_SERVER, the env name AlgorandClient.fromEnvironment() reads', async () => {
+    const config = await resolveClientConfig('mainnet', { INDEXER_SERVER: 'http://wrong-host' })
+    expect(config.indexerConfig.server).toBe('https://mainnet-idx.algonode.cloud')
+  })
+
+  test('reads algod overrides from ALGOD_SERVER/ALGOD_PORT/ALGOD_TOKEN', async () => {
+    const config = await resolveClientConfig('mainnet', {
+      ALGOD_SERVER: 'http://localhost:4001',
+      ALGOD_PORT: '4001',
+      ALGOD_TOKEN: 'a'.repeat(64),
+    })
+    expect(config.algodConfig).toEqual({
+      server: 'http://localhost:4001',
+      port: 4001,
+      token: 'a'.repeat(64),
+    })
   })
 })
 

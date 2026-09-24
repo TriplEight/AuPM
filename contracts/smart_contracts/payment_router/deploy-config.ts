@@ -1,8 +1,73 @@
+import * as path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
 import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils/types/account'
+import type { AlgoClientConfig } from '@algorandfoundation/algokit-utils/types/network-client'
 import algosdk from 'algosdk'
 import type { BinaryState } from '../artifacts/payment_router/PaymentRouterClient'
 import { PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
+
+/**
+ * The subset of scripts/network.mjs this package reuses: the per-network
+ * algod/indexer endpoint defaults, overridable by ALGOD_SERVER/ALGOD_PORT/
+ * ALGOD_TOKEN and INDEXER_URL/INDEXER_PORT/INDEXER_TOKEN. scripts/network.mjs
+ * is the one place those defaults are written (scripts/e2e.mjs,
+ * scripts/optin-usdc.mjs already import it); repeating them here would be a
+ * second table to keep in sync.
+ */
+interface NetworkEndpoints {
+  algodEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
+  indexerEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
+}
+
+// scripts/ is a plain ESM directory with no package.json of its own (see the
+// banner comment in scripts/network.mjs); contracts/ compiles under
+// "module": "CommonJS" (tsconfig.json). A dynamic import() of a .mjs path
+// works at runtime under tsx (deploy:ci), ts-node-dev (deploy) and vitest —
+// the Node loader treats .mjs as ESM regardless of the importer's module
+// system — but only when the specifier is not a string literal TypeScript
+// can resolve at compile time: allowJs is false here, so a literal import()
+// of a path outside this package's rootDir would fail type-checking
+// (TS2307, "Cannot find module") because there is no .d.ts for it. Building
+// the specifier at runtime keeps the import untyped (cast below) without
+// that compile-time failure, so this package still has no build-time
+// dependency on the scripts/ directory's own module resolution.
+//
+// The specifier is resolved from `__dirname` to an absolute `file://` URL,
+// not left as a relative string: vitest runs this file through its own SSR
+// module graph (vite-node), which — unlike Node's native dynamic import()
+// — does not resolve a non-literal relative specifier against the
+// importing module's own path, so a relative string here fails only under
+// vitest ("Cannot find module '/scripts/network.mjs'", i.e. resolved
+// against something other than this file). An absolute `file://` URL needs
+// no importer-relative resolution, so it works identically under all three
+// runners.
+const NETWORK_MODULE_PATH = path.resolve(__dirname, '..', '..', '..', 'scripts', 'network.mjs')
+
+async function loadNetworkEndpoints(): Promise<NetworkEndpoints> {
+  return (await import(pathToFileURL(NETWORK_MODULE_PATH).href)) as NetworkEndpoints
+}
+
+/**
+ * The algod/indexer config `buildAlgorandClient` passes to
+ * `AlgorandClient.fromConfig()`, split out as a pure async step (no
+ * AlgorandClient construction, no network call) so a test can assert on the
+ * resolved `{ server, port, token }` values directly. Exported for
+ * deploy-config.spec.ts.
+ *
+ * @param network - the resolved network; picks the per-network default.
+ * @param env - defaults to process.env; a test passes a fake env instead.
+ */
+export async function resolveClientConfig(
+  network: 'mainnet' | 'testnet',
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ algodConfig: AlgoClientConfig; indexerConfig: AlgoClientConfig }> {
+  const { algodEndpoint, indexerEndpoint } = await loadNetworkEndpoints()
+  return {
+    algodConfig: algodEndpoint(network, env),
+    indexerConfig: indexerEndpoint(network, env),
+  }
+}
 
 // USDC ASA id per network (CLAUDE.md canonical facts: MainNet 31566704,
 // TestNet 10458941, rehearsal only). scripts/network.mjs reads the same ids
@@ -377,6 +442,21 @@ export async function deployPaymentRouter(
 }
 
 /**
+ * Builds the AlgorandClient from explicit algod/indexer config instead of
+ * `AlgorandClient.fromEnvironment()`, which reads `INDEXER_SERVER` — not
+ * this repo's `INDEXER_URL` (.env.example, scripts/network.mjs). Without
+ * this, an operator's INDEXER_URL is silently ignored and
+ * fromEnvironment() falls back to a LocalNet indexer that does not exist
+ * outside development, surfacing only as an opaque "Didn't receive an
+ * indexer client" error deep inside algokit's deploy path.
+ *
+ * @param network - the resolved network; picks the per-network default.
+ */
+async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<AlgorandClient> {
+  return AlgorandClient.fromConfig(await resolveClientConfig(network))
+}
+
+/**
  * `algokit project deploy`'s entry point (docs/TASK.md R2): reads every
  * role's address from the environment and calls `deployPaymentRouter()`
  * with them. Behavior unchanged from before the R3a refactor.
@@ -387,7 +467,7 @@ export async function deploy(): Promise<void> {
 
   console.log(`=== Deploying PaymentRouter (${network}) ===`)
 
-  const algorand = AlgorandClient.fromEnvironment()
+  const algorand = await buildAlgorandClient(network)
 
   const sp = await algorand.client.algod.getTransactionParams().do()
   assertNetworkMatchesGenesis(network, sp.genesisID ?? '')
