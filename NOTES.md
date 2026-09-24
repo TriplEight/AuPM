@@ -374,7 +374,8 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
   `EFYLTVK44STQW6U4ZAROCKXLFBZDAC34FDOEGDZBWRDF37WXUJDSF7PHZU`. Create
   `[redacted-txid]`, setCrediter
   `[redacted-txid]`, mapped `github:heavyfailry` and `ops`.
-- Workaround used (R3e fixes it): `cd contracts && ../proxy/node_modules/.bin/tsx --tsconfig
+- Workaround used (fixed by R3e `f9bfe38`; now `( set -a; . ./.env; set +a; cd contracts &&
+  pnpm run deploy:ci )` works): `cd contracts && ../proxy/node_modules/.bin/tsx --tsconfig
   tsconfig.json smart_contracts/index.ts` with `INDEXER_SERVER=$INDEXER_URL`. Bugs:
   `deploy:ci` has no `tsx`; `fromEnvironment()` ignores `INDEXER_URL`; a failed deploy exits 0.
 
@@ -418,3 +419,8 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
 Gap for D1: TestNet and MainNet share one host. Each needs its own directory, Compose project
 name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/spm`), and its own
 `cloudflared` ingress rule.
+- R3e `f9bfe38`: `deploy:ci` has `tsx` (4.22.4, exact); the client reads `INDEXER_URL` with
+  network defaults from `scripts/network.mjs`; a failed deployer exits 1. 60 contract tests.
+- Found: `pnpm audit` shows 47 advisories on `master` too (hono, @hono/node-server among them).
+  Logged as S1 in TASK.md. R3e adds none.
+- PR #24 open (not merged).
