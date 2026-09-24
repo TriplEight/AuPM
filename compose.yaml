@@ -36,6 +36,11 @@ services:
     environment:
       SQLITE_PATH: /data/audit.db
       BACKUP_DIR: /backup
+      # Q13: public config that goes into every signed attestation. Set
+      # here (not left to env_file alone) so `docker compose up` refuses
+      # to start without them, the same way SPM_BACKUP_HOST_DIR does below.
+      SPM_ISSUER_URL: ${SPM_ISSUER_URL:?set SPM_ISSUER_URL in .env to the https origin the team controls}
+      SPM_KEY_VALID_FROM: ${SPM_KEY_VALID_FROM:?set SPM_KEY_VALID_FROM in .env to the attestation key's ISO-8601 UTC provisioning date}
     ports:
       - "${PORT:-4873}:4873"
     volumes:

@@ -132,7 +132,7 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
     const statement = buildLockfileStatement({
       subjectName: 'package-lock.json',
       sha256: 'a'.repeat(64),
-      predicateType: 'https://spm.dev/attestation/lockfile/v1',
+      predicateType: 'https://spm-verify.invalid/attestation/lockfile/v1',
       predicate: {
         issuer: 'spm',
         issuedAt: '2026-09-19T00:00:00Z',
@@ -145,7 +145,7 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
     expect(statement.subject).toEqual([
       { name: 'package-lock.json', digest: { sha256: 'a'.repeat(64) } },
     ])
-    expect(statement.predicateType).toBe('https://spm.dev/attestation/lockfile/v1')
+    expect(statement.predicateType).toBe('https://spm-verify.invalid/attestation/lockfile/v1')
   })
 
   test('builds a single-package statement with sha512 subject digest', async () => {
@@ -153,7 +153,7 @@ describe('buildLockfileStatement / buildSinglePackageStatement', () => {
     const statement = buildSinglePackageStatement({
       packageUrl: 'pkg:npm/ms@2.1.3',
       sha512: 'b'.repeat(128),
-      predicateType: 'https://spm.dev/attestation/lockfile/v1',
+      predicateType: 'https://spm-verify.invalid/attestation/lockfile/v1',
       predicate: { issuer: 'spm' },
     })
 
