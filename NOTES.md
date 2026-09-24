@@ -351,3 +351,19 @@ Next: `docs/TASK.md`, wave 1.
 - R3d `95e3f27`: unique rehearsal app name; operator deploy refuses a payTo mismatch.
 - Blocked (human): deployer E3P6K5E5… owns "PaymentRouter" 772548283 on TestNet (throwaway
   payTo). Use a new TestNet deployer (~7 ALGO) in `DEPLOYER_MNEMONIC` for R4.
+
+## 2026-09-24 — R4 part 1 PASS on TestNet (run 6, E2E 22/22, DEMO: PASS)
+New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Checked on the indexer:
+- Step 8 paid install: `[redacted-txid]` (1,000 µUSDC → operator payTo).
+- Rehearsal payTo `MEIIAZ2R…` opt-in `[redacted-txid]` (67620520).
+- Deploy app 772551142: `[redacted-txid]`; setCrediter
+  `[redacted-txid]`.
+- Rekey payTo → app: `[redacted-txid]` (67620540).
+- Lockfile payment, 250 reviewed entries: `[redacted-txid]`
+  (250,000 µUSDC, 67620544).
+- Nightly credit, batch 1: `[redacted-txid]` (67620547).
+- Claim auditor: `[redacted-txid]` (inner 100,000 → GGDELU…).
+- Claim ops: `[redacted-txid]` (inner 150,000 → IRLM4C…).
+- Operator payTo `UXWBBW…` holds step-8 deposits from runs 1–6 (6,000 µUSDC incl. the first 1,000
+  opt-in check); part 2's reconcile records them as `unassigned` ops income.
+- Next: R4 part 2 — the persistent TestNet deploy (`spm-test` domain, Compose, anchored review).
