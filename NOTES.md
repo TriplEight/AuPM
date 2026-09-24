@@ -344,3 +344,10 @@ Next: `docs/TASK.md`, wave 1.
   throwaway app 772548283 (create `[redacted-txid]`).
 - R3c `cb15d02`: genesis guard in the e2e and the nightly job; budget 2,007,500 µALGO/run.
 - Next: fund the deployer (E3P6K5E5…) with ~5 TestNet ALGO, then rerun R4 part 1.
+- Run 4 FAIL before any chain write: the indexer `/health` has no `genesis-id` (my brief was
+  wrong). Fixed in `8465742` (`/v2/blocks/1?header-only=true`).
+- Run 5 FAIL at rekey: the idempotent deploy reused app 772548283 (same deployer and name).
+  Step 8 paid `[redacted-txid]`. No donor USDC spent.
+- R3d `95e3f27`: unique rehearsal app name; operator deploy refuses a payTo mismatch.
+- Blocked (human): deployer E3P6K5E5… owns "PaymentRouter" 772548283 on TestNet (throwaway
+  payTo). Use a new TestNet deployer (~7 ALGO) in `DEPLOYER_MNEMONIC` for R4.
