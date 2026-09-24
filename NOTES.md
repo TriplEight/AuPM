@@ -311,3 +311,16 @@ Next: `docs/TASK.md`, wave 1.
 - Decision pending (user): two TestNet payTo/app pairs. One app holds one ledger, and each e2e
   run starts at batch 1.
 - Next: approve and run R3a (import side effect, step 8 opt-in, fresh-app precondition).
+
+## 2026-09-24 — wave 4: R3a
+- R3a `faa59b2` + `8c9e0b2`: self-contained rehearsal. Each run makes a new payTo, auditor and
+  ops account, app and proxy. Keys: deployer (~1.72 ALGO/run), crediter, donor (0.25 USDC).
+  The two e2e claimant keys are removed. `loadRootEnv()` runs only on the CLI path.
+  `scripts/assert-no-env-import.mjs` proves it without opening `.env`.
+- Rejected on the first try: the tests appended to the real root `.env` and restored it.
+- Checked in the main tree with the real `.env`: 165 script tests, 39 contract tests,
+  VERIFY: PASS, `.env` checksum unchanged.
+- Decision (user): the domains changed; they live in `.env` only.
+- Open: the backup via Backrest instead of sshfs (awaiting the user's confirmation; then
+  SPEC §13.2, TASK D1 item 6, the backup comments).
+- Next: R4 part 1, `NETWORK=testnet bash scripts/demo.sh` with the user.
