@@ -17,7 +17,7 @@ import { assertValidPayTo, NETWORK, PAY_TO, USDC_ASA_ID } from '../config.js'
 import db from '../db.js'
 import { backupDatabase } from './backup.js'
 import { buildAlgodCreditClient, type CreditChainClient } from './credit.js'
-import { assertGenesisMatchesNetwork } from './genesis.js'
+import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
 import { createIndexerClient } from './indexer.js'
 import { runNightly } from './nightly.js'
 
@@ -29,35 +29,17 @@ const DEFAULT_ALGOD_SERVER = 'https://mainnet-api.algonode.cloud'
 
 const ALGOD_TOKEN_HEADER = 'X-Algo-API-Token'
 const INDEXER_TOKEN_HEADER = 'X-Indexer-API-Token'
-
-/**
- * Fetches `field` off `${endpointUrl}${path}`'s JSON response. Used only
- * for the genesis guard below — a plain, uncached GET, no algosdk client
- * (algosdk's own Indexer health-check model does not decode "genesis-id").
- */
-async function fetchJsonField(
-  endpointUrl: string,
-  path: string,
-  token: string,
-  tokenHeader: string,
-  field: string,
-): Promise<string> {
-  const res = await fetch(new URL(path, endpointUrl), {
-    headers: token ? { [tokenHeader]: token } : {},
-  })
-  if (!res.ok) {
-    throw new Error(`genesis check: GET ${endpointUrl}${path} returned HTTP ${res.status}`)
-  }
-  const body = (await res.json()) as Record<string, unknown>
-  const value = body[field]
-  return typeof value === 'string' ? value : ''
-}
+// The indexer has no dedicated genesis endpoint and /health carries no
+// genesis-id (checked against the live indexers, R3c fix attempt 1); round
+// 1's header does, alongside genesis-hash.
+const INDEXER_GENESIS_PATH = '/v2/blocks/1?header-only=true'
 
 /**
  * Refuses when NETWORK does not match the connected algod's or indexer's
- * own reported genesis id (R3c). Fetches both over HTTP, then reuses
- * genesis.ts's pure assertGenesisMatchesNetwork for the comparison —
- * called first inside runNightly, before any on-chain read (nightly.ts).
+ * own reported genesis id (R3c). Fetches both over HTTP (genesis.ts's
+ * fetchGenesisId), then reuses genesis.ts's pure assertGenesisMatchesNetwork
+ * for the comparison — called first inside runNightly, before any on-chain
+ * read (nightly.ts).
  */
 function buildGenesisGuard(
   algodServer: string,
@@ -66,21 +48,19 @@ function buildGenesisGuard(
   indexerToken: string,
 ): () => Promise<void> {
   return async () => {
-    const algodGenesisId = await fetchJsonField(
+    const algodGenesisId = await fetchGenesisId(
       algodServer,
       '/v2/transactions/params',
       algodToken,
       ALGOD_TOKEN_HEADER,
-      'genesis-id',
     )
     assertGenesisMatchesNetwork('algod', NETWORK, algodGenesisId, algodServer, 'ALGOD_SERVER')
 
-    const indexerGenesisId = await fetchJsonField(
+    const indexerGenesisId = await fetchGenesisId(
       indexerUrl,
-      '/health',
+      INDEXER_GENESIS_PATH,
       indexerToken,
       INDEXER_TOKEN_HEADER,
-      'genesis-id',
     )
     assertGenesisMatchesNetwork('indexer', NETWORK, indexerGenesisId, indexerUrl, 'INDEXER_URL')
   }

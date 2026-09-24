@@ -3,8 +3,12 @@
 // Genesis-id guard for the nightly job (SPEC.md §13.2, R3c). An operator
 // .env with NETWORK=testnet but ALGOD_SERVER/INDEXER_URL pointed at
 // MainNet makes the nightly job reconcile and credit against the wrong
-// chain. This is a pure comparison: callers fetch each component's own
-// genesis id (nightly-main.ts) and hand it in here.
+// chain. assertGenesisMatchesNetwork is a pure comparison; fetchGenesisId
+// is the (injectable, testable) HTTP read nightly-main.ts wires with the
+// real `fetch` — kept here rather than in nightly-main.ts (which is never
+// imported by a test) so the fetch-and-parse logic, including the
+// dedicated missing/empty "genesis-id" error, has its own coverage
+// (genesis.test.ts) against the real response shapes.
 //
 // This mirrors scripts/rekey-payto.mjs's own assertNetworkMatchesGenesis
 // (used by deploy-config.ts, claim.mjs, and rekey-payto.mjs itself) rather
@@ -50,4 +54,37 @@ export function assertGenesisMatchesNetwork(
         '(or NETWORK) — refusing to reconcile or credit against a possibly wrong chain',
     )
   }
+}
+
+/**
+ * Fetches `"genesis-id"` off `${endpointUrl}${path}`'s JSON response. A
+ * missing or empty value is its own error, never returned as "" for a
+ * caller to compare against a network (R3c fix attempt 1: the indexer's
+ * `/health` carries no genesis-id at all — checked against the live
+ * indexers — and a bare "" read as the genesis id produced a confusing
+ * mismatch message instead of naming the real problem, the wrong endpoint
+ * path). `fetchImpl` defaults to the real `fetch`; nightly-main.ts's own
+ * tests (there are none — see this module's banner) never need it, but
+ * genesis.test.ts injects a stub to exercise every branch without a real
+ * algod or indexer.
+ */
+export async function fetchGenesisId(
+  endpointUrl: string,
+  path: string,
+  token: string,
+  tokenHeader: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string> {
+  const res = await fetchImpl(new URL(path, endpointUrl), {
+    headers: token ? { [tokenHeader]: token } : {},
+  })
+  if (!res.ok) {
+    throw new Error(`genesis check: GET ${endpointUrl}${path} returned HTTP ${res.status}`)
+  }
+  const body = (await res.json()) as Record<string, unknown>
+  const value = body['genesis-id']
+  if (typeof value !== 'string' || value.length === 0) {
+    throw new Error(`genesis check: GET ${endpointUrl}${path} returned no "genesis-id"`)
+  }
+  return value
 }

@@ -1,8 +1,19 @@
 // proxy/src/claims/genesis.test.ts
 //
-// Pure comparison only — no network access, no algod/indexer client (R3c).
-import { describe, expect, test } from 'vitest'
-import { assertGenesisMatchesNetwork } from './genesis.js'
+// assertGenesisMatchesNetwork is pure — no network access. fetchGenesisId's
+// own tests inject a stub `fetch`, never a real algod or indexer (R3c fix
+// attempt 1: the real /v2/blocks/1?header-only=true and /health response
+// shapes, checked against the live TestNet and MainNet indexers).
+import { describe, expect, test, vi } from 'vitest'
+import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
+
+function stubFetch(status: number, jsonBody: unknown): typeof fetch {
+  return vi.fn().mockResolvedValue({
+    ok: status >= 200 && status < 300,
+    status,
+    json: async () => jsonBody,
+  }) as unknown as typeof fetch
+}
 
 describe('assertGenesisMatchesNetwork', () => {
   test('passes when algod genesis id matches the network', () => {
@@ -49,5 +60,83 @@ describe('assertGenesisMatchesNetwork', () => {
     expect(() =>
       assertGenesisMatchesNetwork('algod', 'devnet', 'devnet-v1.0', 'https://z', 'ALGOD_SERVER'),
     ).toThrow(/NETWORK=devnet/)
+  })
+})
+
+describe('fetchGenesisId', () => {
+  test('reads genesis-id from the real /v2/blocks/1 header shape', async () => {
+    const blockHeader = {
+      'genesis-id': 'testnet-v1.0',
+      'genesis-hash': 'wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
+      round: 1,
+    }
+    const genesisId = await fetchGenesisId(
+      'https://testnet-idx.algonode.cloud',
+      '/v2/blocks/1?header-only=true',
+      '',
+      'X-Indexer-API-Token',
+      stubFetch(200, blockHeader),
+    )
+    expect(genesisId).toBe('testnet-v1.0')
+  })
+
+  test('FAILs with a dedicated error on the real /health shape (no genesis-id)', async () => {
+    const health = {
+      data: {},
+      'db-available': true,
+      'is-migrating': false,
+      message: '67619575',
+      round: 67619575,
+      version: '3.10.0-ndly',
+    }
+    await expect(
+      fetchGenesisId(
+        'https://testnet-idx.algonode.cloud',
+        '/health',
+        '',
+        'X-Indexer-API-Token',
+        stubFetch(200, health),
+      ),
+    ).rejects.toThrow(/GET https:\/\/testnet-idx\.algonode\.cloud\/health returned no "genesis-id"/)
+  })
+
+  test('FAILs with a dedicated error on an empty genesis-id, never comparing "" against a network', async () => {
+    await expect(
+      fetchGenesisId(
+        'https://x',
+        '/v2/blocks/1?header-only=true',
+        '',
+        'X-Indexer-API-Token',
+        stubFetch(200, { 'genesis-id': '' }),
+      ),
+    ).rejects.toThrow(/returned no "genesis-id"/)
+  })
+
+  test('FAILs on a non-ok HTTP response, naming the URL, the path, and the status', async () => {
+    await expect(
+      fetchGenesisId(
+        'https://x',
+        '/v2/transactions/params',
+        '',
+        'X-Algo-API-Token',
+        stubFetch(500, {}),
+      ),
+    ).rejects.toThrow(/genesis check: GET https:\/\/x\/v2\/transactions\/params returned HTTP 500/)
+  })
+
+  test('reads genesis-id from a raw algod /v2/transactions/params response', async () => {
+    const genesisId = await fetchGenesisId(
+      'https://mainnet-api.algonode.cloud',
+      '/v2/transactions/params',
+      '',
+      'X-Algo-API-Token',
+      stubFetch(200, {
+        'genesis-id': 'mainnet-v1.0',
+        'genesis-hash': 'abc',
+        fee: 0,
+        'min-fee': 1000,
+      }),
+    )
+    expect(genesisId).toBe('mainnet-v1.0')
   })
 })
