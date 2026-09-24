@@ -299,3 +299,15 @@ Next: `docs/TASK.md`, wave 1.
   the auditor and ops claimants (opted into USDC). `AUDITORS` maps `github:spm-e2e-auditor`.
 - Next: fill `.env` for TestNet, then R4: opt-in → deploy → rekey →
   `NETWORK=testnet bash scripts/demo.sh`. Record each txid here.
+
+## 2026-09-24 — wave 4: Q13, and a verify.sh regression found
+- Q13 `c65edd5`: `SPM_ISSUER_URL` (https origin) and `SPM_KEY_VALID_FROM` (ISO UTC) have no
+  default; boot and `compose.yaml` refuse without them on every network. Verify uses
+  `https://spm-verify.invalid`. `cli/src/verify.test.ts` still has `spm.dev` test data (harmless).
+- Open bug (R3a): `scripts/rekey-payto.mjs` loads the root `.env` at import. `claim.mjs` imports
+  it, so `verify.sh` inherits the real `.env` donor key. Step 8 then runs and FAILs
+  ("expected paid, got free": `installTool.handler` has no `allowDonation`). With no `.env`,
+  VERIFY: PASS.
+- Decision pending (user): two TestNet payTo/app pairs. One app holds one ledger, and each e2e
+  run starts at batch 1.
+- Next: approve and run R3a (import side effect, step 8 opt-in, fresh-app precondition).
