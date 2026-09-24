@@ -368,3 +368,53 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
   and 6 (run 4 stopped before paying). Not rekeyed. Part 2's reconcile records them as
   `unassigned` ops income.
 - Next: R4 part 2 — the persistent TestNet deploy (`spm-test` domain, Compose, anchored review).
+
+## 2026-09-24 — R4 part 2 started; guide for the next session
+- Deployed (local machine, deployer DFEMIN…): PaymentRouter **772553842**, app address
+  `EFYLTVK44STQW6U4ZAROCKXLFBZDAC34FDOEGDZBWRDF37WXUJDSF7PHZU`. Create
+  `[redacted-txid]`, setCrediter
+  `[redacted-txid]`, mapped `github:heavyfailry` and `ops`.
+- Workaround used (R3e fixes it): `cd contracts && ../proxy/node_modules/.bin/tsx --tsconfig
+  tsconfig.json smart_contracts/index.ts` with `INDEXER_SERVER=$INDEXER_URL`. Bugs:
+  `deploy:ci` has no `tsx`; `fromEnvironment()` ignores `INDEXER_URL`; a failed deploy exits 0.
+
+### Part 2 guide. Where each step runs matters: cold keys never touch the server.
+
+**A. Rekey `payTo` (local machine, repo root).**
+1. Set `PAYMENT_ROUTER_APP_ID=772553842` in the local `.env`.
+2. `! node scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network testnet`
+3. Check: the payTo account's `auth-addr` is the app address `EFYLTVK4…`.
+
+**B. Anchor one real review (local machine, the auditor's key).**
+1. Read the exact tarball of one small package version (for example `ms@2.1.3`). A human must
+   read it (invariant 5).
+2. Put the auditor mnemonic in a file with an editor, one line: `~/.spm/auditor-testnet.key`,
+   then `chmod 600` it. The script refuses a looser file.
+3. `node scripts/anchor-review.mjs ms 2.1.3 --reviewer heavyfailry --scope "<what you read,
+   e.g. full source>" --key-file ~/.spm/auditor-testnet.key --network testnet`, type `yes`.
+4. Check: the script prints the anchor txid. Keep it for C.
+
+**C. Server `.env` and Compose (host, `/opt/spm` for TestNet).** The server `.env` holds only:
+`NETWORK=testnet`, TestNet `ALGOD_SERVER`/`INDEXER_URL`, `PAY_TO_ADDRESS`,
+`PAYMENT_ROUTER_APP_ID=772553842`, `CREDITER_MNEMONIC`, `ATTEST_SIGNING_KEY`,
+`SPM_ISSUER_URL` (the TestNet URL), `SPM_KEY_VALID_FROM`, `AUDITORS`,
+`SPM_BACKUP_HOST_DIR=/var/backups/spm`. Never the payTo, deployer, donor or auditor keys.
+1. `docker compose up -d`. Check: `curl -s https://<test domain>/api/v1/status/ms/2.1.3`.
+2. `docker compose run --rm proxy node --import tsx/esm scripts/record-review.mjs <anchorTxid>
+   --network testnet`, type `yes`. Check: status for `ms/2.1.3` is `COMMUNITY_REVIEWED`.
+
+**D. One paid request (local machine, donor key).**
+1. `( set -a; . ./.env; set +a; SPM_PROXY_URL=https://<test domain> pnpm -C cli start install
+   ms 2.1.3 --donate )`
+2. Check: it prints a settle txid; 1,000 µUSDC arrives at payTo.
+
+**E. Nightly job (host).**
+1. `cd /opt/spm && docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`
+2. Check: log line `credited batch 1, txid …`. Expected batch: attributed 1,000 (auditor 400),
+   unattributed 5,000 (the earlier step-8 deposits) → ops 5,600. A new `audit-*.db` is in
+   `/var/backups/spm`.
+3. Install `deploy/systemd/spm-nightly.{service,timer}`.
+
+Gap for D1: TestNet and MainNet share one host. Each needs its own directory, Compose project
+name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/spm`), and its own
+`cloudflared` ingress rule.
