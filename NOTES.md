@@ -458,3 +458,7 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - `VERIFY: PASS`; `prek run --all-files` passes. `algokit project run build` ran clean (no diff).
 - Blocked (human): tag `v0.1.0` and set the GHCR package public; M0 TestNet move; MainNet rekey.
 - Next: merge the wave-5 PR, then tag `v0.1.0`.
+
+## 2026-09-25 — hermetic test env
+- `scripts/vitest-clear-env.mjs` clears every `.env.example` key before proxy, mcp and cli tests.
+  A shell that exports `.env` no longer fails the git hooks.
