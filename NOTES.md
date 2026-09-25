@@ -449,3 +449,12 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - D1 `e64157e`: both runbooks and the local deploy guide rewritten for PaymentRouter, the nightly
   job in the proxy, Portainer, the `v*` image release and M0. The README donor guide reads the
   key from a secret manager for one command. Remaining gaps are in the local guide, §5.
+
+## 2026-09-25 — session end: wave 5 (R4 part 2, S1, N1–N3, T1, D1)
+- Done: R4 `07ccce4`, S1 `349de5c`, N2 `b971d8a`, N1 `c4d07d4`, N3 `61dbb8a`, T1 `c086ac2`, D1 `e64157e`.
+- Files: `proxy/src/claims/{scheduler,nightly-wiring,nightly,schema}.ts`, `proxy/src/routes/health.ts`,
+  `compose.yaml`, `.github/workflows/image.yml`, `pnpm-workspace.yaml`, runbooks, SPEC §13.2, ADR 0009.
+- State: TestNet app 772553842; payTo rekeyed; batch 1 credited (auditor 400, ops 5,600).
+- `VERIFY: PASS`; `prek run --all-files` passes. `algokit project run build` ran clean (no diff).
+- Blocked (human): tag `v0.1.0` and set the GHCR package public; M0 TestNet move; MainNet rekey.
+- Next: merge the wave-5 PR, then tag `v0.1.0`.
