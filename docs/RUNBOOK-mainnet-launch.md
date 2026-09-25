@@ -83,7 +83,7 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    ```
    Check: `docker compose config` prints the resolved service with no missing-variable error.
 
-3. Publish the image. Push a `v*` tag (the first release is `v0.1.0`, the version that
+3. Publish the image. Push a `v*` tag (the first published release is `v0.1.1`, the version that
    `compose.yaml` pins). `.github/workflows/image.yml` pushes `ghcr.io/tripleight/spm:<tag>`.
    After the first push, set the GHCR package to public once, in the GitHub package settings.
    For a later release: push the new tag, then bump the `image:` line in `compose.yaml` in a
