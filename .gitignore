@@ -3,6 +3,7 @@ dist/
 *.db
 .env
 .env.local
+stack.env
 .DS_Store
 *.log
 .rtk/cache

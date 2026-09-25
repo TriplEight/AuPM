@@ -13,7 +13,7 @@
 // Equivalently: node --import tsx/esm scripts/record-review.mjs <anchorTxid>
 // run with proxy/ as the working directory and its node_modules resolvable.
 // In the proxy container this later becomes:
-//   docker compose run --rm proxy node --import tsx/esm \
+//   docker compose run --rm spm node --import tsx/esm \
 //     scripts/record-review.mjs <anchorTxid>
 //
 // This never runs in CI, a fixture or a seed path (CLAUDE.md invariant 5):

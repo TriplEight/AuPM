@@ -74,7 +74,7 @@ type RunResult = {
 function runIndex(env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
-    const child = spawn('pnpm', ['exec', 'tsx', INDEX_ENTRY], {
+    const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
       cwd: PROXY_ROOT,
       env: { ...process.env, SQLITE_PATH: sqlitePath, ...env },
     })
@@ -109,6 +109,22 @@ function runIndex(env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RunResult>
       settled = true
       clearTimeout(timer)
       reject(err)
+    })
+  })
+}
+
+// Finds a free TCP port: binds a temporary server to port 0, reads the
+// port the OS assigned, then closes it. Each test gets its own port this
+// way, so a leftover listener from an earlier run can never collide with
+// the port a later run picks.
+function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      const address = server.address()
+      const port = typeof address === 'object' && address ? address.port : 0
+      server.close(() => resolve(port))
     })
   })
 }
@@ -177,7 +193,7 @@ describe('index.ts startup guard (subprocess)', () => {
     'refuses to boot and never opens the port when the facilitator is unreachable',
     async () => {
       const DEAD_FACILITATOR = 'http://127.0.0.1:9'
-      const PORT = 39871
+      const PORT = await getFreePort()
 
       const result = await runIndex(
         {
@@ -217,7 +233,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   test(
     'refuses to boot and never opens the port when PAY_TO_ADDRESS is unset',
     async () => {
-      const PORT = 39872
+      const PORT = await getFreePort()
       // No PAY_TO_ADDRESS key at all — runIndex() spreads this over
       // process.env, so the subprocess only sees it unset if it is also
       // unset in this test runner's own environment, which CI and local
@@ -247,7 +263,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   test(
     'refuses to boot and never opens the port when PAY_TO_ADDRESS is malformed',
     async () => {
-      const PORT = 39873
+      const PORT = await getFreePort()
 
       const result = await runIndex(
         {
@@ -273,7 +289,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
   test(
     'boots normally when PAY_TO_ADDRESS is a valid address',
     async () => {
-      const PORT = 39874
+      const PORT = await getFreePort()
 
       // Past the PAY_TO guard, boot() still needs a reachable facilitator
       // (proxy/src/x402/server.ts). A local stub keeps this test free of a
@@ -284,7 +300,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
       const facilitator = await startStubFacilitator(feePayer)
 
       const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
-      const child = spawn('pnpm', ['exec', 'tsx', INDEX_ENTRY], {
+      const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
         cwd: PROXY_ROOT,
         env: {
           ...process.env,
@@ -295,6 +311,11 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
           SPM_ISSUER_URL: VALID_ISSUER_URL,
           SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          // Never let a real-boot subprocess test start the nightly
+          // scheduler: its start-up catch-up run (item N1.2) would make a
+          // live network call to the default MainNet algod/indexer
+          // endpoints, which this test neither expects nor stubs.
+          SPM_NIGHTLY: 'off',
         },
       })
 
@@ -332,7 +353,7 @@ describe('index.ts ISSUER guard (subprocess)', () => {
   test(
     'refuses to boot and never opens the port when SPM_ISSUER_URL is unset',
     async () => {
-      const PORT = 39875
+      const PORT = await getFreePort()
 
       const result = await runIndex(
         {
@@ -360,7 +381,7 @@ describe('index.ts ISSUER guard (subprocess)', () => {
   test(
     'refuses to boot and never opens the port when SPM_ISSUER_URL is unset on TestNet',
     async () => {
-      const PORT = 39876
+      const PORT = await getFreePort()
 
       // TestNet rehearsal tests the same public config MainNet will carry —
       // this guard must not be MainNet-only.
@@ -392,7 +413,7 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
   test(
     'refuses to boot and never opens the port when SPM_KEY_VALID_FROM is unset',
     async () => {
-      const PORT = 39877
+      const PORT = await getFreePort()
 
       const result = await runIndex(
         {
@@ -413,6 +434,130 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
 
       const listening = await isPortListening(PORT)
       expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+})
+
+describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
+  const DEAD_FACILITATOR = 'http://127.0.0.1:9'
+  // A closed local port — the fire-and-forget start-up catch-up run's
+  // genesis guard (item N1.2) fails fast against this (ECONNREFUSED)
+  // instead of ever reaching a real network endpoint, so a boot test that
+  // leaves the scheduler on stays hermetic.
+  const DEAD_CHAIN_ENDPOINT = 'http://127.0.0.1:9'
+
+  test(
+    'refuses to boot and never opens the port when SPM_NIGHTLY is neither "on" nor "off"',
+    async () => {
+      const PORT = await getFreePort()
+
+      const result = await runIndex(
+        {
+          FACILITATOR_URL: DEAD_FACILITATOR,
+          PORT: String(PORT),
+          NETWORK: 'mainnet',
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_ISSUER_URL: VALID_ISSUER_URL,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          SPM_NIGHTLY: 'sometimes',
+        },
+        SUBPROCESS_TIMEOUT_MS,
+      )
+
+      expect(result.code).not.toBe(0)
+      expect(result.code).not.toBeNull()
+      expect(result.stderr).toMatch(/SPM_NIGHTLY/)
+      // Proves the SPM_NIGHTLY guard fired before the (dead) facilitator
+      // was ever contacted, the same proof style as the guards above.
+      expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
+
+      const listening = await isPortListening(PORT)
+      expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  // Boots a real subprocess past every other guard, with a local stub
+  // facilitator (same trick as the PAY_TO "boots normally" test above) and
+  // ALGOD_SERVER/INDEXER_URL pointed at a closed local port — so a
+  // start-up catch-up run, if SPM_NIGHTLY leaves the scheduler on, never
+  // reaches a real network endpoint.
+  async function bootWithNightlyEnv(
+    port: number,
+    nightlyEnv: NodeJS.ProcessEnv,
+  ): Promise<{ stdout: () => string; stop: () => void }> {
+    const feePayer = algosdk.generateAccount().addr.toString()
+    const facilitator = await startStubFacilitator(feePayer)
+    const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
+    const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
+      cwd: PROXY_ROOT,
+      env: {
+        ...process.env,
+        SQLITE_PATH: sqlitePath,
+        PORT: String(port),
+        NETWORK: 'mainnet',
+        FACILITATOR_URL: facilitator.url,
+        PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+        SPM_ISSUER_URL: VALID_ISSUER_URL,
+        SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+        ALGOD_SERVER: DEAD_CHAIN_ENDPOINT,
+        INDEXER_URL: DEAD_CHAIN_ENDPOINT,
+        ...nightlyEnv,
+      },
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+
+    const listening = await waitForPortListening(port, SUBPROCESS_TIMEOUT_MS)
+    expect(listening).toBe(true)
+
+    return {
+      stdout: () => stdout,
+      stop: () => {
+        child.kill('SIGKILL')
+        facilitator.close()
+      },
+    }
+  }
+
+  test(
+    'boots and logs the scheduler-off line when SPM_NIGHTLY=off',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), { SPM_NIGHTLY: 'off' })
+      try {
+        expect(stdout()).toMatch(/spm-nightly: scheduler off \(SPM_NIGHTLY=off\)/)
+      } finally {
+        stop()
+      }
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  test(
+    'boots with the scheduler on when SPM_NIGHTLY=on',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), { SPM_NIGHTLY: 'on' })
+      try {
+        expect(stdout()).not.toMatch(/scheduler off/)
+      } finally {
+        stop()
+      }
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  test(
+    'boots with the scheduler on by default when SPM_NIGHTLY is unset',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), {})
+      try {
+        expect(stdout()).not.toMatch(/scheduler off/)
+      } finally {
+        stop()
+      }
     },
     SUBPROCESS_TIMEOUT_MS + 5_000,
   )
