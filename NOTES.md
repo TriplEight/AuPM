@@ -445,3 +445,7 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/triplight/spm-proxy:v0.1.0` and keeps `build:`.
   `.env` and `stack.env` are both optional; `stack.env` is ignored by git and Docker.
 - T1 logged: `index.test.ts` can leave a `node` child on a fixed port.
+- T1 `c086ac2`: `index.test.ts` spawns `node --import tsx/esm` directly and uses free ports.
+- D1 `e64157e`: both runbooks and the local deploy guide rewritten for PaymentRouter, the nightly
+  job in the proxy, Portainer, the `v*` image release and M0. The README donor guide reads the
+  key from a secret manager for one command. Remaining gaps are in the local guide, §5.
