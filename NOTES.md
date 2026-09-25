@@ -435,3 +435,5 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Guide fix: from WORKDIR `/app/proxy`, use `../scripts/record-review.mjs` and
   `src/claims/nightly-main.ts`.
 - Next: S1, then D1. Before the MainNet deploy, move the TestNet deployment to its own host (M0).
+- S1 `349de5c`: `@modelcontextprotocol/sdk` 1.30.1; exact `overrides` in `pnpm-workspace.yaml`.
+  `pnpm audit --prod` is clean. One low dev advisory is left (`elliptic`, no patch).
