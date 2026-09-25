@@ -8,7 +8,7 @@ facilitator. Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor,
 Most supply-chain attacks land in packages nobody ever reviewed. SPM turns
 human review into a paid, verifiable, on-chain-anchored public good.
 
-WARNING: no MainNet deployment exists yet. Read "Current status" before you
+Caution: no MainNet deployment exists yet. Read "Current status" before you
 rely on any figure here.
 
 ## How it works
@@ -144,9 +144,16 @@ request (1,000 microUSDC for one tarball or one single-package attestation),
 and never in an asset other than the network's USDC ASA. There is no config
 knob for either limit.
 
+Set the mnemonic from a secret manager for one command only — never in a `.env` file:
+
 ```bash
-export SPM_DONOR_MNEMONIC="<25-word mainnet mnemonic>"
-pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out spm-attestation.json
+SPM_DONOR_MNEMONIC="$(rbw get spm-donor)" \
+  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out spm-attestation.json
+```
+
+The same pattern installs one package:
+```bash
+SPM_DONOR_MNEMONIC="$(rbw get spm-donor)" pnpm -C cli exec tsx src/index.ts install <pkg> <version> --donate
 ```
 
 Without `--donate`, `spm attest` reports the price on a 402 and exits 2,
@@ -156,10 +163,10 @@ both.
 
 The `spm-attest` GitHub Action installs `spm-cli` and runs `spm attest`. Its
 `donate` input defaults to `'false'`. Set it to `'true'` and pass a
-`donor-mnemonic` secret to donate from CI. WARNING: never pass a mnemonic as
-plain text. Use a GitHub Actions secret. The Action fails open: a
-facilitator outage, a 5xx, or a missing `donor-mnemonic` logs a warning and
-exits 0, so it never reddens a caller's CI.
+`donor-mnemonic` secret to donate from CI. Never pass a mnemonic as plain
+text — use a GitHub Actions secret. The Action fails open: a facilitator
+outage, a 5xx, or a missing `donor-mnemonic` logs a warning and exits 0, so
+it never reddens a caller's CI.
 
 ### Donor account setup
 
