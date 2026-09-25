@@ -437,3 +437,8 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Next: S1, then D1. Before the MainNet deploy, move the TestNet deployment to its own host (M0).
 - S1 `349de5c`: `@modelcontextprotocol/sdk` 1.30.1; exact `overrides` in `pnpm-workspace.yaml`.
   `pnpm audit --prod` is clean. One low dev advisory is left (`elliptic`, no patch).
+- N2 `b971d8a`: `.github/workflows/image.yml` builds the image on a PR and pushes
+  `ghcr.io/triplight/spm-proxy:<tag>` on a `v*` tag. Set the package public after the first push.
+- N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC and catches up at start. SQLite lease
+  and run history; `GET /api/v1/health` (503 after 26 h without success). `SPM_NIGHTLY`
+  (default on; tests and e2e set off). `deploy/systemd/` is deleted. ADR 0009.
