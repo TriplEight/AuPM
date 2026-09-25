@@ -462,3 +462,9 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 ## 2026-09-25 — hermetic test env
 - `scripts/vitest-clear-env.mjs` clears every `.env.example` key before proxy, mcp and cli tests.
   A shell that exports `.env` no longer fails the git hooks.
+
+## 2026-09-25 — wave 6: release and F1
+- Release: tag `v0.1.1` (`2a963e0`), image run 36173399798 success. Anonymous pull works.
+  Digest `sha256:348ec591889f72ccf294be315bcc3e045b85d2cb80a009564647c0e874d13f4b`.
+- Tag `v0.1.0` deleted; its image run failed and GHCR has no `v0.1.0`.
+- F1 `68ed80d`: `compose.yaml` and the MainNet runbook pin `v0.1.1`.
