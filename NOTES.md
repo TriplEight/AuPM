@@ -401,7 +401,7 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
 `SPM_ISSUER_URL` (the TestNet URL), `SPM_KEY_VALID_FROM`, `AUDITORS`,
 `SPM_BACKUP_HOST_DIR=/var/backups/spm`. Never the payTo, deployer, donor or auditor keys.
 1. `docker compose up -d`. Check: `curl -s https://<test domain>/api/v1/status/ms/2.1.3`.
-2. `docker compose run --rm proxy node --import tsx/esm scripts/record-review.mjs <anchorTxid>
+2. `docker compose run --rm proxy node --import tsx/esm ../scripts/record-review.mjs <anchorTxid>
    --network testnet`, type `yes`. Check: status for `ms/2.1.3` is `COMMUNITY_REVIEWED`.
 
 **D. One paid request (local machine, donor key).**
@@ -424,3 +424,14 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Found: `pnpm audit` shows 47 advisories on `master` too (hono, @hono/node-server among them).
   Logged as S1 in TASK.md. R3e adds none.
 - PR #24 open (not merged).
+
+## 2026-09-25 — R4 part 2 PASS on TestNet (branch `spm-mvp-v6-wave5`)
+- Rekey payTo → app 772553842: `[redacted-txid]`.
+- Review anchor `ms@2.1.3`: `[redacted-txid]`; recorded,
+  status `COMMUNITY_REVIEWED`.
+- Paid install, 1,000 µUSDC: `[redacted-txid]`.
+- Nightly credit, batch 1 (attributed 1,000, unattributed 5,000):
+  `[redacted-txid]`. Boxes: auditor 400, ops 5,600.
+- Guide fix: from WORKDIR `/app/proxy`, use `../scripts/record-review.mjs` and
+  `src/claims/nightly-main.ts`.
+- Next: S1, then D1. Before the MainNet deploy, move the TestNet deployment to its own host (M0).
