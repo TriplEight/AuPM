@@ -43,7 +43,7 @@
 
 services:
   spm:
-    image: ghcr.io/triplight/spm:v0.1.0
+    image: ghcr.io/tripleight/spm:v0.1.0
     build:
       context: .
       dockerfile: proxy/Dockerfile

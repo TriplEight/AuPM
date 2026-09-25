@@ -438,11 +438,11 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - S1 `349de5c`: `@modelcontextprotocol/sdk` 1.30.1; exact `overrides` in `pnpm-workspace.yaml`.
   `pnpm audit --prod` is clean. One low dev advisory is left (`elliptic`, no patch).
 - N2 `b971d8a`: `.github/workflows/image.yml` builds the image on a PR and pushes
-  `ghcr.io/triplight/spm:<tag>` on a `v*` tag. Set the package public after the first push.
+  `ghcr.io/tripleight/spm:<tag>` on a `v*` tag. Set the package public after the first push.
 - N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC and catches up at start. SQLite lease
   and run history; `GET /api/v1/health` (503 after 26 h without success). `SPM_NIGHTLY`
   (default on; tests and e2e set off). `deploy/systemd/` is deleted. ADR 0009.
-- N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/triplight/spm:v0.1.0` and keeps `build:`.
+- N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/tripleight/spm:v0.1.0` and keeps `build:`.
   `.env` and `stack.env` are both optional; `stack.env` is ignored by git and Docker.
 - T1 logged: `index.test.ts` can leave a `node` child on a fixed port.
 - T1 `c086ac2`: `index.test.ts` spawns `node --import tsx/esm` directly and uses free ports.
