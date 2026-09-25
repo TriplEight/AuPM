@@ -14,7 +14,7 @@
 // (used by deploy-config.ts, claim.mjs, and rekey-payto.mjs itself) rather
 // than importing it: that file is plain JS with no type declarations
 // (proxy/tsconfig.json has no `allowJs`), and proxy/Dockerfile's image for
-// the nightly job (`docker compose run --rm proxy pnpm nightly`) does not
+// the nightly job (`docker compose run --rm spm pnpm nightly`) does not
 // copy scripts/rekey-payto.mjs in — only scripts/record-review.mjs,
 // scripts/review-anchor.mjs, and scripts/network.mjs. A second, small,
 // independently tested copy of the same pure comparison is safer here than

@@ -19,7 +19,7 @@
 # The operator's record-review flow (SPEC.md §14, ADR 0007) runs against
 # this same image and service name, from the repository's proxy/Dockerfile
 # WORKDIR (/app/proxy):
-#   docker compose run --rm proxy node --import tsx/esm \
+#   docker compose run --rm spm node --import tsx/esm \
 #     ../scripts/record-review.mjs <anchorTxid>
 # `docker compose run` allocates a TTY by default; record-review.mjs refuses
 # to run without one (CLAUDE.md invariant 5), so this only works
@@ -42,8 +42,8 @@
 # container, where it is deleted with the container on exit.
 
 services:
-  proxy:
-    image: ghcr.io/triplight/spm-proxy:v0.1.0
+  spm:
+    image: ghcr.io/triplight/spm:v0.1.0
     build:
       context: .
       dockerfile: proxy/Dockerfile

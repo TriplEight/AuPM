@@ -240,7 +240,7 @@ Next: `docs/TASK.md`, wave 1.
   `record-review.mjs` writes a reviewed status. `e2e.mjs` writes its fixture row only when
   `SQLITE_PATH` is inside `os.tmpdir()` (user decision). `proxy/seed.sql` deleted.
   Next: Q8 image must carry the record-review scripts; then the human Docker check.
-- Q8 `5e52f93`: `proxy/Dockerfile`, `compose.yaml` (service `proxy`, volume `spm-db` at `/data`,
+- Q8 `5e52f93`: `proxy/Dockerfile`, `compose.yaml` (service `spm`, volume `spm-db` at `/data`,
   `SQLITE_PATH=/data/audit.db`), `.dockerignore`; the image carries `scripts/record-review.mjs`.
   Checked with podman-compose on TestNet config: status JSON 200, same `audit.db` inode after restart
   and down/up, `record-review` no-TTY refusal in the container. Host quirk: podman storage under
@@ -260,7 +260,7 @@ Next: `docs/TASK.md`, wave 1.
   `biome ci .` fail in the main tree; run biome over `git ls-files`.
 - Q7 `7fc8082`: `accruals` gets `repo` and `batch_seq`; new `batches` table. Nightly job
   `proxy/src/claims/nightly-main.ts` (local: `pnpm -C proxy nightly`; host: `spm-nightly.timer`
-  runs `docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`):
+  runs `docker compose run --rm spm node --import tsx/esm src/claims/nightly-main.ts`):
   reconcile → `VACUUM INTO` `/backup` → credit. `compose.yaml` bind-mounts
   `SPM_BACKUP_HOST_DIR` at `/backup`; compose refuses to start without it. Credit call uses algosdk
   and a hand-kept ABI signature (the image has no contract artifacts). Each credit txn carries note
@@ -401,7 +401,7 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
 `SPM_ISSUER_URL` (the TestNet URL), `SPM_KEY_VALID_FROM`, `AUDITORS`,
 `SPM_BACKUP_HOST_DIR=/var/backups/spm`. Never the payTo, deployer, donor or auditor keys.
 1. `docker compose up -d`. Check: `curl -s https://<test domain>/api/v1/status/ms/2.1.3`.
-2. `docker compose run --rm proxy node --import tsx/esm ../scripts/record-review.mjs <anchorTxid>
+2. `docker compose run --rm spm node --import tsx/esm ../scripts/record-review.mjs <anchorTxid>
    --network testnet`, type `yes`. Check: status for `ms/2.1.3` is `COMMUNITY_REVIEWED`.
 
 **D. One paid request (local machine, donor key).**
@@ -410,7 +410,7 @@ New deployer `DFEMINAMFNQJ23WULKYQN4ARIJAQXU5PJQMPSTWN7PGJQPSW6XEY32ZP54`. Check
 2. Check: it prints a settle txid; 1,000 µUSDC arrives at payTo.
 
 **E. Nightly job (host).**
-1. `cd /opt/spm && docker compose run --rm proxy node --import tsx/esm src/claims/nightly-main.ts`
+1. `cd /opt/spm && docker compose run --rm spm node --import tsx/esm src/claims/nightly-main.ts`
 2. Check: log line `credited batch 1, txid …`. Expected batch: attributed 1,000 (auditor 400),
    unattributed 5,000 (the earlier step-8 deposits) → ops 5,600. A new `audit-*.db` is in
    `/var/backups/spm`.
@@ -438,11 +438,11 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - S1 `349de5c`: `@modelcontextprotocol/sdk` 1.30.1; exact `overrides` in `pnpm-workspace.yaml`.
   `pnpm audit --prod` is clean. One low dev advisory is left (`elliptic`, no patch).
 - N2 `b971d8a`: `.github/workflows/image.yml` builds the image on a PR and pushes
-  `ghcr.io/triplight/spm-proxy:<tag>` on a `v*` tag. Set the package public after the first push.
+  `ghcr.io/triplight/spm:<tag>` on a `v*` tag. Set the package public after the first push.
 - N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC and catches up at start. SQLite lease
   and run history; `GET /api/v1/health` (503 after 26 h without success). `SPM_NIGHTLY`
   (default on; tests and e2e set off). `deploy/systemd/` is deleted. ADR 0009.
-- N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/triplight/spm-proxy:v0.1.0` and keeps `build:`.
+- N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/triplight/spm:v0.1.0` and keeps `build:`.
   `.env` and `stack.env` are both optional; `stack.env` is ignored by git and Docker.
 - T1 logged: `index.test.ts` can leave a `node` child on a fixed port.
 - T1 `c086ac2`: `index.test.ts` spawns `node --import tsx/esm` directly and uses free ports.
