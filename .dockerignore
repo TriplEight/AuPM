@@ -4,6 +4,7 @@ node_modules/
 .claude/
 .env
 .env.*
+stack.env
 !.env.example
 *.db
 *.log

@@ -2,8 +2,19 @@
 #
 # One service (SPEC.md 10.3, ADR 0001): no database container. The SQLite
 # file lives on the named volume "spm-db", mounted at /data inside the
-# container. Secrets and configuration come from the host's .env (gitignored,
-# never baked into the image — see proxy/Dockerfile and .dockerignore).
+# container.
+#
+# This file serves two deploys from one definition:
+# - Local machine: `docker compose up --build` builds from `build:` below
+#   (proxy/Dockerfile) and reads config from .env (gitignored, never baked
+#   into the image — see .dockerignore).
+# - Portainer: `image:` pins the published tag. Bump it in a commit to
+#   deploy a new version; a Portainer git stack redeploys from that commit
+#   (N2). Portainer writes the stack's configured variables to a stack.env
+#   file next to this compose file and supplies it both for ${VAR}
+#   interpolation and, via the env_file entry below, as container
+#   environment.
+# Either config file may be absent; each entry below is optional.
 #
 # The operator's record-review flow (SPEC.md §14, ADR 0007) runs against
 # this same image and service name, from the repository's proxy/Dockerfile
@@ -14,6 +25,10 @@
 # to run without one (CLAUDE.md invariant 5), so this only works
 # interactively — never with `-T`/`--no-TTY`, and never from a non-interactive
 # CI job or cron entry.
+#
+# The nightly job needs no `docker compose run`. The proxy process
+# schedules its own nightly run (ADR 0009); a Portainer redeploy of this
+# service carries the schedule with it.
 #
 # SPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
 # job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
@@ -28,24 +43,28 @@
 
 services:
   proxy:
+    image: ghcr.io/triplight/spm-proxy:v0.1.0
     build:
       context: .
       dockerfile: proxy/Dockerfile
     env_file:
-      - .env
+      - path: .env
+        required: false
+      - path: stack.env
+        required: false
     environment:
       SQLITE_PATH: /data/audit.db
       BACKUP_DIR: /backup
       # Q13: public config that goes into every signed attestation. Set
       # here (not left to env_file alone) so `docker compose up` refuses
       # to start without them, the same way SPM_BACKUP_HOST_DIR does below.
-      SPM_ISSUER_URL: ${SPM_ISSUER_URL:?set SPM_ISSUER_URL in .env to the https origin the team controls}
-      SPM_KEY_VALID_FROM: ${SPM_KEY_VALID_FROM:?set SPM_KEY_VALID_FROM in .env to the attestation key's ISO-8601 UTC provisioning date}
+      SPM_ISSUER_URL: ${SPM_ISSUER_URL:?set SPM_ISSUER_URL in .env or stack.env to the https origin the team controls}
+      SPM_KEY_VALID_FROM: ${SPM_KEY_VALID_FROM:?set SPM_KEY_VALID_FROM in .env or stack.env to the attestation key's ISO-8601 UTC provisioning date}
     ports:
       - "${PORT:-4873}:4873"
     volumes:
       - spm-db:/data
-      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env to the host backup directory}:/backup
+      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env or stack.env to the host backup directory}:/backup
     restart: unless-stopped
 
 volumes:
