@@ -3,10 +3,10 @@
 # Build context is the repository root (pnpm workspace). Build with:
 #   docker build -f proxy/Dockerfile .
 # or via the root compose.yaml, which sets context/dockerfile for the
-# "proxy" service.
+# "spm" service.
 #
 # Two stages: "build" compiles the native better-sqlite3 module and installs
-# only the proxy workspace project's dependencies (pnpm --filter spm-proxy...
+# only the proxy workspace project's dependencies (pnpm --filter ./proxy...
 # keeps the contracts/mcp/cli dependency trees out of this image). "runtime"
 # copies the installed node_modules and proxy source into a slim image with
 # no compiler toolchain, and runs as a non-root user.
@@ -31,14 +31,14 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 # Workspace membership files only (SPEC.md 10.3; pnpm-workspace.yaml lists
-# contracts, proxy, mcp, cli). `--filter spm-proxy...` then installs only
+# contracts, proxy, mcp, cli). `--filter ./proxy...` then installs only
 # the proxy project's own dependency tree, not the other three.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY proxy/package.json proxy/package.json
 COPY contracts/package.json contracts/package.json
 COPY mcp/package.json mcp/package.json
 COPY cli/package.json cli/package.json
-RUN pnpm install --frozen-lockfile --filter spm-proxy...
+RUN pnpm install --frozen-lockfile --filter ./proxy...
 COPY proxy/src proxy/src
 COPY proxy/tsconfig.json proxy/tsconfig.json
 # scripts/record-review.mjs (SPEC §14) is the operator's `docker compose run`
