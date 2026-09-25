@@ -442,3 +442,6 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC and catches up at start. SQLite lease
   and run history; `GET /api/v1/health` (503 after 26 h without success). `SPM_NIGHTLY`
   (default on; tests and e2e set off). `deploy/systemd/` is deleted. ADR 0009.
+- N3 `61dbb8a`: `compose.yaml` pins `ghcr.io/triplight/spm-proxy:v0.1.0` and keeps `build:`.
+  `.env` and `stack.env` are both optional; `stack.env` is ignored by git and Docker.
+- T1 logged: `index.test.ts` can leave a `node` child on a fixed port.
