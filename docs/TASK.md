@@ -428,6 +428,13 @@ Every signed statement carries the issuer, so a wrong value cannot be corrected 
 
 Acceptance: tests for unset, malformed and valid values on both networks. Owner: `x402-proxy-engineer`.
 
+### F1. Compose pins the published image — DONE 68ed80d
+
+The `v0.1.0` image build failed, and the `v0.1.0` tag is deleted. The first published image is
+`ghcr.io/tripleight/spm:v0.1.1`. `compose.yaml` and the MainNet runbook §3 name `v0.1.1`.
+
+Acceptance: `rg 'v0\.1\.0' compose.yaml docs/` finds nothing. Owner: `x402-proxy-engineer`.
+
 ## Order
 
 - **Wave 1 (parallel worktrees):** H1; Q1; Q5; Q9 + Q10; R1.
@@ -436,6 +443,8 @@ Acceptance: tests for unset, malformed and valid values on both networks. Owner:
 - **Qualification (human, by Sept 25):** SPEC §17 Q steps 1–6 on MainNet.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
+- **Wave 6:** release `v0.1.1` → F1 → M0 → MainNet launch (human steps, checked by the
+  orchestrator).
 
 ### S1. Dependency advisories — DONE 349de5c
 
