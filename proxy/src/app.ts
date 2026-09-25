@@ -15,6 +15,7 @@ import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey } from './confi
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
+import healthRouter from './routes/health.js'
 import statusRouter from './routes/status.js'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
 import { isTarballPath, parseTarballPath, TARBALL_PRICE_MICRO } from './x402/tarball.js'
@@ -67,6 +68,12 @@ export function createApp(
   // before the payment gate so it terminates the request itself; it is also
   // absent from the x402 route table, so the gate would no-op on it anyway.
   app.route('/api/v1/status', statusRouter)
+
+  // Free, unauthenticated, never gated — the nightly job's own health
+  // (item N1.6, ADR 0009). Registered before the payment gate for the same
+  // reason as statusRouter above; absent from the x402 route table, so the
+  // gate would no-op on it anyway.
+  app.route('/api/v1/health', healthRouter)
 
   // Free, unauthenticated, never gated — the published attestation public
   // keys (SPEC.md 6.2). A verifier needs this to check a DSSE envelope

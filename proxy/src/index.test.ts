@@ -295,6 +295,11 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
           SPM_ISSUER_URL: VALID_ISSUER_URL,
           SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          // Never let a real-boot subprocess test start the nightly
+          // scheduler: its start-up catch-up run (item N1.2) would make a
+          // live network call to the default MainNet algod/indexer
+          // endpoints, which this test neither expects nor stubs.
+          SPM_NIGHTLY: 'off',
         },
       })
 
@@ -413,6 +418,130 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
 
       const listening = await isPortListening(PORT)
       expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+})
+
+describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
+  const DEAD_FACILITATOR = 'http://127.0.0.1:9'
+  // A closed local port — the fire-and-forget start-up catch-up run's
+  // genesis guard (item N1.2) fails fast against this (ECONNREFUSED)
+  // instead of ever reaching a real network endpoint, so a boot test that
+  // leaves the scheduler on stays hermetic.
+  const DEAD_CHAIN_ENDPOINT = 'http://127.0.0.1:9'
+
+  test(
+    'refuses to boot and never opens the port when SPM_NIGHTLY is neither "on" nor "off"',
+    async () => {
+      const PORT = 39878
+
+      const result = await runIndex(
+        {
+          FACILITATOR_URL: DEAD_FACILITATOR,
+          PORT: String(PORT),
+          NETWORK: 'mainnet',
+          PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+          SPM_ISSUER_URL: VALID_ISSUER_URL,
+          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          SPM_NIGHTLY: 'sometimes',
+        },
+        SUBPROCESS_TIMEOUT_MS,
+      )
+
+      expect(result.code).not.toBe(0)
+      expect(result.code).not.toBeNull()
+      expect(result.stderr).toMatch(/SPM_NIGHTLY/)
+      // Proves the SPM_NIGHTLY guard fired before the (dead) facilitator
+      // was ever contacted, the same proof style as the guards above.
+      expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
+
+      const listening = await isPortListening(PORT)
+      expect(listening).toBe(false)
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  // Boots a real subprocess past every other guard, with a local stub
+  // facilitator (same trick as the PAY_TO "boots normally" test above) and
+  // ALGOD_SERVER/INDEXER_URL pointed at a closed local port — so a
+  // start-up catch-up run, if SPM_NIGHTLY leaves the scheduler on, never
+  // reaches a real network endpoint.
+  async function bootWithNightlyEnv(
+    port: number,
+    nightlyEnv: NodeJS.ProcessEnv,
+  ): Promise<{ stdout: () => string; stop: () => void }> {
+    const feePayer = algosdk.generateAccount().addr.toString()
+    const facilitator = await startStubFacilitator(feePayer)
+    const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
+    const child = spawn('pnpm', ['exec', 'tsx', INDEX_ENTRY], {
+      cwd: PROXY_ROOT,
+      env: {
+        ...process.env,
+        SQLITE_PATH: sqlitePath,
+        PORT: String(port),
+        NETWORK: 'mainnet',
+        FACILITATOR_URL: facilitator.url,
+        PAY_TO_ADDRESS: VALID_APP_ADDRESS,
+        SPM_ISSUER_URL: VALID_ISSUER_URL,
+        SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+        ALGOD_SERVER: DEAD_CHAIN_ENDPOINT,
+        INDEXER_URL: DEAD_CHAIN_ENDPOINT,
+        ...nightlyEnv,
+      },
+    })
+    let stdout = ''
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString()
+    })
+
+    const listening = await waitForPortListening(port, SUBPROCESS_TIMEOUT_MS)
+    expect(listening).toBe(true)
+
+    return {
+      stdout: () => stdout,
+      stop: () => {
+        child.kill('SIGKILL')
+        facilitator.close()
+      },
+    }
+  }
+
+  test(
+    'boots and logs the scheduler-off line when SPM_NIGHTLY=off',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(39879, { SPM_NIGHTLY: 'off' })
+      try {
+        expect(stdout()).toMatch(/spm-nightly: scheduler off \(SPM_NIGHTLY=off\)/)
+      } finally {
+        stop()
+      }
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  test(
+    'boots with the scheduler on when SPM_NIGHTLY=on',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(39880, { SPM_NIGHTLY: 'on' })
+      try {
+        expect(stdout()).not.toMatch(/scheduler off/)
+      } finally {
+        stop()
+      }
+    },
+    SUBPROCESS_TIMEOUT_MS + 5_000,
+  )
+
+  test(
+    'boots with the scheduler on by default when SPM_NIGHTLY is unset',
+    async () => {
+      const { stdout, stop } = await bootWithNightlyEnv(39881, {})
+      try {
+        expect(stdout()).not.toMatch(/scheduler off/)
+      } finally {
+        stop()
+      }
     },
     SUBPROCESS_TIMEOUT_MS + 5_000,
   )

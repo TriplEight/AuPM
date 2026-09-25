@@ -8,10 +8,12 @@
 // ever runs.
 //
 // This module holds the logic; it performs no environment reads and no
-// network I/O of its own — nightly-main.ts wires the real indexer, algod
-// client, and SQLite backup step and is the process entry point a systemd
-// timer runs (`docker compose run --rm proxy pnpm nightly`). This split
-// mirrors reconcile.ts/reconcile-main.ts: runNightly() is what this
+// network I/O of its own. Two real callers run it: proxy/src/index.ts's
+// in-process scheduler (daily at 03:17 UTC, plus a start-up catch-up run —
+// ADR 0009) and nightly-main.ts, the operator's manual entry point. Both
+// call runNightlyWithLease below, never runNightly directly, so the two
+// paths take the same SQLite lease and never overlap (item N1.4). This
+// split mirrors reconcile.ts/reconcile-main.ts: runNightly() is what this
 // directory's own tests exercise directly, with a stub indexer, a stub
 // backup step, and a stub credit chain client — never a live network or
 // chain call.
@@ -19,6 +21,12 @@
 import { PAY_TO } from '../config.js'
 import { type CreditChainClient, runCreditStep } from './credit.js'
 import { type IndexerClient, reconcile } from './reconcile.js'
+import {
+  acquireNightlyLease,
+  recordNightlyRunEnd,
+  recordNightlyRunStart,
+  releaseNightlyLease,
+} from './schema.js'
 
 export interface NightlyDeps {
   indexer: IndexerClient
@@ -39,6 +47,14 @@ export interface NightlyDeps {
   assertGenesisMatches: () => void | Promise<void>
   env?: NodeJS.ProcessEnv
   log?: (line: string) => void
+  /**
+   * Called once, only when the credit step actually credited a batch this
+   * run. Lets runNightlyWithLease record `batch_seq`/`credit_txid` on the
+   * run's SQLite record (item N1.5) without runNightly itself returning a
+   * value — nightly.test.ts's existing `.resolves.toBeUndefined()`
+   * assertions stay unchanged.
+   */
+  onCredited?: (batchSeq: number, creditTxid: string) => void
 }
 
 /**
@@ -79,4 +95,78 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
     return
   }
   log(`spm-nightly: credited batch ${outcome.batchSeq}, txid ${outcome.creditTxid}`)
+  deps.onCredited?.(outcome.batchSeq, outcome.creditTxid)
+}
+
+/** Why runNightlyWithLease did not attempt a run, beyond a normal success
+ * or a caught failure. */
+export type NightlyLeaseOutcome =
+  | { status: 'lease-held' }
+  | { status: 'success' }
+  | { status: 'failed'; error: string }
+
+/**
+ * Runs the nightly job once, under the single SQLite lease (item N1.4, ADR
+ * 0009): acquires it first, records the run's start and end in
+ * `nightly_runs` (item N1.5) regardless of outcome, and always releases
+ * the lease in a `finally` block. `now` is the caller's own clock reading,
+ * so a test never depends on a real wait.
+ *
+ * WARNING: this function never throws. A failed run logs
+ * `spm-nightly: failed — <reason>` and returns `{ status: 'failed', ...
+ * }` instead — the in-process scheduler relies on this to never stop the
+ * server (item N1.3); nightly-main.ts, the manual entry point, reads the
+ * returned status to decide its own process exit code.
+ */
+export async function runNightlyWithLease(
+  deps: NightlyDeps,
+  now: () => Date = () => new Date(),
+): Promise<NightlyLeaseOutcome> {
+  const log = deps.log ?? console.log
+  const startedAt = now().getTime()
+
+  // Both declared outside the try block, and both start unset: a throw from
+  // acquireNightlyLease or recordNightlyRunStart itself (for example
+  // SQLITE_BUSY, an operator's nightly-main.ts run against the same DB
+  // file) must still resolve `failed`, never reject — the scheduler calls
+  // this with `void`, so an unhandled rejection here would kill the server
+  // (item N1.3). `holder` unset means the lease was never acquired, so the
+  // `finally` below must not release someone else's; `runId` unset means no
+  // row exists yet to record an end for.
+  let holder: string | null = null
+  let runId: number | null = null
+  let batchSeq: number | null = null
+  let creditTxid: string | null = null
+
+  try {
+    holder = acquireNightlyLease(startedAt)
+    if (!holder) {
+      log('spm-nightly: another run already holds the lease; exiting')
+      return { status: 'lease-held' }
+    }
+
+    runId = recordNightlyRunStart(startedAt)
+
+    await runNightly({
+      ...deps,
+      onCredited: (seq, txid) => {
+        batchSeq = seq
+        creditTxid = txid
+        deps.onCredited?.(seq, txid)
+      },
+    })
+    recordNightlyRunEnd(runId, now().getTime(), 'success', null, batchSeq, creditTxid)
+    return { status: 'success' }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    if (runId !== null) {
+      recordNightlyRunEnd(runId, now().getTime(), 'failed', reason, batchSeq, creditTxid)
+    }
+    log(`spm-nightly: failed — ${reason}`)
+    return { status: 'failed', error: reason }
+  } finally {
+    if (holder !== null) {
+      releaseNightlyLease(holder)
+    }
+  }
 }
