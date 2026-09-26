@@ -339,7 +339,7 @@ Result, in two parts:
 
 Acceptance: the txid of each step is in `NOTES.md`.
 
-### M0. Move the TestNet deployment (human, before the MainNet deploy)
+### M0. Move the TestNet deployment (human, before the MainNet deploy) — DONE 2026-09-26
 
 TestNet and MainNet run on separate hosts, one instance per host. The current TestNet host
 becomes the MainNet host. Before the MainNet deploy, the operator moves TestNet to its own host:

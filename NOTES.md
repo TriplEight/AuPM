@@ -468,3 +468,11 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
   Digest `sha256:348ec591889f72ccf294be315bcc3e045b85d2cb80a009564647c0e874d13f4b`.
 - Tag `v0.1.0` deleted; its image run failed and GHCR has no `v0.1.0`.
 - F1 `68ed80d`: `compose.yaml` and the MainNet runbook pin `v0.1.1`.
+
+## 2026-09-26 — M0: TestNet moved
+- TestNet now runs on its own host (rootless podman-compose). `audit.db` copied from the old host.
+- Checks over the public origin: health 200 (`lastRun` success), `ms@2.1.3`
+  `COMMUNITY_REVIEWED` (anchor `4ABHLGBLN54YZMYIHIOVVITWGBJ4RUIJLLBOKGNFBRWZF36OTD3A`),
+  `spm-keys.json` 200.
+- Decision: the TestNet host reuses the attestation key, so `SPM_KEY_VALID_FROM` keeps the key's
+  first date. Only `SPM_ISSUER_URL` changed.
