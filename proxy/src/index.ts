@@ -7,13 +7,15 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
 import { buildRealNightlyDeps } from './claims/nightly-wiring.js'
-import { startNightlyScheduler } from './claims/scheduler.js'
+import { type SchedulerHandle, startNightlyScheduler } from './claims/scheduler.js'
 import {
   assertValidIssuerUrl,
   assertValidKeyValidFrom,
   assertValidPayTo,
   FACILITATOR_URL,
 } from './config.js'
+import db from './db.js'
+import { installShutdownHandlers } from './shutdown.js'
 import { boot } from './x402/server.js'
 
 const PORT = Number(process.env.PORT ?? 4873)
@@ -65,7 +67,7 @@ async function main(): Promise<void> {
     const { httpServer } = await boot()
     const app = createApp(httpServer)
 
-    serve({ fetch: app.fetch, port: PORT }, () => {
+    const server = serve({ fetch: app.fetch, port: PORT }, () => {
       console.log(`SPM proxy listening on http://localhost:${PORT}`)
     })
 
@@ -74,11 +76,24 @@ async function main(): Promise<void> {
     // more than 24 hours old or none exists. Never awaited — a slow or
     // failing run must never delay the port opening above, and
     // runNightlyWithLease itself never throws (item N1.3).
+    let scheduler: SchedulerHandle | null = null
     if (nightlyMode === 'off') {
       console.log('spm-nightly: scheduler off (SPM_NIGHTLY=off)')
     } else {
-      startNightlyScheduler(buildRealNightlyDeps())
+      scheduler = startNightlyScheduler(buildRealNightlyDeps())
     }
+
+    // Clean shutdown on SIGTERM/SIGINT (item F4): stop the scheduler, close
+    // the server, give an in-flight nightly run a bounded window, then
+    // close SQLite. See shutdown.ts for why the deadline sits below
+    // Docker's default stop_grace_period.
+    installShutdownHandlers({
+      stopScheduler: () => scheduler?.stop(),
+      waitForNightlyIdle: () => scheduler?.waitForIdle() ?? Promise.resolve(),
+      closeServer: () => new Promise((resolve) => server.close(() => resolve())),
+      closeDb: () => db.close(),
+      exit: (code) => process.exit(code),
+    })
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     // WARNING: never call serve() here. A misconfigured facilitator must

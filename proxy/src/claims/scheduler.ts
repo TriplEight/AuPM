@@ -10,7 +10,7 @@
 // is not "off" — this module performs no environment reads and no network
 // I/O of its own.
 
-import { type NightlyDeps, runNightlyWithLease } from './nightly.js'
+import { type NightlyDeps, type NightlyLeaseOutcome, runNightlyWithLease } from './nightly.js'
 import { getLastSuccessfulNightlyRun, type NightlyRunRow } from './schema.js'
 
 export const NIGHTLY_HOUR_UTC = 3
@@ -73,6 +73,12 @@ export interface SchedulerHandle {
    * progress — runNightlyWithLease's own lease and try/finally handle
    * that. */
   stop: () => void
+  /** Resolves once the nightly run in flight (if any) when called
+   * finishes; resolves immediately when none is. Never rejects —
+   * runNightlyWithLease never throws (item N1.3). shutdown.ts (item F4)
+   * uses this to give an in-flight run a bounded window before the process
+   * closes the database and exits. */
+  waitForIdle: () => Promise<void>
 }
 
 /**
@@ -90,9 +96,17 @@ export function startNightlyScheduler(
   clock: SchedulerClock = realSchedulerClock,
 ): SchedulerHandle {
   let timer: unknown
+  // The run currently in flight, or null between runs. Tracked so
+  // waitForIdle (item F4) can tell shutdown.ts whether a run is in
+  // progress without touching its lease or its SQLite writes.
+  let inFlight: Promise<NightlyLeaseOutcome> | null = null
 
   const runOnce = (): void => {
-    void runNightlyWithLease(deps, clock.now)
+    const run = runNightlyWithLease(deps, clock.now)
+    inFlight = run
+    void run.finally(() => {
+      if (inFlight === run) inFlight = null
+    })
   }
 
   const scheduleNext = (): void => {
@@ -111,5 +125,6 @@ export function startNightlyScheduler(
 
   return {
     stop: () => clock.clearTimeout(timer),
+    waitForIdle: () => (inFlight ? inFlight.then(() => undefined) : Promise.resolve()),
   }
 }
