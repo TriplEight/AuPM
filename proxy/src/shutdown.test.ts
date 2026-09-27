@@ -120,6 +120,42 @@ describe('runShutdown: a run is still busy at the deadline', () => {
   })
 })
 
+describe('runShutdown: the server close never resolves (a lingering keep-alive)', () => {
+  test('a nightly-idle process still exits 0 within the deadline and closes the db', async () => {
+    const timer = fakeTimer()
+    const deps = baseDeps({
+      closeServer: vi.fn(() => new Promise<void>(() => {})),
+      setTimeout: timer.setTimeout,
+      clearTimeout: timer.clearTimeout,
+    })
+
+    await runShutdown(deps)
+
+    expect(deps.closeDb).toHaveBeenCalledTimes(1)
+    expect(deps.exit).toHaveBeenCalledTimes(1)
+    expect(deps.exit).toHaveBeenCalledWith(0)
+  })
+
+  test('a busy nightly run still exits non-zero at the deadline and never closes the db', async () => {
+    const timer = fakeTimer()
+    const deps = baseDeps({
+      closeServer: vi.fn(() => new Promise<void>(() => {})),
+      waitForNightlyIdle: vi.fn(() => new Promise<void>(() => {})),
+      setTimeout: timer.setTimeout,
+      clearTimeout: timer.clearTimeout,
+    })
+
+    const done = runShutdown(deps)
+    await new Promise((resolve) => setImmediate(resolve))
+    timer.fire()
+    await done
+
+    expect(deps.closeDb).not.toHaveBeenCalled()
+    expect(deps.exit).toHaveBeenCalledTimes(1)
+    expect(deps.exit).toHaveBeenCalledWith(1)
+  })
+})
+
 describe('installShutdownHandlers', () => {
   function fakeProcess(): {
     on: (event: string, cb: () => void) => void

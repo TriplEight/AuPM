@@ -90,7 +90,17 @@ async function main(): Promise<void> {
     installShutdownHandlers({
       stopScheduler: () => scheduler?.stop(),
       waitForNightlyIdle: () => scheduler?.waitForIdle() ?? Promise.resolve(),
-      closeServer: () => new Promise((resolve) => server.close(() => resolve())),
+      closeServer: () => {
+        // server.close()'s own callback fires only once every connection has
+        // ended — shutdown.ts's runShutdown never waits on this past its
+        // deadline, but closing idle keep-alive sockets now (Node >= 18.2)
+        // still helps this promise settle sooner instead of lingering for
+        // no reason once the deadline has already moved on.
+        const closed = new Promise<void>((resolve) => server.close(() => resolve()))
+        const withCloseIdle = server as { closeIdleConnections?: () => void }
+        withCloseIdle.closeIdleConnections?.()
+        return closed
+      },
       closeDb: () => db.close(),
       exit: (code) => process.exit(code),
     })

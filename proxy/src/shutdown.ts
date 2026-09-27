@@ -7,13 +7,17 @@
 // before SIGKILL lands — possibly mid nightly-job SQLite write (ADR 0009).
 //
 // This module gives the process a deadline of its own, below Docker's
-// default: it stops the nightly scheduler first (no new run starts), stops
-// the HTTP listener, gives an in-flight nightly run a bounded window to
-// finish, then closes SQLite — but only when that run finished cleanly. A
-// run still busy at the deadline is left alone: this module never touches
-// its lease or its in-progress write, and exits non-zero so the caller
-// knows the 1-hour lease-expiry path (nightly_lease, schema.ts) is what
-// reclaims it, not a clean release here.
+// default: it stops the nightly scheduler first (no new run starts), starts
+// closing the HTTP listener, gives an in-flight nightly run a bounded
+// window to finish, then closes SQLite — but only when that run finished
+// cleanly. The server's own close is started but never awaited past the
+// deadline: a keep-alive connection behind a reverse proxy can hold it
+// pending indefinitely, and waiting on it would let that alone burn the
+// whole budget (see runShutdown's own warning below). A nightly run still
+// busy at the deadline is left alone: this module never touches its lease
+// or its in-progress write, and exits non-zero so the caller knows the
+// 1-hour lease-expiry path (nightly_lease, schema.ts) is what reclaims it,
+// not a clean release here.
 //
 // Every dependency is injected — no test here opens a real server, a real
 // database, or waits on a real timer.
@@ -31,7 +35,9 @@ export interface ShutdownDeps {
    * so there is nothing here to catch. */
   waitForNightlyIdle: () => Promise<void>
   /** Stops the HTTP server from accepting new connections and resolves once
-   * it has fully closed. */
+   * it has fully closed. runShutdown starts this but never awaits it past
+   * the deadline (see its own warning) — a lingering keep-alive connection
+   * must never hold up the database close or the process exit. */
   closeServer: () => Promise<void>
   /** Closes the SQLite handle. Called only when no nightly run is in
    * flight — never under a running write. */
@@ -44,12 +50,13 @@ export interface ShutdownDeps {
 }
 
 /**
- * Races `waitForNightlyIdle` against `deadlineMs`. Resolves `true` when the
- * nightly run (if any) finished first, `false` when the deadline won.
- * Never rejects.
+ * Races `work` against `deadlineMs`. Resolves `true` when `work` finished
+ * first, `false` when the deadline won. Never rejects — `work` itself must
+ * not reject (runShutdown's callers guarantee this: closeServer and
+ * waitForNightlyIdle never throw).
  */
-function raceIdleAgainstDeadline(
-  waitForNightlyIdle: () => Promise<void>,
+function raceAgainstDeadline(
+  work: Promise<void>,
   deadlineMs: number,
   setTimeoutFn: (callback: () => void, ms: number) => unknown,
   clearTimeoutFn: (handle: unknown) => void,
@@ -62,7 +69,7 @@ function raceIdleAgainstDeadline(
       resolve(false)
     }, deadlineMs)
 
-    void waitForNightlyIdle().then(() => {
+    void work.then(() => {
       if (settled) return
       settled = true
       clearTimeoutFn(timer)
@@ -73,10 +80,22 @@ function raceIdleAgainstDeadline(
 
 /**
  * Runs the shutdown sequence once (item F4, results 1-2): stop the
- * scheduler, close the server, wait for an in-flight nightly run up to
- * SHUTDOWN_DEADLINE_MS, then close the database only when that run finished
- * in time. Exits 0 on a clean shutdown, 1 when the deadline won — the
- * lease-expiry path then reclaims the run's lease, never this module.
+ * scheduler, start closing the server, then race an in-flight nightly run
+ * against SHUTDOWN_DEADLINE_MS. The database closes only when that run
+ * finished in time. Exits 0 on a clean shutdown, 1 when the deadline won —
+ * the lease-expiry path then reclaims a still-running nightly run's lease,
+ * never this module.
+ *
+ * WARNING: `deps.closeServer()` is started but never awaited before the
+ * deadline race, and its outcome plays no part in that race. Behind a
+ * reverse proxy a keep-alive connection can hold Node's `server.close()`
+ * callback pending well past the deadline — Node invokes it only once
+ * every connection has ended — so awaiting it first, or gating the
+ * deadline on it, would let one lingering connection burn the whole budget
+ * and delay this process's own exit past Docker's SIGKILL, the exact
+ * failure this module exists to avoid. A server still draining at the
+ * deadline is not a reason to withhold the database close: only a nightly
+ * run's own SQLite write is.
  */
 export async function runShutdown(deps: ShutdownDeps): Promise<void> {
   const log = deps.log ?? console.log
@@ -84,10 +103,13 @@ export async function runShutdown(deps: ShutdownDeps): Promise<void> {
   const clearTimeoutFn = deps.clearTimeout ?? ((handle) => clearTimeout(handle as NodeJS.Timeout))
 
   deps.stopScheduler()
-  await deps.closeServer()
+  // Kicked off, not awaited: see the warning above. A rejection here (for
+  // example a server already closed) must not become an unhandled
+  // rejection — it plays no part in the deadline race either way.
+  deps.closeServer().catch(() => {})
 
-  const idleInTime = await raceIdleAgainstDeadline(
-    deps.waitForNightlyIdle,
+  const idleInTime = await raceAgainstDeadline(
+    deps.waitForNightlyIdle(),
     SHUTDOWN_DEADLINE_MS,
     setTimeoutFn,
     clearTimeoutFn,
