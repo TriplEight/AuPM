@@ -75,8 +75,11 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    Never `PAY_TO_MNEMONIC`, `DEPLOYER_MNEMONIC`, or an auditor's or donor's mnemonic.
    Check: `grep -E 'MNEMONIC' .env` on the server prints only `CREDITER_MNEMONIC`.
 
-2. `compose.yaml` refuses to start without `SPM_ISSUER_URL`, `SPM_KEY_VALID_FROM` and
-   `SPM_BACKUP_HOST_DIR`. `SPM_BACKUP_HOST_DIR` is a host directory, owned by uid 1000, bind-
+2. `SPM_ISSUER_URL` and `SPM_KEY_VALID_FROM` come only from `.env` or `stack.env`. A shell
+   export does not change them. The server refuses to boot without valid values (Q13).
+   `compose.yaml` refuses to start without `SPM_BACKUP_HOST_DIR`. `SPM_BACKUP_HOST_DIR` and
+   `PORT` are interpolated, so a shell export of either overrides the file; unset both in the
+   shell before `up`. `SPM_BACKUP_HOST_DIR` is a host directory, owned by uid 1000, bind-
    mounted at `/backup`.
    ```bash
    sudo mkdir -p <path> && sudo chown 1000:1000 <path>

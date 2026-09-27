@@ -423,7 +423,8 @@ After the tracks are merged and `verify.sh` passes:
 
 Result: on every network, the server refuses to boot when `SPM_ISSUER_URL` is not an
 `https://` origin or `SPM_KEY_VALID_FROM` is not an ISO-8601 UTC time. Neither has a default.
-`compose.yaml` refuses to start without them. TestNet tests the same config as MainNet. The team does not own the placeholder domain.
+They come only from `.env` or `stack.env`; a shell export does not change them (F2). TestNet
+tests the same config as MainNet. The team does not own the placeholder domain.
 Every signed statement carries the issuer, so a wrong value cannot be corrected later.
 
 Acceptance: tests for unset, malformed and valid values on both networks. Owner: `x402-proxy-engineer`.
@@ -434,6 +435,15 @@ The `v0.1.0` image build failed, and the `v0.1.0` tag is deleted. The first publ
 `ghcr.io/tripleight/spm:v0.1.1`. `compose.yaml` and the MainNet runbook §3 name `v0.1.1`.
 
 Acceptance: `rg 'v0\.1\.0' compose.yaml docs/` finds nothing. Owner: `x402-proxy-engineer`.
+
+### F2. Issuer and key date come only from the env file — DONE
+
+Compose interpolation lets a shell export override `.env`. `compose.yaml` no longer interpolates
+`SPM_ISSUER_URL` or `SPM_KEY_VALID_FROM`; they come only from `env_file`. The server still refuses
+to boot without valid values (Q13). `SPM_BACKUP_HOST_DIR` and `PORT` stay interpolated.
+
+Acceptance: with a shell export of `SPM_ISSUER_URL`, `podman-compose config` has no
+`environment:` entry for it. Owner: `x402-proxy-engineer`.
 
 ## Order
 
