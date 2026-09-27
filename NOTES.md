@@ -476,3 +476,12 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
   `spm-keys.json` 200.
 - Decision: the TestNet host reuses the attestation key, so `SPM_KEY_VALID_FROM` keeps the key's
   first date. Only `SPM_ISSUER_URL` changed.
+
+## 2026-09-27 — wave 6: F2, F4
+- F2 `e3d349c`: Compose reads the issuer and key date only from the env file.
+- F4 `e9aa06f`, `fedaa6c`, `c34839f`: clean shutdown on SIGTERM, 8 s deadline, db closes only
+  when no nightly run is in flight.
+- TestNet outage: the rootless network helper stopped when the login session that ran `up` ended.
+  The nightly run failed at the first chain call; no ledger or chain state changed.
+- F3 (health 503 on a failed run) is waiting for a decision; ADR 0009 already returns 503 after 26 h.
+- MainNet steps move to the next session.
