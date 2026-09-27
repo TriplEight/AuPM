@@ -103,10 +103,13 @@ export async function runShutdown(deps: ShutdownDeps): Promise<void> {
   const clearTimeoutFn = deps.clearTimeout ?? ((handle) => clearTimeout(handle as NodeJS.Timeout))
 
   deps.stopScheduler()
-  // Kicked off, not awaited: see the warning above. A rejection here (for
-  // example a server already closed) must not become an unhandled
-  // rejection — it plays no part in the deadline race either way.
-  deps.closeServer().catch(() => {})
+  // Kicked off, not awaited: see the warning above. A rejection here plays
+  // no part in the deadline race either way, but it must never be
+  // swallowed silently — log it and move on.
+  deps.closeServer().catch((err: unknown) => {
+    const reason = err instanceof Error ? err.message : String(err)
+    log(`spm-shutdown: server close failed — ${reason}`)
+  })
 
   const idleInTime = await raceAgainstDeadline(
     deps.waitForNightlyIdle(),
