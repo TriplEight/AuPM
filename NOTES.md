@@ -483,5 +483,6 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
   when no nightly run is in flight.
 - TestNet outage: the rootless network helper stopped when the login session that ran `up` ended.
   The nightly run failed at the first chain call; no ledger or chain state changed.
-- F3 (health 503 on a failed run) is waiting for a decision; ADR 0009 already returns 503 after 26 h.
+- F3 dropped: ADR 0009 already returns 503 when the last success is older than 26 h.
+- TestNet now runs on rootful Docker Compose, the same runtime as MainNet.
 - MainNet steps move to the next session.
