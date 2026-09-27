@@ -156,6 +156,21 @@ describe('runShutdown: the server close never resolves (a lingering keep-alive)'
   })
 })
 
+describe('runShutdown: the server close rejects', () => {
+  test('logs the failure and still exits 0 when nightly is idle', async () => {
+    const deps = baseDeps({
+      closeServer: vi.fn().mockRejectedValue(new Error('ECONNRESET')),
+    })
+
+    await runShutdown(deps)
+    await new Promise((resolve) => setImmediate(resolve))
+
+    expect(deps.log).toHaveBeenCalledWith('spm-shutdown: server close failed — ECONNRESET')
+    expect(deps.exit).toHaveBeenCalledTimes(1)
+    expect(deps.exit).toHaveBeenCalledWith(0)
+  })
+})
+
 describe('installShutdownHandlers', () => {
   function fakeProcess(): {
     on: (event: string, cb: () => void) => void
