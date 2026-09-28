@@ -5,11 +5,11 @@ import { EventEmitter } from 'node:events'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { attestLockfileTool } from 'aupm-mcp/tools/attest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
-vi.mock('../../mcp/src/tools/attest.js', () => ({
+vi.mock('aupm-mcp/tools/attest', () => ({
   attestLockfileTool: { handler: vi.fn() },
 }))
 

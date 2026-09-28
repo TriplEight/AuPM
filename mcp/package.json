@@ -6,6 +6,11 @@
   "bin": {
     "aupm-mcp": "dist/index.js"
   },
+  "exports": {
+    "./money": "./src/money.ts",
+    "./donor": "./src/donor.ts",
+    "./tools/attest": "./src/tools/attest.ts"
+  },
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "node --import tsx/esm src/index.ts",
