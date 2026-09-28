@@ -508,3 +508,12 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Contract artifacts rebuilt `7e6291e`; e2e share 300 and app schema 5/3 `45d2e54`. `VERIFY: PASS`.
 - Open (human): LocalNet rehearsal (Docker); new TestNet app; image release; npm publish.
 - Next action: a human runs the LocalNet rehearsal from `docs/TASK.md` P8c.
+
+## 2026-09-29 — wave 8: W1, W5, W3
+- W1 `e2d7434`: runbook §10 `announceRelease(to)` targets the new app, never `payTo`; §2a funding
+  order, box minimum balance per identity, MainNet submit by `curl`; §6 app balance check.
+- W5 `21b6900`: `GET /` serves the `og:` page; `og:image` at `/.well-known/aupm-og.png`; cli and
+  mcp default to `https://aupm.fyi` (`aupm-mcp/proxy-url`).
+- W3 `b2c83e4`: `CREDITER_MNEMONIC_FILE`, `ATTEST_SIGNING_KEY_FILE`; Compose file secrets.
+- Next: W2 (public texts; moves this log to `NOTES.local.md`), then W4 (local file).
+- Blocked (human): MainNet v1 deploy by the runbook; host secret files; npm publish.
