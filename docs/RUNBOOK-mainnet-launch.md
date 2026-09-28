@@ -138,6 +138,8 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
 
 2. `AUPM_ISSUER_URL` and `AUPM_KEY_VALID_FROM` come only from `.env` or `stack.env`. A shell
    export does not change them. The server refuses to boot without valid values (Q13).
+   CAUTION: a new `ATTEST_SIGNING_KEY` gets a new `AUPM_KEY_VALID_FROM` (today's UTC date). A
+   reused key keeps its existing `AUPM_KEY_VALID_FROM` unchanged.
    `compose.yaml` refuses to start without `AUPM_BACKUP_HOST_DIR`. `AUPM_BACKUP_HOST_DIR` and
    `PORT` are interpolated, so a shell export of either overrides the file; unset both in the
    shell before `up`. `AUPM_BACKUP_HOST_DIR` is a host directory, owned by uid 1000, bind-
@@ -145,6 +147,9 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    ```bash
    sudo mkdir -p <path> && sudo chown 1000:1000 <path>
    ```
+   Compose prefixes the named volume `aupm-db` with the project name — the compose file's
+   directory name, unless `COMPOSE_PROJECT_NAME` or a top-level `name:` overrides it — for
+   example `aupm_aupm-db`. List the real name with `docker volume ls`.
    Check: `docker compose config` prints the resolved service with no missing-variable error.
 
 3. Publish the image. Push a `v*` tag (the first published release is `v0.1.1`, the version that
@@ -165,7 +170,24 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    `http://localhost:<PORT>`.
    Check: `curl -s https://<mainnet-domain>/api/v1/status/ms/2.1.3` returns JSON.
 
-6. Start the stack (Portainer deploys it; on a host without Portainer, run the command below).
+6. On a host that already ran the pre-rename deployment, migrate its volume and its env names
+   before the first start of the renamed image:
+   1. Stop the running service: `docker compose down` (this does not remove volumes).
+   2. Create the new volume: `docker volume create <project>_aupm-db`.
+   3. Copy the old volume's data into the new one with a throwaway container:
+      ```bash
+      docker run --rm -v <project>_spm-db:/from -v <project>_aupm-db:/to \
+        alpine cp -a /from/. /to/
+      ```
+   4. In the host `.env` or Portainer `stack.env`, rename every `SPM_*` variable to its `AUPM_*`
+      form: `SPM_NIGHTLY` to `AUPM_NIGHTLY`, `SPM_ISSUER_URL` to `AUPM_ISSUER_URL`,
+      `SPM_KEY_VALID_FROM` to `AUPM_KEY_VALID_FROM`, `SPM_BACKUP_HOST_DIR` to
+      `AUPM_BACKUP_HOST_DIR`, `SPM_DONOR_MNEMONIC` to `AUPM_DONOR_MNEMONIC`, `SPM_PROXY_URL` to
+      `AUPM_PROXY_URL`.
+   Check: `docker volume ls` shows `<project>_aupm-db`. After step 7 starts the service, the
+   status route (step 5's check) reports the pre-migration reviews.
+
+7. Start the stack (Portainer deploys it; on a host without Portainer, run the command below).
    ```bash
    docker compose up -d
    ```
@@ -174,7 +196,7 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    After that run, `curl -s https://<mainnet-domain>/api/v1/health` returns 200. A 503 with
    `"lastSuccess": null` means the run failed: read the log line `aupm-nightly: failed — …`.
 
-7. Add `og:site_name`, `og:title`, `og:description` and `og:image` at the domain root for the
+8. Add `og:site_name`, `og:title`, `og:description` and `og:image` at the domain root for the
    Bazaar merchant card. No route in this repository serves them. They belong to the front page
    deployed alongside the proxy.
    Check: `curl -s https://<mainnet-domain>/ | grep -c 'og:'` prints 4 or more.
