@@ -252,7 +252,7 @@ export function assertPlainUsdcTransferNoInner(transaction, { payToAddress, asse
 
 // ── On-chain: PaymentRouter 250-package credit/claim rehearsal (R3a) ───────
 //
-// One reviewed package's auditor share is 400 microUSDC — far below
+// One reviewed package's auditor share is 300 microUSDC — far below
 // MIN_CLAIM (100,000, contract.algo.ts). This rehearsal pays for
 // ONCHAIN_ENTRY_COUNT reviewed packages in one lockfile attestation so both
 // the auditor and ops claims clear MIN_CLAIM in a single run. Every fixture
@@ -277,9 +277,9 @@ const ONCHAIN_REPO = 'npm:aupm-e2e-rehearsal'
 const ONCHAIN_REVIEWER_LOGIN = 'aupm-e2e-auditor'
 const ONCHAIN_IDENTITY = `github:${ONCHAIN_REVIEWER_LOGIN}`
 const ONCHAIN_OPS_IDENTITY = 'ops'
-// SPEC §13.2 MVP split: 400 auditor / 600 ops per 1,000 microUSDC paid.
+// SPEC §13.2 MVP split: 300 auditor / 700 ops per 1,000 microUSDC paid.
 const ONCHAIN_TOTAL_MICRO = ONCHAIN_ENTRY_COUNT * 1_000
-const ONCHAIN_AUDITOR_SHARE_MICRO = (ONCHAIN_TOTAL_MICRO * 400) / 1_000
+const ONCHAIN_AUDITOR_SHARE_MICRO = (ONCHAIN_TOTAL_MICRO * 300) / 1_000
 const ONCHAIN_OPS_SHARE_MICRO = ONCHAIN_TOTAL_MICRO - ONCHAIN_AUDITOR_SHARE_MICRO
 
 const ONCHAIN_REQUIRED_ENV_VARS = ['DEPLOYER_MNEMONIC', 'CREDITER_MNEMONIC', 'AUPM_DONOR_MNEMONIC']

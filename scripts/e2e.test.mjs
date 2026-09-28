@@ -95,13 +95,13 @@ test("claimantFundingMicroAlgo covers MBR, one ASA opt-in, the opt-in fee, and c
 })
 
 test('deployerFundingTotalMicroAlgo funds payTo, both claimants, the app account, and deploy fees', () => {
-  assert.equal(deployerFundingTotalMicroAlgo(), 2_007_500)
+  assert.equal(deployerFundingTotalMicroAlgo(), 2_114_500)
 })
 
 // --- Creator app-creation MBR (coordinator scope addition, R3c) ------------
 
-test('creatorAppMbrIncreaseMicroAlgo pins the real PaymentRouter schema (3 global uints, 2 global byte-slices, 0 extra pages)', () => {
-  assert.equal(creatorAppMbrIncreaseMicroAlgo(), 285_500)
+test('creatorAppMbrIncreaseMicroAlgo pins the real PaymentRouter schema (5 global uints, 3 global byte-slices, 0 extra pages)', () => {
+  assert.equal(creatorAppMbrIncreaseMicroAlgo(), 392_500)
 })
 
 test('creatorAppMbrIncreaseMicroAlgo grows when the global schema grows — never a hardcoded guess', () => {
