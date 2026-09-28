@@ -1,3 +1,5 @@
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { TestExecutionContext } from '@algorandfoundation/algorand-typescript-testing'
 import { afterEach, describe, expect, test } from 'vitest'
 import { PaymentRouter } from './contract.algo'
@@ -278,5 +280,53 @@ describe('PaymentRouter', () => {
     const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
     expect(rekeyTxn.sender).toEqual(payTo)
     expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+  })
+
+  // CAUTION: algorand-typescript-testing calls contract methods directly.
+  // It does not build or run the ARC-4 router the compiled approval program
+  // uses to dispatch on OnCompletion. So this suite cannot send a real
+  // UpdateApplication or DeleteApplication application call and observe the
+  // router reject it; that only happens under Puya-compiled TEAL (see
+  // docs/RUNBOOK-contract-build.md). Instead, this proves the two facts that
+  // make that rejection follow: the class defines no handler PaymentRouter
+  // routes to either OnCompletion, and the generated ARC-56 spec lists
+  // neither action for any method or bare call.
+  describe('UpdateApplication / DeleteApplication have no route', () => {
+    test('the contract defines no updateApplication() or deleteApplication() method', () => {
+      const contract = ctx.contract.create(PaymentRouter)
+
+      expect(typeof (contract as unknown as Record<string, unknown>).updateApplication).toEqual(
+        'undefined',
+      )
+      expect(typeof (contract as unknown as Record<string, unknown>).deleteApplication).toEqual(
+        'undefined',
+      )
+    })
+
+    test('the ARC-56 spec routes no method or bare call to UpdateApplication or DeleteApplication', () => {
+      const arc56Path = path.join(
+        __dirname,
+        '..',
+        'artifacts',
+        'payment_router',
+        'PaymentRouter.arc56.json',
+      )
+      const arc56 = JSON.parse(fs.readFileSync(arc56Path, 'utf8')) as {
+        methods: Array<{ name: string; actions: { create: string[]; call: string[] } }>
+        bareActions: { create: string[]; call: string[] }
+      }
+
+      const forbidden = ['UpdateApplication', 'DeleteApplication']
+      for (const method of arc56.methods) {
+        for (const action of forbidden) {
+          expect(method.actions.create).not.toContain(action)
+          expect(method.actions.call).not.toContain(action)
+        }
+      }
+      for (const action of forbidden) {
+        expect(arc56.bareActions.create).not.toContain(action)
+        expect(arc56.bareActions.call).not.toContain(action)
+      }
+    })
   })
 })
