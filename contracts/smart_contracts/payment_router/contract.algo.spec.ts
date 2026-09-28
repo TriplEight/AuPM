@@ -52,7 +52,7 @@ describe('PaymentRouter', () => {
 
   const balanceOf = (contract: PaymentRouter, identity: string) => contract.balances(identity).value
 
-  test('credit(): one tarball payment (1,000) credits auditor 400, ops 600', () => {
+  test('credit(): one tarball payment (1,000) credits auditor 300, ops 700', () => {
     const { contract, crediter, mockUsdc } = setup(1_000n)
     void mockUsdc
 
@@ -60,13 +60,13 @@ describe('PaymentRouter', () => {
       contract,
       () =>
         contract.credit(1n, 1000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 400n },
+          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
         ]),
       { sender: crediter },
     )
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(400n)
-    expect(balanceOf(contract, 'ops')).toEqual(600n)
+    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
+    expect(balanceOf(contract, 'ops')).toEqual(700n)
   })
 
   test('credit(): one lockfile payment (3,000, 3 reviewed packages) sums exactly', () => {
@@ -76,33 +76,51 @@ describe('PaymentRouter', () => {
       contract,
       () =>
         contract.credit(1n, 3000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 400n },
-          { repo: 'octo/repo', identity: 'github:bob', amount: 400n },
-          { repo: 'octo/repo', identity: 'github:carol', amount: 400n },
+          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
+          { repo: 'octo/repo', identity: 'github:bob', amount: 300n },
+          { repo: 'octo/repo', identity: 'github:carol', amount: 300n },
         ]),
       { sender: crediter },
     )
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(400n)
-    expect(balanceOf(contract, 'github:bob')).toEqual(400n)
-    expect(balanceOf(contract, 'github:carol')).toEqual(400n)
-    expect(balanceOf(contract, 'ops')).toEqual(1_800n)
+    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
+    expect(balanceOf(contract, 'github:bob')).toEqual(300n)
+    expect(balanceOf(contract, 'github:carol')).toEqual(300n)
+    expect(balanceOf(contract, 'ops')).toEqual(2_100n)
   })
 
-  test('credit(): two payments for the same (repo, identity) collapse into one 800 entry', () => {
+  test('credit(): two payments for the same (repo, identity) collapse into one 600 entry', () => {
     const { contract, crediter } = setup(2_000n)
 
     callInScope(
       contract,
       () =>
         contract.credit(1n, 2000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 800n },
+          { repo: 'octo/repo', identity: 'github:alice', amount: 600n },
         ]),
       { sender: crediter },
     )
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(800n)
-    expect(balanceOf(contract, 'ops')).toEqual(1_200n)
+    expect(balanceOf(contract, 'github:alice')).toEqual(600n)
+    expect(balanceOf(contract, 'ops')).toEqual(1_400n)
+  })
+
+  test('credit(): an odd attributedTotal (1,003) rounds the auditor share down', () => {
+    // 1,003 x 300 / 1000 = 300.9 -> integer division floors to 300; ops
+    // gets the remainder (703), never a fraction (invariant 7).
+    const { contract, crediter } = setup(1_003n)
+
+    callInScope(
+      contract,
+      () =>
+        contract.credit(1n, 1003n, 0n, [
+          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
+        ]),
+      { sender: crediter },
+    )
+
+    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
+    expect(balanceOf(contract, 'ops')).toEqual(703n)
   })
 
   test('credit(): unattributedTotal 5,123 with attributedTotal 0 credits ops only', () => {
@@ -113,7 +131,7 @@ describe('PaymentRouter', () => {
     expect(balanceOf(contract, 'ops')).toEqual(5_123n)
   })
 
-  test('credit(): entries not summing to attributedTotal x 400 / 1000 fails', () => {
+  test('credit(): entries not summing to attributedTotal x 300 / 1000 fails', () => {
     const { contract, crediter } = setup(1_000n)
 
     expect(() =>
@@ -121,7 +139,7 @@ describe('PaymentRouter', () => {
         contract,
         () =>
           contract.credit(1n, 1000n, 0n, [
-            { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
+            { repo: 'octo/repo', identity: 'github:alice', amount: 200n },
           ]),
         { sender: crediter },
       ),
@@ -169,12 +187,12 @@ describe('PaymentRouter', () => {
       contract,
       () =>
         contract.credit(1n, 1000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:dave', amount: 400n },
+          { repo: 'octo/repo', identity: 'github:dave', amount: 300n },
         ]),
       { sender: crediter },
     )
 
-    expect(balanceOf(contract, 'github:dave')).toEqual(400n)
+    expect(balanceOf(contract, 'github:dave')).toEqual(300n)
   })
 
   test('admin methods reject a non-admin sender', () => {
@@ -189,7 +207,10 @@ describe('PaymentRouter', () => {
       callInScope(contract, () => contract.setIdentity('ops', someone), { sender: notAdmin }),
     ).toThrow('admin only')
     expect(() =>
-      callInScope(contract, () => contract.releaseAuthority(someone), { sender: notAdmin }),
+      callInScope(contract, () => contract.announceRelease(someone), { sender: notAdmin }),
+    ).toThrow('admin only')
+    expect(() =>
+      callInScope(contract, () => contract.executeRelease(), { sender: notAdmin }),
     ).toThrow('admin only')
   })
 
@@ -241,7 +262,7 @@ describe('PaymentRouter', () => {
   })
 
   test('claim(): an admin remap moves future claims to the new address', () => {
-    const { contract, admin, crediter } = setup(250_000n)
+    const { contract, admin, crediter } = setup(400_000n)
     const oldAddr = ctx.any.account()
     const newAddr = ctx.any.account()
 
@@ -249,8 +270,8 @@ describe('PaymentRouter', () => {
     callInScope(
       contract,
       () =>
-        contract.credit(1n, 250000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:erin', amount: 100_000n },
+        contract.credit(1n, 400000n, 0n, [
+          { repo: 'octo/repo', identity: 'github:erin', amount: 120_000n },
         ]),
       { sender: crediter },
     )
@@ -266,20 +287,164 @@ describe('PaymentRouter', () => {
     const group = ctx.txn.lastGroup
     const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
     expect(inner.assetReceiver).toEqual(newAddr)
-    expect(inner.assetAmount).toEqual(100_000n)
+    expect(inner.assetAmount).toEqual(120_000n)
   })
 
-  test('releaseAuthority(): rekeys payTo to the given address', () => {
-    const { contract, admin, payTo } = setup(0n)
-    const releaseTo = ctx.any.account()
+  // ADR 0010 / SPEC §10.2a: announceRelease() then executeRelease() replace
+  // releaseAuthority(). ctx.ledger.patchGlobalData({ round }) is the only
+  // way this JavaScript harness can move Global.round; it does not build
+  // the ARC-4 router, so no test here sends a real, separately-authorized
+  // rekeyed transaction — see the UpdateApplication/DeleteApplication
+  // caution below for the same limit applied to routing.
+  describe('announceRelease() / executeRelease() (ADR 0010)', () => {
+    test('announceRelease(): a non-admin sender fails', () => {
+      const { contract } = setup(0n)
+      const notAdmin = ctx.any.account()
+      const releaseTo = ctx.any.account()
 
-    callInScope(contract, () => contract.releaseAuthority(releaseTo), { sender: admin })
+      expect(() =>
+        callInScope(contract, () => contract.announceRelease(releaseTo), { sender: notAdmin }),
+      ).toThrow('admin only')
+    })
 
-    const group = ctx.txn.lastGroup
-    expect(group.itxnGroups).toHaveLength(1)
-    const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
-    expect(rekeyTxn.sender).toEqual(payTo)
-    expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    test('executeRelease(): without an announcement fails', () => {
+      const { contract, admin } = setup(0n)
+
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('no release announced')
+    })
+
+    test('executeRelease(): before the delay has passed fails', () => {
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 215_999n })
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('release delay has not passed')
+    })
+
+    test('executeRelease(): without "treasury" mapped fails, even after the delay', () => {
+      const { contract, admin } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('treasury identity not mapped')
+    })
+
+    test('executeRelease(): a non-admin sender fails', () => {
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+      const notAdmin = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: notAdmin }),
+      ).toThrow('admin only')
+    })
+
+    test('executeRelease(): re-announcing overwrites the target and restarts the delay', () => {
+      // Chosen behavior: the most recent announceRelease() call wins, and
+      // the delay is measured from its round, not the first announcement's.
+      const { contract, admin, ops } = setup(0n)
+      const firstTarget = ctx.any.account()
+      const secondTarget = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(firstTarget), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.announceRelease(secondTarget), { sender: admin })
+
+      // The delay from the first announcement has passed, but not from the
+      // second (re-announcing) one.
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('release delay has not passed')
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      const group = ctx.txn.lastGroup
+      const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+      expect(rekeyTxn.rekeyTo).toEqual(secondTarget)
+    })
+
+    test('executeRelease(): sweeps exactly creditedUnclaimed to treasury, zeroes it, and rekeys', () => {
+      const { contract, admin, crediter, payTo, ops } = setup(1_000_000n)
+
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+      callInScope(contract, () => contract.credit(1n, 0n, 1_000_000n, []), { sender: crediter })
+
+      const releaseTo = ctx.any.account()
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      const group = ctx.txn.lastGroup
+      expect(group.itxnGroups).toHaveLength(2)
+      const sweep = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+      expect(sweep.sender).toEqual(payTo)
+      expect(sweep.assetReceiver).toEqual(ops)
+      expect(sweep.assetAmount).toEqual(1_000_000n)
+      const rekeyTxn = group.itxnGroups[1].getPaymentInnerTxn(0)
+      expect(rekeyTxn.sender).toEqual(payTo)
+      expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    })
+
+    test('executeRelease(): a zero creditedUnclaimed skips the sweep transfer', () => {
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      const group = ctx.txn.lastGroup
+      expect(group.itxnGroups).toHaveLength(1)
+      const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+      expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    })
+
+    test('credit() and claim() fail once the app is retired', () => {
+      const { contract, admin, crediter, ops } = setup(1_000_000n)
+
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+      callInScope(contract, () => contract.credit(1n, 0n, 1_000_000n, []), { sender: crediter })
+
+      const releaseTo = ctx.any.account()
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      expect(() =>
+        callInScope(contract, () => contract.credit(2n, 0n, 1n, []), { sender: crediter }),
+      ).toThrow('app is retired')
+      expect(() =>
+        callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2000n }),
+      ).toThrow('app is retired')
+    })
   })
 
   // CAUTION: algorand-typescript-testing calls contract methods directly.
