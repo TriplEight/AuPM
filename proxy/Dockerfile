@@ -3,7 +3,7 @@
 # Build context is the repository root (pnpm workspace). Build with:
 #   docker build -f proxy/Dockerfile .
 # or via the root compose.yaml, which sets context/dockerfile for the
-# "spm" service.
+# "aupm" service.
 #
 # Two stages: "build" compiles the native better-sqlite3 module and installs
 # only the proxy workspace project's dependencies (pnpm --filter ./proxy...

@@ -1,6 +1,6 @@
 // cli/src/verify.ts
 //
-// Offline verifier for SPM DSSE + in-toto Statement v1 attestations.
+// Offline verifier for AuPM DSSE + in-toto Statement v1 attestations.
 // See SPEC.md section 6 for the envelope format.
 //
 // This module implements the DSSE Pre-Authentication Encoding (PAE)
@@ -36,7 +36,7 @@ export interface KeyEntry {
   publicKey: Uint8Array
 }
 
-/** One entry of the published `spm-keys.json` key list. */
+/** One entry of the published `aupm-keys.json` key list. */
 interface PublishedKeyEntry {
   keyid: string
   publicKey: string
@@ -118,7 +118,7 @@ export function parseKeyArg(spec: string): KeyEntry {
   return { keyid, publicKey: new Uint8Array(publicKey) }
 }
 
-/** Parses the published `spm-keys.json` shape into verification keys. */
+/** Parses the published `aupm-keys.json` shape into verification keys. */
 export function parseKeyListJson(json: unknown): KeyEntry[] {
   if (!Array.isArray(json)) {
     throw new Error('key list must be a JSON array')
@@ -280,7 +280,7 @@ function parseArgv(argv: string[]): ParsedArgs {
 }
 
 /**
- * Runs `spm verify` end to end: parses argv, loads the envelope and keys
+ * Runs `aupm verify` end to end: parses argv, loads the envelope and keys
  * from disk, prints one line per check, and returns the process exit code.
  * Exit 0 only when every check passes.
  */
@@ -292,7 +292,7 @@ export async function runVerify(argv: string[]): Promise<number> {
     if (error instanceof ArgvUsageError) {
       console.log(`usage error: ${error.message}`)
       console.log(
-        'Usage: spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+        'Usage: aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
       )
       return 1
     }
@@ -300,7 +300,7 @@ export async function runVerify(argv: string[]): Promise<number> {
   }
   if (!args.envelopePath) {
     console.log(
-      'Usage: spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+      'Usage: aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
     )
     return 1
   }

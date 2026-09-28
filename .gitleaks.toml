@@ -1,4 +1,4 @@
-title = "SPM gitleaks config"
+title = "AuPM gitleaks config"
 
 # Extends gitleaks' default rule set (API keys, tokens, private keys, etc.)
 # instead of replacing it, so every built-in detector still runs.
@@ -8,7 +8,7 @@ useDefault = true
 # ---------------------------------------------------------------------------
 # Algorand mnemonics. gitleaks' default rules do not recognize a bare
 # 25-word phrase or a "mnemonic"-named variable, so a committed
-# SPM_DONOR_MNEMONIC value would pass gitleaks silently without these two
+# AUPM_DONOR_MNEMONIC value would pass gitleaks silently without these two
 # rules. Both patterns mirror scripts/guard.sh RULE 7 (7a, 7b), so the
 # pre-commit secret scan and the invariant guard agree on what a
 # committed mnemonic looks like.

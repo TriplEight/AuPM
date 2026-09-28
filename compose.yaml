@@ -1,7 +1,7 @@
 # compose.yaml
 #
 # One service (SPEC.md 10.3, ADR 0001): no database container. The SQLite
-# file lives on the named volume "spm-db", mounted at /data inside the
+# file lives on the named volume "aupm-db", mounted at /data inside the
 # container.
 #
 # This file serves two deploys from one definition:
@@ -19,7 +19,7 @@
 # The operator's record-review flow (SPEC.md §14, ADR 0007) runs against
 # this same image and service name, from the repository's proxy/Dockerfile
 # WORKDIR (/app/proxy):
-#   docker compose run --rm spm node --import tsx/esm \
+#   docker compose run --rm aupm node --import tsx/esm \
 #     ../scripts/record-review.mjs <anchorTxid>
 # `docker compose run` allocates a TTY by default; record-review.mjs refuses
 # to run without one (CLAUDE.md invariant 5), so this only works
@@ -30,19 +30,19 @@
 # schedules its own nightly run (ADR 0009); a Portainer redeploy of this
 # service carries the schedule with it.
 #
-# SPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
+# AUPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
 # job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
 # step 2), bind-mounted at the fixed container path /backup. BACKUP_DIR is
 # set here, not read from .env, so the nightly job always writes to the
 # mounted path regardless of what a bare, non-Docker `pnpm -C proxy
 # nightly` run has BACKUP_DIR set to in .env. `docker compose up` and
-# `docker compose run` both refuse to start when SPM_BACKUP_HOST_DIR is
+# `docker compose run` both refuse to start when AUPM_BACKUP_HOST_DIR is
 # unset — deliberately: an unmounted BACKUP_DIR would let the nightly job
 # "succeed" while writing its backup inside the throwaway `run --rm`
 # container, where it is deleted with the container on exit.
 
 services:
-  spm:
+  aupm:
     image: ghcr.io/tripleight/spm:v0.1.1
     build:
       context: .
@@ -58,9 +58,9 @@ services:
     ports:
       - "${PORT:-4873}:4873"
     volumes:
-      - spm-db:/data
-      - ${SPM_BACKUP_HOST_DIR:?set SPM_BACKUP_HOST_DIR in .env or stack.env to the host backup directory}:/backup
+      - aupm-db:/data
+      - ${AUPM_BACKUP_HOST_DIR:?set AUPM_BACKUP_HOST_DIR in .env or stack.env to the host backup directory}:/backup
     restart: unless-stopped
 
 volumes:
-  spm-db:
+  aupm-db:

@@ -22,9 +22,9 @@ import fs from 'node:fs'
 const args = process.argv.slice(2)
 fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({
   args,
-  hasMnemonicEnv: 'SPM_DONOR_MNEMONIC' in process.env,
-  mnemonicValue: process.env.SPM_DONOR_MNEMONIC ?? null,
-  proxyUrl: process.env.SPM_PROXY_URL ?? null,
+  hasMnemonicEnv: 'AUPM_DONOR_MNEMONIC' in process.env,
+  mnemonicValue: process.env.AUPM_DONOR_MNEMONIC ?? null,
+  proxyUrl: process.env.AUPM_PROXY_URL ?? null,
 }))
 const mode = ${JSON.stringify(mode)}
 if (mode === 'error') {
@@ -64,10 +64,10 @@ function withFakeCliOnPath(binDir, fn) {
 
 function baseOptions(overrides) {
   return {
-    endpoint: 'https://spm.example.com',
+    endpoint: 'https://aupm.example.com',
     lockfile: 'package-lock.json',
     failOnMismatch: false,
-    output: 'spm-attestation.json',
+    output: 'aupm-attestation.json',
     donate: false,
     donorMnemonic: '',
     cliDir: '/nonexistent/cli',
@@ -78,7 +78,7 @@ function baseOptions(overrides) {
 }
 
 test('no endpoint configured warns and exits 0 without spawning', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
@@ -89,7 +89,7 @@ test('no endpoint configured warns and exits 0 without spawning', async (t) => {
 })
 
 test('a withheld count (no donate opt-in) warns with the count and exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'withheld')
 
@@ -104,7 +104,7 @@ test('a withheld count (no donate opt-in) warns with the count and exits 0', asy
 })
 
 test('donate set without a donor-mnemonic warns, exits 0, and never starts the CLI', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
@@ -117,7 +117,7 @@ test('donate set without a donor-mnemonic warns, exits 0, and never starts the C
 })
 
 test('a CLI error (non-zero, non-2 exit) warns and exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'error')
 
@@ -127,7 +127,7 @@ test('a CLI error (non-zero, non-2 exit) warns and exits 0', async (t) => {
 })
 
 test('fail-on-mismatch true with integrityMismatch above zero exits 1', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'mismatch')
 
@@ -137,7 +137,7 @@ test('fail-on-mismatch true with integrityMismatch above zero exits 1', async (t
 })
 
 test('fail-on-mismatch false with integrityMismatch above zero exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'mismatch')
 
@@ -147,7 +147,7 @@ test('fail-on-mismatch false with integrityMismatch above zero exits 0', async (
 })
 
 test('donate true passes --donate, and the mnemonic reaches the CLI only via env', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
@@ -167,7 +167,7 @@ test('donate true passes --donate, and the mnemonic reaches the CLI only via env
 })
 
 test('setupOk false warns and exits 0 without spawning', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'spm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 

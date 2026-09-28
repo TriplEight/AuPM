@@ -1,6 +1,6 @@
 // cli/src/attest.ts
 //
-// `spm attest <lockfile> [--donate] [--out <path>]` — requests a signed
+// `aupm attest <lockfile> [--donate] [--out <path>]` — requests a signed
 // lockfile attestation via the MCP attest_lockfile handler and writes the
 // envelope to disk. Donation is opt-in (SPEC.md §11.4): without --donate,
 // the reviewed entries are withheld, not refused — the CLI still writes
@@ -8,8 +8,8 @@
 import fs from 'node:fs'
 import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
 
-const DEFAULT_OUT_PATH = 'spm-attestation.json'
-const USAGE = 'Usage: spm attest <lockfile> [--donate] [--out <path>]'
+const DEFAULT_OUT_PATH = 'aupm-attestation.json'
+const USAGE = 'Usage: aupm attest <lockfile> [--donate] [--out <path>]'
 
 interface ParsedAttestArgs {
   lockfilePath?: string
@@ -49,7 +49,7 @@ function parseAttestArgv(argv: string[]): ParsedAttestArgs {
 }
 
 /**
- * Runs `spm attest` end to end: parses argv, requests the attestation,
+ * Runs `aupm attest` end to end: parses argv, requests the attestation,
  * writes it to disk, and returns the process exit code. Without --donate, a
  * `donation_required` result still writes the partial attestation (when the
  * server returned one) and always exits 0 — SPEC.md §11.4: donating is an

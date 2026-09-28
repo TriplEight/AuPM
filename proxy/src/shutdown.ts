@@ -108,7 +108,7 @@ export async function runShutdown(deps: ShutdownDeps): Promise<void> {
   // swallowed silently — log it and move on.
   deps.closeServer().catch((err: unknown) => {
     const reason = err instanceof Error ? err.message : String(err)
-    log(`spm-shutdown: server close failed — ${reason}`)
+    log(`aupm-shutdown: server close failed — ${reason}`)
   })
 
   const idleInTime = await raceAgainstDeadline(
@@ -120,7 +120,7 @@ export async function runShutdown(deps: ShutdownDeps): Promise<void> {
 
   if (!idleInTime) {
     log(
-      'spm-shutdown: nightly run still in flight at the deadline; exiting without ' +
+      'aupm-shutdown: nightly run still in flight at the deadline; exiting without ' +
         'closing the database — the 1-hour lease expiry will reclaim it',
     )
     deps.exit(1)
@@ -128,7 +128,7 @@ export async function runShutdown(deps: ShutdownDeps): Promise<void> {
   }
 
   deps.closeDb()
-  log('spm-shutdown: clean shutdown complete')
+  log('aupm-shutdown: clean shutdown complete')
   deps.exit(0)
 }
 
@@ -154,12 +154,12 @@ export function installShutdownHandlers(
 
   const handle = (signal: string): void => {
     if (shuttingDown) {
-      log(`spm-shutdown: second ${signal}; exiting immediately`)
+      log(`aupm-shutdown: second ${signal}; exiting immediately`)
       deps.exit(1)
       return
     }
     shuttingDown = true
-    log(`spm-shutdown: received ${signal}`)
+    log(`aupm-shutdown: received ${signal}`)
     void runShutdown(deps)
   }
 

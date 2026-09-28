@@ -52,7 +52,7 @@ if (algosdk.isValidAddress(MALFORMED_APP_ADDRESS)) {
 // Reserved for documentation examples (RFC 2606); never a real, owned
 // domain. Every subprocess in this file that needs to get past the ISSUER
 // and KEY_VALID_FROM guards uses these two values.
-const VALID_ISSUER_URL = 'https://spm-verify.invalid'
+const VALID_ISSUER_URL = 'https://aupm-verify.invalid'
 const VALID_KEY_VALID_FROM = '2026-01-01T00:00:00Z'
 
 type RunResult = {
@@ -73,7 +73,7 @@ type RunResult = {
 // overrides it.
 function runIndex(env: NodeJS.ProcessEnv, timeoutMs: number): Promise<RunResult> {
   return new Promise((resolve, reject) => {
-    const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
+    const sqlitePath = path.join(os.tmpdir(), `aupm-index-test-${randomUUID()}.db`)
     const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
       cwd: PROXY_ROOT,
       env: { ...process.env, SQLITE_PATH: sqlitePath, ...env },
@@ -206,8 +206,8 @@ describe('index.ts startup guard (subprocess)', () => {
           // Must also be valid here — otherwise the ISSUER or
           // KEY_VALID_FROM guard fires first and the facilitator is never
           // contacted, which is what this test is meant to prove.
-          SPM_ISSUER_URL: VALID_ISSUER_URL,
-          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          AUPM_ISSUER_URL: VALID_ISSUER_URL,
+          AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
         },
         SUBPROCESS_TIMEOUT_MS,
       )
@@ -299,7 +299,7 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
       const feePayer = algosdk.generateAccount().addr.toString()
       const facilitator = await startStubFacilitator(feePayer)
 
-      const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
+      const sqlitePath = path.join(os.tmpdir(), `aupm-index-test-${randomUUID()}.db`)
       const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
         cwd: PROXY_ROOT,
         env: {
@@ -309,13 +309,13 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
           NETWORK: 'mainnet',
           FACILITATOR_URL: facilitator.url,
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-          SPM_ISSUER_URL: VALID_ISSUER_URL,
-          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          AUPM_ISSUER_URL: VALID_ISSUER_URL,
+          AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
           // Never let a real-boot subprocess test start the nightly
           // scheduler: its start-up catch-up run (item N1.2) would make a
           // live network call to the default MainNet algod/indexer
           // endpoints, which this test neither expects nor stubs.
-          SPM_NIGHTLY: 'off',
+          AUPM_NIGHTLY: 'off',
         },
       })
 
@@ -336,22 +336,22 @@ describe('index.ts PAY_TO guard (subprocess)', () => {
       // stderr check below guards against a false positive from some other
       // process already holding the port.
       expect(stderr).not.toMatch(/PAY_TO/)
-      expect(stderr).not.toMatch(/SPM_ISSUER_URL/)
-      expect(stderr).not.toMatch(/SPM_KEY_VALID_FROM/)
+      expect(stderr).not.toMatch(/AUPM_ISSUER_URL/)
+      expect(stderr).not.toMatch(/AUPM_KEY_VALID_FROM/)
     },
     SUBPROCESS_TIMEOUT_MS + 5_000,
   )
 })
 
 describe('index.ts ISSUER guard (subprocess)', () => {
-  // WARNING: Q13 — SPM_ISSUER_URL is `predicate.issuer` on every signed
+  // WARNING: Q13 — AUPM_ISSUER_URL is `predicate.issuer` on every signed
   // attestation. A missing value can never be corrected after the fact, so
   // this guard must run on every network (not just MainNet) and must fire
   // before the facilitator is ever contacted.
   const DEAD_FACILITATOR = 'http://127.0.0.1:9'
 
   test(
-    'refuses to boot and never opens the port when SPM_ISSUER_URL is unset',
+    'refuses to boot and never opens the port when AUPM_ISSUER_URL is unset',
     async () => {
       const PORT = await getFreePort()
 
@@ -361,15 +361,15 @@ describe('index.ts ISSUER guard (subprocess)', () => {
           PORT: String(PORT),
           NETWORK: 'mainnet',
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
-          // No SPM_ISSUER_URL key at all.
+          AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          // No AUPM_ISSUER_URL key at all.
         },
         SUBPROCESS_TIMEOUT_MS,
       )
 
       expect(result.code).not.toBe(0)
       expect(result.code).not.toBeNull()
-      expect(result.stderr).toMatch(/SPM_ISSUER_URL/)
+      expect(result.stderr).toMatch(/AUPM_ISSUER_URL/)
       expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
 
       const listening = await isPortListening(PORT)
@@ -379,7 +379,7 @@ describe('index.ts ISSUER guard (subprocess)', () => {
   )
 
   test(
-    'refuses to boot and never opens the port when SPM_ISSUER_URL is unset on TestNet',
+    'refuses to boot and never opens the port when AUPM_ISSUER_URL is unset on TestNet',
     async () => {
       const PORT = await getFreePort()
 
@@ -391,14 +391,14 @@ describe('index.ts ISSUER guard (subprocess)', () => {
           PORT: String(PORT),
           NETWORK: 'testnet',
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
         },
         SUBPROCESS_TIMEOUT_MS,
       )
 
       expect(result.code).not.toBe(0)
       expect(result.code).not.toBeNull()
-      expect(result.stderr).toMatch(/SPM_ISSUER_URL/)
+      expect(result.stderr).toMatch(/AUPM_ISSUER_URL/)
 
       const listening = await isPortListening(PORT)
       expect(listening).toBe(false)
@@ -411,7 +411,7 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
   const DEAD_FACILITATOR = 'http://127.0.0.1:9'
 
   test(
-    'refuses to boot and never opens the port when SPM_KEY_VALID_FROM is unset',
+    'refuses to boot and never opens the port when AUPM_KEY_VALID_FROM is unset',
     async () => {
       const PORT = await getFreePort()
 
@@ -421,15 +421,15 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
           PORT: String(PORT),
           NETWORK: 'mainnet',
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-          SPM_ISSUER_URL: VALID_ISSUER_URL,
-          // No SPM_KEY_VALID_FROM key at all.
+          AUPM_ISSUER_URL: VALID_ISSUER_URL,
+          // No AUPM_KEY_VALID_FROM key at all.
         },
         SUBPROCESS_TIMEOUT_MS,
       )
 
       expect(result.code).not.toBe(0)
       expect(result.code).not.toBeNull()
-      expect(result.stderr).toMatch(/SPM_KEY_VALID_FROM/)
+      expect(result.stderr).toMatch(/AUPM_KEY_VALID_FROM/)
       expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
 
       const listening = await isPortListening(PORT)
@@ -439,7 +439,7 @@ describe('index.ts KEY_VALID_FROM guard (subprocess)', () => {
   )
 })
 
-describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
+describe('index.ts AUPM_NIGHTLY guard (subprocess)', () => {
   const DEAD_FACILITATOR = 'http://127.0.0.1:9'
   // A closed local port — the fire-and-forget start-up catch-up run's
   // genesis guard (item N1.2) fails fast against this (ECONNREFUSED)
@@ -448,7 +448,7 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   const DEAD_CHAIN_ENDPOINT = 'http://127.0.0.1:9'
 
   test(
-    'refuses to boot and never opens the port when SPM_NIGHTLY is neither "on" nor "off"',
+    'refuses to boot and never opens the port when AUPM_NIGHTLY is neither "on" nor "off"',
     async () => {
       const PORT = await getFreePort()
 
@@ -458,17 +458,17 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
           PORT: String(PORT),
           NETWORK: 'mainnet',
           PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-          SPM_ISSUER_URL: VALID_ISSUER_URL,
-          SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
-          SPM_NIGHTLY: 'sometimes',
+          AUPM_ISSUER_URL: VALID_ISSUER_URL,
+          AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+          AUPM_NIGHTLY: 'sometimes',
         },
         SUBPROCESS_TIMEOUT_MS,
       )
 
       expect(result.code).not.toBe(0)
       expect(result.code).not.toBeNull()
-      expect(result.stderr).toMatch(/SPM_NIGHTLY/)
-      // Proves the SPM_NIGHTLY guard fired before the (dead) facilitator
+      expect(result.stderr).toMatch(/AUPM_NIGHTLY/)
+      // Proves the AUPM_NIGHTLY guard fired before the (dead) facilitator
       // was ever contacted, the same proof style as the guards above.
       expect(result.stderr).not.toMatch(/127\.0\.0\.1:9/)
 
@@ -481,7 +481,7 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   // Boots a real subprocess past every other guard, with a local stub
   // facilitator (same trick as the PAY_TO "boots normally" test above) and
   // ALGOD_SERVER/INDEXER_URL pointed at a closed local port — so a
-  // start-up catch-up run, if SPM_NIGHTLY leaves the scheduler on, never
+  // start-up catch-up run, if AUPM_NIGHTLY leaves the scheduler on, never
   // reaches a real network endpoint.
   async function bootWithNightlyEnv(
     port: number,
@@ -489,7 +489,7 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   ): Promise<{ stdout: () => string; stop: () => void }> {
     const feePayer = algosdk.generateAccount().addr.toString()
     const facilitator = await startStubFacilitator(feePayer)
-    const sqlitePath = path.join(os.tmpdir(), `spm-index-test-${randomUUID()}.db`)
+    const sqlitePath = path.join(os.tmpdir(), `aupm-index-test-${randomUUID()}.db`)
     const child = spawn(process.execPath, ['--import', 'tsx/esm', INDEX_ENTRY], {
       cwd: PROXY_ROOT,
       env: {
@@ -499,8 +499,8 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
         NETWORK: 'mainnet',
         FACILITATOR_URL: facilitator.url,
         PAY_TO_ADDRESS: VALID_APP_ADDRESS,
-        SPM_ISSUER_URL: VALID_ISSUER_URL,
-        SPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
+        AUPM_ISSUER_URL: VALID_ISSUER_URL,
+        AUPM_KEY_VALID_FROM: VALID_KEY_VALID_FROM,
         ALGOD_SERVER: DEAD_CHAIN_ENDPOINT,
         INDEXER_URL: DEAD_CHAIN_ENDPOINT,
         ...nightlyEnv,
@@ -524,11 +524,13 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   }
 
   test(
-    'boots and logs the scheduler-off line when SPM_NIGHTLY=off',
+    'boots and logs the scheduler-off line when AUPM_NIGHTLY=off',
     async () => {
-      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), { SPM_NIGHTLY: 'off' })
+      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), {
+        AUPM_NIGHTLY: 'off',
+      })
       try {
-        expect(stdout()).toMatch(/spm-nightly: scheduler off \(SPM_NIGHTLY=off\)/)
+        expect(stdout()).toMatch(/aupm-nightly: scheduler off \(AUPM_NIGHTLY=off\)/)
       } finally {
         stop()
       }
@@ -537,9 +539,9 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   )
 
   test(
-    'boots with the scheduler on when SPM_NIGHTLY=on',
+    'boots with the scheduler on when AUPM_NIGHTLY=on',
     async () => {
-      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), { SPM_NIGHTLY: 'on' })
+      const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), { AUPM_NIGHTLY: 'on' })
       try {
         expect(stdout()).not.toMatch(/scheduler off/)
       } finally {
@@ -550,7 +552,7 @@ describe('index.ts SPM_NIGHTLY guard (subprocess)', () => {
   )
 
   test(
-    'boots with the scheduler on by default when SPM_NIGHTLY is unset',
+    'boots with the scheduler on by default when AUPM_NIGHTLY is unset',
     async () => {
       const { stdout, stop } = await bootWithNightlyEnv(await getFreePort(), {})
       try {

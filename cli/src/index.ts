@@ -3,10 +3,10 @@ const [command] = argv
 
 const USAGE_LINES = [
   'Usage:',
-  '  spm status <pkg> <version>',
-  '  spm install <pkg> <version> [--donate]',
-  '  spm attest <lockfile> [--donate] [--out <path>]',
-  '  spm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <spm-keys.json>]',
+  '  aupm status <pkg> <version>',
+  '  aupm install <pkg> <version> [--donate]',
+  '  aupm attest <lockfile> [--donate] [--out <path>]',
+  '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
 ]
 
 /** Splits --donate out of the remaining positional args, wherever it appears. */

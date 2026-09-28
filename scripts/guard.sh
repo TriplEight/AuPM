@@ -156,7 +156,7 @@ done < <(rule7_scope | xargs -r grep -inE "[a-z0-9_]*mnemonic[a-z0-9_]*[[:space:
 # .github/workflows/** (CLAUDE.md: use pnpm everywhere).
 # This scans only the harness and CI surfaces, never README.md or other
 # docs — a documented end-user command pointing plain npm's installer at
-# the SPM registry there is the product working as intended, not a
+# the AuPM registry there is the product working as intended, not a
 # violation here.
 #
 # Word-boundary matched, so a line naming pnpm's own install/run/test/ci
@@ -234,7 +234,7 @@ done < <(git ls-files -z -- contracts proxy mcp cli scripts .github README.md 2>
 # 0-ALGO self-payment carrying an ARC-2 note, verified off-chain, never a
 # contract call. Scoped to contracts/ only. The proxy and CLI have
 # legitimate functions and routes named attest (POST /v1/attest/lockfile,
-# GET /v1/attest, the `spm attest` command) and this rule never reaches
+# GET /v1/attest, the `aupm attest` command) and this rule never reaches
 # them.
 # ---------------------------------------------------------------------------
 while IFS= read -r -d '' f; do

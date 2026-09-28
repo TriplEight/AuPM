@@ -9,12 +9,12 @@ vi.mock('../../mcp/src/tools/attest.js', () => ({
   attestLockfileTool: { handler: vi.fn() },
 }))
 
-describe('spm attest', () => {
+describe('aupm attest', () => {
   let lockfilePath: string
   let outDir: string
 
   beforeEach(() => {
-    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-attest-cli-test-'))
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-cli-test-'))
     lockfilePath = path.join(outDir, 'package-lock.json')
     fs.writeFileSync(lockfilePath, '{}')
     vi.mocked(attestLockfileTool.handler).mockReset()
@@ -40,7 +40,7 @@ describe('spm attest', () => {
     })
 
     const { runAttest } = await import('./attest.js')
-    const outPath = path.join(outDir, 'spm-attestation.json')
+    const outPath = path.join(outDir, 'aupm-attestation.json')
     const exitCode = await runAttest([lockfilePath, '--out', outPath])
 
     expect(exitCode).toBe(0)
@@ -66,7 +66,7 @@ describe('spm attest', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const { runAttest } = await import('./attest.js')
-    const outPath = path.join(outDir, 'spm-attestation.json')
+    const outPath = path.join(outDir, 'aupm-attestation.json')
     const exitCode = await runAttest([lockfilePath, '--out', outPath])
 
     expect(exitCode).toBe(0)
@@ -97,7 +97,7 @@ describe('spm attest', () => {
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
   })
 
-  it('writes to the default spm-attestation.json path when --out is omitted', async () => {
+  it('writes to the default aupm-attestation.json path when --out is omitted', async () => {
     const attestation = {
       payloadType: 'application/vnd.in-toto+json',
       payload: 'xyz',
@@ -115,7 +115,7 @@ describe('spm attest', () => {
       const { runAttest } = await import('./attest.js')
       const exitCode = await runAttest([lockfilePath])
       expect(exitCode).toBe(0)
-      expect(fs.existsSync(path.join(outDir, 'spm-attestation.json'))).toBe(true)
+      expect(fs.existsSync(path.join(outDir, 'aupm-attestation.json'))).toBe(true)
     } finally {
       process.chdir(cwd)
     }

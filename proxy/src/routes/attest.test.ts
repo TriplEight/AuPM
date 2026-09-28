@@ -28,7 +28,7 @@ import { LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
 import { createRateLimiter } from '../attest/ratelimit.js'
 import type { AttestRoutesOptions } from './attest.js'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-attest-routes-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-attest-routes-test-${randomUUID()}.db`)
 
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
@@ -40,7 +40,7 @@ type AppVariables = {
 
 const encoder = new TextEncoder()
 
-// A genuine 64-byte sha512 digest (of the literal bytes "spm-fixture-a"),
+// A genuine 64-byte sha512 digest (of the literal bytes "aupm-fixture-a"),
 // base64- and hex-encoded. Used wherever a test exercises the single-attest
 // route's integrityToHex(), which — since defect 1's fix — requires exactly
 // 64 decoded bytes; "sha512-abc" (2 decoded bytes) no longer qualifies.
@@ -384,13 +384,13 @@ describe('POST /v1/attest/lockfile', () => {
   })
 })
 
-// SPEC.md §11.2, §12.3, ADR 0006: `X-SPM-Donate: 0` on a lockfile with
+// SPEC.md §11.2, §12.3, ADR 0006: `X-AuPM-Donate: 0` on a lockfile with
 // reviewed content returns a free partial attestation, before the payment
 // gate. Every reviewed entry whose integrity matches is left out of
 // predicate.packages and counted in predicate.withheld. An
 // INTEGRITY_MISMATCH or UNRESOLVABLE entry is never withheld (CLAUDE.md
 // invariant 4).
-describe('POST /v1/attest/lockfile: partial attestation (X-SPM-Donate: 0)', () => {
+describe('POST /v1/attest/lockfile: partial attestation (X-AuPM-Donate: 0)', () => {
   function mixedLockfileBody() {
     return JSON.stringify({
       lockfileVersion: 3,
@@ -418,7 +418,7 @@ describe('POST /v1/attest/lockfile: partial attestation (X-SPM-Donate: 0)', () =
 
     const res = await app.request('/v1/attest/lockfile', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-SPM-Donate': '0' },
+      headers: { 'content-type': 'application/json', 'X-AuPM-Donate': '0' },
       body: mixedLockfileBody(),
     })
 
@@ -482,7 +482,7 @@ describe('POST /v1/attest/lockfile: partial attestation (X-SPM-Donate: 0)', () =
       headers: {
         'content-type': 'application/json',
         'x-forwarded-for': '203.0.113.44',
-        'X-SPM-Donate': '0',
+        'X-AuPM-Donate': '0',
       },
       body: mixedLockfileBody(),
     })
@@ -765,15 +765,15 @@ describe('GET /v1/attest', () => {
     expect(second.status).toBe(429)
   })
 
-  // SPEC.md §11.2, §12.3, ADR 0006: X-SPM-Donate: 0 on a reviewed version
+  // SPEC.md §11.2, §12.3, ADR 0006: X-AuPM-Donate: 0 on a reviewed version
   // returns a free partial attestation, withholding the one entry this
   // route could otherwise sell.
-  test('X-SPM-Donate: 0 on a reviewed version returns 200 partial, withheld 1', async () => {
+  test('X-AuPM-Donate: 0 on a reviewed version returns 200 partial, withheld 1', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
     const { app, getAttribution } = buildTestApp()
 
     const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
-      headers: { 'X-SPM-Donate': '0' },
+      headers: { 'X-AuPM-Donate': '0' },
     })
 
     expect(res.status).toBe(200)
@@ -794,17 +794,17 @@ describe('GET /v1/attest', () => {
     expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
   })
 
-  test('the partial path (X-SPM-Donate: 0) shares the free-path rate limiter', async () => {
+  test('the partial path (X-AuPM-Donate: 0) shares the free-path rate limiter', async () => {
     const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
 
     const first = await app.request('/v1/attest?name=ms&version=2.1.3', {
-      headers: { 'x-forwarded-for': '203.0.113.11', 'X-SPM-Donate': '0' },
+      headers: { 'x-forwarded-for': '203.0.113.11', 'X-AuPM-Donate': '0' },
     })
     expect(first.status).toBe(200)
 
     const second = await app.request('/v1/attest?name=ms&version=2.1.3', {
-      headers: { 'x-forwarded-for': '203.0.113.11', 'X-SPM-Donate': '0' },
+      headers: { 'x-forwarded-for': '203.0.113.11', 'X-AuPM-Donate': '0' },
     })
     expect(second.status).toBe(429)
   })

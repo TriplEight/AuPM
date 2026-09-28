@@ -68,33 +68,33 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
   await deps.assertGenesisMatches()
 
   const reconcileResult = await reconcile(PAY_TO, deps.indexer)
-  log(`spm-nightly: reconcile checked ${reconcileResult.inflowsChecked} inflow(s)`)
-  log(`spm-nightly: ledgered as unassigned: ${reconcileResult.unmatchedLedgered}`)
+  log(`aupm-nightly: reconcile checked ${reconcileResult.inflowsChecked} inflow(s)`)
+  log(`aupm-nightly: ledgered as unassigned: ${reconcileResult.unmatchedLedgered}`)
   for (const skipped of reconcileResult.skipped) {
     log(
-      `spm-nightly: reconcile skipped ${skipped.inflow.txid} ` +
+      `aupm-nightly: reconcile skipped ${skipped.inflow.txid} ` +
         `amount_micro=${skipped.inflow.amountMicro} reason=${skipped.reason}`,
     )
   }
 
   const backupPath = deps.backup()
-  log(`spm-nightly: backed up to ${backupPath}`)
+  log(`aupm-nightly: backed up to ${backupPath}`)
 
   if (!env.PAYMENT_ROUTER_APP_ID) {
-    log('spm-nightly: credit skipped — PAYMENT_ROUTER_APP_ID is unset')
+    log('aupm-nightly: credit skipped — PAYMENT_ROUTER_APP_ID is unset')
     return
   }
   if (!deps.creditClient) {
-    log('spm-nightly: credit skipped — CREDITER_MNEMONIC is unset')
+    log('aupm-nightly: credit skipped — CREDITER_MNEMONIC is unset')
     return
   }
 
   const outcome = await runCreditStep(deps.creditClient, env)
   if (!outcome.ran) {
-    log(`spm-nightly: credit skipped — ${outcome.reason}`)
+    log(`aupm-nightly: credit skipped — ${outcome.reason}`)
     return
   }
-  log(`spm-nightly: credited batch ${outcome.batchSeq}, txid ${outcome.creditTxid}`)
+  log(`aupm-nightly: credited batch ${outcome.batchSeq}, txid ${outcome.creditTxid}`)
   deps.onCredited?.(outcome.batchSeq, outcome.creditTxid)
 }
 
@@ -113,7 +113,7 @@ export type NightlyLeaseOutcome =
  * so a test never depends on a real wait.
  *
  * WARNING: this function never throws. A failed run logs
- * `spm-nightly: failed — <reason>` and returns `{ status: 'failed', ...
+ * `aupm-nightly: failed — <reason>` and returns `{ status: 'failed', ...
  * }` instead — the in-process scheduler relies on this to never stop the
  * server (item N1.3); nightly-main.ts, the manual entry point, reads the
  * returned status to decide its own process exit code.
@@ -141,7 +141,7 @@ export async function runNightlyWithLease(
   try {
     holder = acquireNightlyLease(startedAt)
     if (!holder) {
-      log('spm-nightly: another run already holds the lease; exiting')
+      log('aupm-nightly: another run already holds the lease; exiting')
       return { status: 'lease-held' }
     }
 
@@ -162,7 +162,7 @@ export async function runNightlyWithLease(
     if (runId !== null) {
       recordNightlyRunEnd(runId, now().getTime(), 'failed', reason, batchSeq, creditTxid)
     }
-    log(`spm-nightly: failed — ${reason}`)
+    log(`aupm-nightly: failed — ${reason}`)
     return { status: 'failed', error: reason }
   } finally {
     if (holder !== null) {

@@ -25,7 +25,7 @@ function loadFixtureEnvelope(): Envelope {
 }
 
 function loadFixtureKeys() {
-  const raw = JSON.parse(readFileSync(join(FIXTURES_DIR, 'spm-keys.json'), 'utf8'))
+  const raw = JSON.parse(readFileSync(join(FIXTURES_DIR, 'aupm-keys.json'), 'utf8'))
   return parseKeyListJson(raw)
 }
 
@@ -170,7 +170,7 @@ describe('runVerify argument parsing (value-taking flags with no value)', () => 
     const { code, output } = await runAndCapture([
       join(FIXTURES_DIR, 'attestation.json'),
       '--keys',
-      join(FIXTURES_DIR, 'spm-keys.json'),
+      join(FIXTURES_DIR, 'aupm-keys.json'),
       '--lockfile',
     ])
     expect(code).not.toBe(0)
@@ -199,7 +199,7 @@ describe('runVerify argument parsing (value-taking flags with no value)', () => 
     const { code, output } = await runAndCapture([
       join(FIXTURES_DIR, 'attestation.json'),
       '--keys',
-      join(FIXTURES_DIR, 'spm-keys.json'),
+      join(FIXTURES_DIR, 'aupm-keys.json'),
       '--lockfile',
       join(FIXTURES_DIR, 'package-lock.json'),
     ])
@@ -212,7 +212,7 @@ describe('runVerify argument parsing (value-taking flags with no value)', () => 
     const { code, output } = await runAndCapture([
       join(FIXTURES_DIR, 'attestation.json'),
       '--keys',
-      join(FIXTURES_DIR, 'spm-keys.json'),
+      join(FIXTURES_DIR, 'aupm-keys.json'),
     ])
     expect(code).toBe(0)
     expect(output).not.toContain('lockfile digest')
@@ -229,7 +229,7 @@ describe('runVerify (end to end, exit code)', () => {
       const code = await runVerify([
         join(FIXTURES_DIR, 'attestation.json'),
         '--keys',
-        join(FIXTURES_DIR, 'spm-keys.json'),
+        join(FIXTURES_DIR, 'aupm-keys.json'),
         '--lockfile',
         join(FIXTURES_DIR, 'package-lock.json'),
       ])
@@ -247,7 +247,7 @@ describe('runVerify (end to end, exit code)', () => {
     payloadBytes[0] = payloadBytes[0]! ^ 0xff
     const tampered: Envelope = { ...envelope, payload: payloadBytes.toString('base64') }
 
-    const dir = mkdtempSync(join(tmpdir(), 'spm-verify-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-test-'))
     const tamperedPath = join(dir, 'tampered.json')
     writeFileSync(tamperedPath, JSON.stringify(tampered))
     try {
@@ -256,7 +256,7 @@ describe('runVerify (end to end, exit code)', () => {
       console.log = (...args: unknown[]) => logs.push(args.join(' '))
       let code: number
       try {
-        code = await runVerify([tamperedPath, '--keys', join(FIXTURES_DIR, 'spm-keys.json')])
+        code = await runVerify([tamperedPath, '--keys', join(FIXTURES_DIR, 'aupm-keys.json')])
       } finally {
         console.log = originalLog
       }
@@ -278,7 +278,7 @@ describe('runVerify (end to end, exit code)', () => {
       signatures: [{ ...envelope.signatures[0]!, sig: truncatedSig.toString('base64') }],
     }
 
-    const dir = mkdtempSync(join(tmpdir(), 'spm-verify-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-test-'))
     const truncatedPath = join(dir, 'truncated.json')
     writeFileSync(truncatedPath, JSON.stringify(truncated))
     try {
@@ -287,7 +287,7 @@ describe('runVerify (end to end, exit code)', () => {
       console.log = (...args: unknown[]) => logs.push(args.join(' '))
       let code: number
       try {
-        code = await runVerify([truncatedPath, '--keys', join(FIXTURES_DIR, 'spm-keys.json')])
+        code = await runVerify([truncatedPath, '--keys', join(FIXTURES_DIR, 'aupm-keys.json')])
       } finally {
         console.log = originalLog
       }
@@ -300,14 +300,14 @@ describe('runVerify (end to end, exit code)', () => {
   })
 })
 
-// A partial attestation (SPEC.md §11.2, §12.3: X-SPM-Donate: 0) has the same
+// A partial attestation (SPEC.md §11.2, §12.3: X-AuPM-Donate: 0) has the same
 // envelope and Statement shape as a full one — only predicate.packages,
 // predicate.withheld, and predicate.absentMeans differ. verify.ts checks the
 // signature and, optionally, the subject digest; it never inspects the
 // predicate. A fresh, independently signed fixture (this module never
-// imports proxy/src/attest/dsse.ts) proves `spm verify` accepts a partial
+// imports proxy/src/attest/dsse.ts) proves `aupm verify` accepts a partial
 // attestation exactly like a full one.
-describe('runVerify: partial attestation (X-SPM-Donate: 0 shape)', () => {
+describe('runVerify: partial attestation (X-AuPM-Donate: 0 shape)', () => {
   async function signPartialLockfileEnvelope(): Promise<{ envelope: Envelope; keyArg: string }> {
     const privateKey = ed.utils.randomSecretKey()
     const publicKey = await ed.getPublicKeyAsync(privateKey)
@@ -316,9 +316,9 @@ describe('runVerify: partial attestation (X-SPM-Donate: 0 shape)', () => {
     const statement = {
       _type: 'https://in-toto.io/Statement/v1',
       subject: [{ name: 'package-lock.json', digest: { sha256: 'a'.repeat(64) } }],
-      predicateType: 'https://spm.dev/attestation/lockfile/v1',
+      predicateType: 'https://aupm.dev/attestation/lockfile/v1',
       predicate: {
-        issuer: 'https://spm.dev',
+        issuer: 'https://aupm.dev',
         issuedAt: '2026-09-23T00:00:00Z',
         network: 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=',
         lockfileVersion: 3,
@@ -368,7 +368,7 @@ describe('runVerify: partial attestation (X-SPM-Donate: 0 shape)', () => {
 
   test('runVerify exits 0 (PASS) for a partial attestation, with no predicate inspection', async () => {
     const { envelope, keyArg } = await signPartialLockfileEnvelope()
-    const dir = mkdtempSync(join(tmpdir(), 'spm-verify-partial-test-'))
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-partial-test-'))
     const envelopePath = join(dir, 'partial-attestation.json')
     writeFileSync(envelopePath, JSON.stringify(envelope))
     try {

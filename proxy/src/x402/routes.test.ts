@@ -11,7 +11,7 @@ import path from 'node:path'
 import { validateDiscoveryExtension } from '@x402-avm/extensions'
 import { describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-routes-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-x402-routes-test-${randomUUID()}.db`)
 
 const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY, OG_DESCRIPTION } = await import(
   './routes.js'

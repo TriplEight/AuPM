@@ -58,7 +58,7 @@ function paymentRequiredHeader(amount: string = LOCKFILE_PRICE): string {
 function attestationWithWithheld(withheld: number): { payloadType: string; payload: string } {
   const statement = {
     _type: 'https://in-toto.io/Statement/v1',
-    predicateType: 'https://spm.example.com/attestation/lockfile/v1',
+    predicateType: 'https://aupm.example.com/attestation/lockfile/v1',
     predicate: { withheld },
   }
   return {
@@ -96,7 +96,7 @@ function writeLockfile(
     packages: { 'node_modules/ms': { version: '2.1.3' } },
   }),
 ): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-attest-test-'))
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-test-'))
   const lockfilePath = path.join(dir, 'package-lock.json')
   fs.writeFileSync(lockfilePath, content)
   return lockfilePath
@@ -107,15 +107,15 @@ describe('attest_lockfile', () => {
 
   beforeEach(() => {
     lockfilePath = writeLockfile()
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
-    process.env.SPM_PROXY_URL = 'http://localhost:4873'
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_PROXY_URL = 'http://localhost:4873'
     delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.SPM_DONOR_MNEMONIC
-    delete process.env.SPM_PROXY_URL
+    delete process.env.AUPM_DONOR_MNEMONIC
+    delete process.env.AUPM_PROXY_URL
     delete process.env.NETWORK
     fs.rmSync(path.dirname(lockfilePath), { recursive: true, force: true })
   })
@@ -140,10 +140,10 @@ describe('attest_lockfile', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('without allowDonation, sends X-SPM-Donate: 0', async () => {
+  it('without allowDonation, sends X-AuPM-Donate: 0', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(requestUrl(input), init)
-      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      expect(request.headers.get('X-AuPM-Donate')).toBe('0')
       return new Response(
         JSON.stringify({
           summary: { total: 1, reviewed: 1, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
@@ -159,7 +159,7 @@ describe('attest_lockfile', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial and the paid retry', async () => {
+  it('with allowDonation, sends X-AuPM-Donate: 1 on both the initial and the paid retry', async () => {
     const seenHeaderValues: (string | null)[] = []
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -167,7 +167,7 @@ describe('attest_lockfile', () => {
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
 
       const request = input instanceof Request ? input : new Request(url, init)
-      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      seenHeaderValues.push(request.headers.get('X-AuPM-Donate'))
       const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
       if (!paymentSignature) {
         return new Response(null, {
@@ -388,8 +388,8 @@ describe('attest_lockfile', () => {
     expect(resourceCalls).toHaveLength(2)
   })
 
-  it('a zero-coverage 200 succeeds without SPM_DONOR_MNEMONIC set', async () => {
-    delete process.env.SPM_DONOR_MNEMONIC
+  it('a zero-coverage 200 succeeds without AUPM_DONOR_MNEMONIC set', async () => {
+    delete process.env.AUPM_DONOR_MNEMONIC
     const mockFetch = vi.fn(
       async () =>
         new Response(

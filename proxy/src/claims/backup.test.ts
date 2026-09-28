@@ -16,11 +16,11 @@ let db: BetterSqlite3.Database
 let backupDir: string
 
 beforeEach(() => {
-  dbPath = path.join(os.tmpdir(), `spm-backup-test-${randomUUID()}.db`)
+  dbPath = path.join(os.tmpdir(), `aupm-backup-test-${randomUUID()}.db`)
   db = new BetterSqlite3(dbPath)
   db.exec('CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)')
   db.prepare('INSERT INTO t (v) VALUES (?)').run('hello')
-  backupDir = path.join(os.tmpdir(), `spm-backup-dir-${randomUUID()}`)
+  backupDir = path.join(os.tmpdir(), `aupm-backup-dir-${randomUUID()}`)
 })
 
 afterEach(() => {
@@ -54,7 +54,7 @@ describe('backupDatabase', () => {
   })
 
   test('a backupDir that collides with an existing file throws', () => {
-    const blockedDir = path.join(os.tmpdir(), `spm-backup-blocked-${randomUUID()}`)
+    const blockedDir = path.join(os.tmpdir(), `aupm-backup-blocked-${randomUUID()}`)
     fs.writeFileSync(blockedDir, 'not a directory')
     try {
       expect(() => backupDatabase(db, blockedDir)).toThrow()

@@ -1,11 +1,11 @@
-# SPM — Secure Package Manager
+# AuPM — Secure Package Manager
 
-SPM is an npm-compatible registry overlay for Algorand MainNet. It passes
+AuPM is an npm-compatible registry overlay for Algorand MainNet. It passes
 unreviewed packages through to npm for free. A human-reviewed package costs
 1,000 microUSDC ($0.001), settled through the mandatory GoPlausible
 facilitator. Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor,
 60% to the operator until the other roles launch. See "Revenue split" below.
-Most supply-chain attacks land in packages nobody ever reviewed. SPM turns
+Most supply-chain attacks land in packages nobody ever reviewed. AuPM turns
 human review into a paid, verifiable, on-chain-anchored public good.
 
 Caution: no MainNet deployment exists yet. Read "Current status" before you
@@ -24,7 +24,7 @@ one application call. The facilitator rejects that group shape now. The
 client signs one plain USDC transfer only.
 
 ```
-client / spm CLI        SPM proxy              GoPlausible facilitator     Algorand MainNet
+client / aupm CLI        AuPM proxy              GoPlausible facilitator     Algorand MainNet
       |                     |                          |                        |
       | 1. npm install pkg  |                          |                        |
       |-------------------->|                          |                        |
@@ -147,21 +147,21 @@ knob for either limit.
 Set the mnemonic from a secret manager for one command only — never in a `.env` file:
 
 ```bash
-SPM_DONOR_MNEMONIC="$(rbw get spm-donor)" \
-  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out spm-attestation.json
+AUPM_DONOR_MNEMONIC="$(rbw get aupm-donor)" \
+  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out aupm-attestation.json
 ```
 
 The same pattern installs one package:
 ```bash
-SPM_DONOR_MNEMONIC="$(rbw get spm-donor)" pnpm -C cli exec tsx src/index.ts install <pkg> <version> --donate
+AUPM_DONOR_MNEMONIC="$(rbw get aupm-donor)" pnpm -C cli exec tsx src/index.ts install <pkg> <version> --donate
 ```
 
-Without `--donate`, `spm attest` reports the price on a 402 and exits 2,
+Without `--donate`, `aupm attest` reports the price on a 402 and exits 2,
 signing nothing. The MCP `attest_lockfile` tool takes the same opt-in as
 `allowDonation`. `mcp/src/donor.ts` is the shared donation client behind
 both.
 
-The `spm-attest` GitHub Action installs `spm-cli` and runs `spm attest`. Its
+The `aupm-attest` GitHub Action installs `aupm` and runs `aupm attest`. Its
 `donate` input defaults to `'false'`. Set it to `'true'` and pass a
 `donor-mnemonic` secret to donate from CI. Never pass a mnemonic as plain
 text — use a GitHub Actions secret. The Action fails open: a facilitator
@@ -180,18 +180,18 @@ The facilitator pays the payment transaction fee, so the ALGO only covers the
 minimum balance and the opt-in. A wallet with an in-app USDC purchase, for
 example Pera, avoids an exchange withdrawal to a fresh address.
 
-Set the account's 25-word mnemonic in `SPM_DONOR_MNEMONIC`. Never commit it
+Set the account's 25-word mnemonic in `AUPM_DONOR_MNEMONIC`. Never commit it
 and never log it.
 
 ## Verify an attestation offline
 
-`spm verify` checks one DSSE envelope against a published key. It makes no
+`aupm verify` checks one DSSE envelope against a published key. It makes no
 network request.
 
 ```bash
 pnpm -C cli exec tsx src/index.ts verify attestation.json \
   --lockfile package-lock.json \
-  --keys spm-keys.json
+  --keys aupm-keys.json
 ```
 
 CAUTION: never verify with `algosdk.signBytes`. It prepends `MX` and breaks
@@ -218,8 +218,8 @@ Each of these commands was run against this repository state and exits 0.
 - `proxy/` — Hono overlay: npm passthrough, SQLite status store, x402
   routes, attestation signing, claims ledger.
 - `mcp/` — MCP server: `check_audit_status`, `install_audited_package`.
-- `cli/` — `spm` wrapper, including `spm verify` offline verification.
-- `.github/actions/spm-attest/` — CI Action. It fails open; it never reddens
+- `cli/` — `aupm` wrapper, including `aupm verify` offline verification.
+- `.github/actions/aupm-attest/` — CI Action. It fails open; it never reddens
   a user's CI.
 - `docs/` — architecture notes and the contract build runbook.
 

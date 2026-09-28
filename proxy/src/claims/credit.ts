@@ -57,7 +57,7 @@ const OPS_IDENTITY = 'ops'
  * got its txid recorded.
  */
 function creditNote(batchSeq: number): Uint8Array {
-  return new TextEncoder().encode(`spm:credit:${batchSeq}`)
+  return new TextEncoder().encode(`aupm:credit:${batchSeq}`)
 }
 
 // AVM app-call limit: accounts, assets, apps and boxes together must not
@@ -137,7 +137,7 @@ export interface CreditChainClient {
    * is never resent — the contract would reject it forever. */
   getOnChainLastBatchSeq(appId: bigint): Promise<number>
   /** Looks up the confirmed credit() transaction id for `batchSeq` by its
-   * `spm:credit:<batchSeq>` note (see `creditNote`). Null when the indexer
+   * `aupm:credit:<batchSeq>` note (see `creditNote`). Null when the indexer
    * has no matching, confirmed application call from this app. */
   findCreditTxidByNote(appId: bigint, batchSeq: number): Promise<string | null>
 }
@@ -180,7 +180,7 @@ function assertEntriesMatchAuditorShare(attributedMicro: number, entries: Credit
  * confirms" and "record the credit txid locally"): resending that batch
  * would make the contract reject it forever (`batchSeq must follow the
  * last credited batch`). This recovers the confirmed txid from the
- * `spm:credit:<batchSeq>` note instead of resending, or stops with a
+ * `aupm:credit:<batchSeq>` note instead of resending, or stops with a
  * thrown error the operator must act on when the indexer has no match.
  */
 export async function runCreditStep(
@@ -206,7 +206,7 @@ export async function runCreditStep(
           `runCreditStep: batch ${pending.batch_seq} is already credited on-chain ` +
             `(app ${appId}'s lastBatchSeq is ${onChainLastBatchSeq}), but no local credit_txid ` +
             `is recorded and the indexer found no confirmed credit() transaction noted ` +
-            `"spm:credit:${pending.batch_seq}". Check the indexer is caught up and reachable; ` +
+            `"aupm:credit:${pending.batch_seq}". Check the indexer is caught up and reachable; ` +
             'if it is, find the credit() transaction manually (by app id and note) and record ' +
             'its txid with recordBatchCreditTxid before the next nightly run.',
         )
@@ -303,8 +303,8 @@ export function buildAlgodCreditClient(
         .notePrefix(note)
         .limit(50)
         .do()
-      // notePrefix is a byte-prefix match ("spm:credit:1" also matches
-      // "spm:credit:10"), so re-check the exact note before trusting a hit.
+      // notePrefix is a byte-prefix match ("aupm:credit:1" also matches
+      // "aupm:credit:10"), so re-check the exact note before trusting a hit.
       const match = page.transactions.find(
         (txn) => txn.applicationTransaction !== undefined && txn.note && bytesEqual(txn.note, note),
       )
