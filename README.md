@@ -3,8 +3,8 @@
 AuPM is an npm-compatible registry overlay for Algorand MainNet. It passes
 unreviewed packages through to npm for free. A human-reviewed package costs
 1,000 microUSDC ($0.001), settled through the mandatory GoPlausible
-facilitator. Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor,
-60% to the operator until the other roles launch. See "Revenue split" below.
+facilitator. Target split 30/10/20/25/10/5. In the MVP: 30% to the auditor,
+70% to the operator until the other roles launch. See "Revenue split" below.
 Most supply-chain attacks land in packages nobody ever reviewed. AuPM turns
 human review into a paid, verifiable, on-chain-anchored public good.
 
@@ -58,10 +58,10 @@ Target split, per 1,000 microUSDC of a reviewed payment:
 
 | Recipient | Share | Per 1,000 µUSDC |
 |---|---|---|
-| Auditor | 40% | 400 |
+| Auditor | 30% | 300 |
 | Contributor | 10% | 100 |
 | Maintainer | 20% | 200 |
-| Adversarial reviewer pool | 15% | 150 |
+| Adversarial reviewer pool | 25% | 250 |
 | Treasury | 10% | 100 |
 | Ops | 5% | 50 |
 
@@ -69,11 +69,14 @@ MVP split. Only the auditor and ops roles are onboarded so far:
 
 | Recipient | Share | Per 1,000 µUSDC |
 |---|---|---|
-| Auditor | 40% | 400 |
-| Ops | 60% | 600 |
+| Auditor | 30% | 300 |
+| Ops | 70% | 700 |
 
-The MVP 60% is ops income now, not a debt owed to the other roles. Each role
+The MVP 70% is ops income now, not a debt owed to the other roles. Each role
 gets its target share once it onboards.
+
+The TestNet app (772553842) is not redeployed and still runs the earlier
+40/60 split. That figure describes TestNet only.
 
 ## Routes and prices
 

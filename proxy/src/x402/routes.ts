@@ -26,7 +26,7 @@ const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 // this exact wording. Never claim the maintainer's target share is paid
 // out today: in the MVP it is unclaimed ops income until that role onboards.
 const SPLIT_DISCLOSURE =
-  'Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor, 60% to ' +
+  'Target split 30/10/20/25/10/5. In the MVP: 30% to the auditor, 70% to ' +
   'the operator until the other roles launch.'
 
 // The canonical text for the `og:description` meta tag the operator sets
