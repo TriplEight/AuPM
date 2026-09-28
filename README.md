@@ -51,9 +51,8 @@ MVP split. So far, the split pays only the auditor and ops roles:
 | Ops | 70% |
 
 The MVP's 70% is ops income now, not a debt owed to the other roles. Each role gets its
-target share once it onboards. The TestNet rehearsal app keeps the older 40% auditor / 60%
-ops split. See [ADR 0011](docs/adr/0011-split-30-10-20-25-10-5.md) for the
-split rationale.
+target share once it onboards. TestNet runs the same split. See
+[ADR 0011](docs/adr/0011-split-30-10-20-25-10-5.md) for the split rationale.
 
 ### Trust model
 

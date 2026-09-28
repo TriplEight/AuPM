@@ -152,10 +152,10 @@ export type CreditOutcome =
 
 /**
  * Asserts `entries` sum to exactly `auditorShareMicro(attributedMicro)` —
- * the same check the contract itself makes, for the auditor share of the
- * network this process is configured for (ADR 0005, ADR 0011, docs/TASK.md
- * P8a). Defence in depth: a ledger bug here must fail loudly before it
- * ever reaches the chain, not surface only as a rejected transaction.
+ * the same check the contract itself makes, for the one split every network
+ * uses (ADR 0005, ADR 0011, docs/TASK.md P8d). Defence in depth: a ledger
+ * bug here must fail loudly before it ever reaches the chain, not surface
+ * only as a rejected transaction.
  */
 function assertEntriesMatchAuditorShare(attributedMicro: number, entries: CreditEntry[]): void {
   const entriesTotal = entries.reduce((sum, e) => sum + e.amountMicro, 0)
