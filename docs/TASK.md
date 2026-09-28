@@ -658,6 +658,12 @@ must use the share 300 (`ONCHAIN_AUDITOR_SHARE_MICRO`, about line 282), because 
 fresh app from the committed artifacts. Then run P8 item 3 (LocalNet: deploy, rekey a `payTo`,
 credit one batch, claim; also announce and execute a release). Blocked on the human build.
 
+Status (2026-09-28): the human build is committed (`7e6291e`). The e2e share is 300 and the
+pinned app schema is 5 global uints and 3 global byte slices (`45d2e54`). Open: the LocalNet
+rehearsal. It needs Docker, which the agent user cannot reach; a human runs it. The 216,000-round
+delay makes a full announce-then-execute run impractical on LocalNet: rehearse announce, check
+the early-execute rejection, and leave execute to the contract tests.
+
 ### P5. README as a product page — DONE 5eb4f73
 
 The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
