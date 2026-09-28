@@ -809,7 +809,7 @@ Check: `rg -n -i 'ZAG|german|portainer|cloudflared|traefik|backrest|/var/backups
 $(git ls-files)` prints nothing outside `.claude/skills/`. Do this item last in the wave: it
 moves this file. Owner: docs subagent; the human approves the diff.
 
-### W3. Server secrets from files
+### W3. Server secrets from files — DONE b2c83e4
 
 `CREDITER_MNEMONIC` and `ATTEST_SIGNING_KEY` are plain environment values today.
 `docker compose config`, `docker inspect` and the Portainer UI show them. Result:
