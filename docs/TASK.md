@@ -642,7 +642,7 @@ target 300/100/200/250/100/50 and MVP 300/700; TestNet target 400/100/200/150/10
 network gives its own auditor share and text; an odd total rounds the same way as the contract.
 Owner: `x402-proxy-engineer`.
 
-### P8b. Multisig signing for admin calls
+### P8b. Multisig signing for admin calls — DONE 4bbffd7
 
 P8 builds the unsigned create transaction for the 2-of-3 admin multisig. `setCrediter`,
 `setIdentity`, `announceRelease` and `executeRelease` are also admin-only, so each needs the
