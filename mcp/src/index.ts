@@ -6,7 +6,7 @@ import { attestLockfileTool } from './tools/attest.js'
 import { checkTool } from './tools/check.js'
 import { installTool } from './tools/install.js'
 
-const server = new McpServer({ name: 'aupm', version: '0.1.0' })
+const server = new McpServer({ name: 'aupm', version: '0.2.0' })
 
 server.tool(
   checkTool.name,
