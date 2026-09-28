@@ -90,11 +90,25 @@ below.
    ```bash
    goal clerk multisig sign -t <output-file>
    ```
-3. Whoever holds the twice-signed file submits it:
+3. Whoever holds the twice-signed file submits it to MainNet:
    ```bash
-   goal clerk rawsend -f <output-file>
+   curl -X POST --data-binary @<output-file> -H 'Content-Type: application/x-binary' \
+     https://mainnet-api.algonode.cloud/v2/transactions
    ```
-   Check: `https://mainnet-api.algonode.cloud` lists the transaction with a round number.
+   The response contains the `txId`.
+   Check: `https://mainnet-api.algonode.cloud/v2/transactions/pending/<txid>` shows a
+   `confirmed-round`.
+
+**Tool notes.**
+
+- `goal clerk multisig sign` needs `goal` with `kmd`.
+- `goal clerk rawsend` sends to the node that `goal` points at. Under `algokit goal`, that node is
+  LocalNet. Do not use it for MainNet. Use the `curl` command above.
+- After `createApplication` confirms, read the new app id from the `application-index` field of
+  `https://mainnet-api.algonode.cloud/v2/transactions/pending/<txid>`.
+- An unsigned file is valid for 1,000 rounds (about 48 minutes at about 2.9 s per round).
+  `deploy-config.ts` takes the validity window unchanged from the algod suggested parameters.
+  Build, sign and submit each file in one sitting. If the window ends, build the file again.
 
 | Call | `<function>` | Extra env vars | Output path (default) |
 |---|---|---|---|
@@ -104,12 +118,39 @@ below.
 | `announceRelease(to)` | `deployMultisigAnnounceRelease` | `RELEASE_TO_ADDRESS` | `./payment-router-announce-release.txn` |
 | `executeRelease()` | `deployMultisigExecuteRelease` | `PAY_TO_ADDRESS`, `TREASURY_ADDRESS` | `./payment-router-execute-release.txn` |
 
-After `createApplication` submits, set `PAYMENT_ROUTER_APP_ID` to the app id it returns before
-building any of the other four files. Fund the app account for box storage before the first
-`credit()` (any funder, no admin authority needed: `goal clerk send -a 1000000 -f <any-funder> -t
-<APP_ADDRESS>`). Run `setIdentity` once per `AUDITORS` entry plus `ops`. Map `treasury` before the
-first `executeRelease`: invariant 8 (CLAUDE.md) treats a role as onboarded only after an admin
-maps it with `setIdentity`.
+**Order of the funding steps.**
+
+1. Fund the multisig address before `createApplication`. The multisig pays for the app.
+   The amount is 0.1 ALGO account base, plus 0.3925 ALGO app minimum balance, plus fees.
+   The app minimum balance is 100,000 + 5 x 28,500 (global uints) + 3 x 50,000 (global byte
+   slices) = 392,500 microALGO. The contract declares 5 uints (`ast`, `bsq`, `cru`, `arn`, `ret`)
+   and 3 byte slices (`pto`, `crd`, `ato`).
+2. Submit `createApplication`. Set `PAYMENT_ROUTER_APP_ID` to the app id it returns before you
+   build any of the other four files.
+3. Fund the app account after `createApplication` and before the first `setIdentity`.
+   `setIdentity` writes an `id:` box, and that box needs minimum balance on the app account.
+   Any funder can send the payment (`goal clerk send -a <microALGO> -f <any-funder> -t
+   <APP_ADDRESS>`, with `goal` pointed at MainNet, or a wallet).
+   The amount is 0.1 ALGO base plus about 0.025 ALGO per identity for its two boxes.
+4. Run `setIdentity` once per `AUDITORS` entry plus `ops`, and once for `treasury`.
+5. Run `setCrediter`.
+
+**Box minimum balance per identity.** A box costs 2,500 + 400 x (key bytes + value bytes)
+microALGO. The `id:` box has the key `id:<identity>` and a 32-byte address value. The `bal:` box
+has the key `bal:<identity>` and an 8-byte value. The `bal:` box appears at the first `credit()`
+for that identity. Fund both boxes up front.
+
+| Identity | `id:` box | `bal:` box | Total |
+|---|---|---|---|
+| `ops` (3 characters) | 17,700 | 8,500 | 26,200 microALGO |
+| `github:` plus a 20-character login | 27,300 | 18,100 | 45,400 microALGO |
+| `github:` plus a 39-character login | 34,900 | 25,700 | 60,600 microALGO |
+
+The 0.025 ALGO figure fits short identities such as `ops`. Long GitHub identities cost more. Use
+the formula for each identity, and add a margin.
+
+Map `treasury` before the first `executeRelease`: invariant 8 (CLAUDE.md) treats a role as
+onboarded only after an admin maps it with `setIdentity`.
 
 **`executeRelease()`'s outer fee.** `deployMultisigExecuteRelease` sets a flat outer fee of at
 least 3,000 microALGO. `executeRelease()` submits up to two inner transactions: the treasury
@@ -275,6 +316,15 @@ never run at once.
 
 Check: `curl -s https://<mainnet-domain>/api/v1/health` shows the run just completed.
 
+**Monitor the app account's ALGO balance.** Each new identity adds boxes, and each box raises
+the app account's minimum balance (§2a). A low balance makes `credit()` fail. Check the balance
+against its minimum after every `setIdentity` and every week:
+```bash
+curl -s "https://mainnet-api.algonode.cloud/v2/accounts/<APP_ADDRESS>" | jq '{amount, "min-balance"}'
+```
+Top up the app account when `amount` is less than `min-balance` plus a margin for the next
+identities. Any funder can send the top-up.
+
 ---
 
 ## 7. Claim a credited balance
@@ -350,9 +400,15 @@ SPEC.md §10.2a). Run this procedure before `announceRelease`, every time.
    Check: the log line names the credited batch and a credit txid.
 3. Announce the migration to every payee (auditors, ops, and any onboarded role): the new app id,
    the claim window, and the round `announceRelease` was called at.
-4. Call `announceRelease(to)` on the old app, with `to` set to `payTo`'s current address (the
-   rekey target stays `payTo` itself; only the authorizer changes). Follow §2a's three-step
-   multisig procedure with `deployMultisigAnnounceRelease` and `RELEASE_TO_ADDRESS`.
+4. Map `treasury` to the sweep target with `setIdentity` (§2a), if you did not map it before.
+   This makes treasury an onboarded role for public texts (invariant 8), and `executeRelease()`
+   needs it.
+   Then call `announceRelease(to)` on the old app, with `to` set to the new app's address. Do
+   not set `to` to `payTo`'s own address. `executeRelease()` would rekey `payTo` to itself, the app
+   would lose control, and only the original `payTo` key could sign again. Follow §2a's
+   three-step multisig procedure with `deployMultisigAnnounceRelease` and `RELEASE_TO_ADDRESS`
+   (the new app's address). Keep the `payTo` mnemonic in cold storage. Do not destroy it.
+   Check: `announcedTo` (global key `ato`) on the old app equals the new app's address.
 5. Tell payees to `claim()` their balance on the old app before the delay window ends (about
    7 days, 216,000 rounds).
    ```bash
@@ -366,8 +422,8 @@ SPEC.md §10.2a). Run this procedure before `announceRelease`, every time.
    Check: `GET /api/v1/health` on the old app's deployment shows no further scheduled run.
 7. Call `executeRelease()` on the old app. It sweeps `creditedUnclaimed` to the address mapped to
    identity `"treasury"`, sets `creditedUnclaimed` to 0, marks the old app retired, and rekeys
-   `payTo` to the new app. This fails if `"treasury"` is not mapped with `setIdentity` — map it
-   first (§2a). It also fails on-chain if the 216,000-round delay since `announceRelease` has not
+   `payTo` to the new app. This fails if `"treasury"` is not mapped with `setIdentity`. Step 4
+   maps it. It also fails on-chain if the 216,000-round delay since `announceRelease` has not
    passed. Follow §2a's three-step multisig procedure with `deployMultisigExecuteRelease`,
    `PAY_TO_ADDRESS` and `TREASURY_ADDRESS`. Its outer fee is a flat 3,000 microALGO or more,
    pooling the two inner transactions this call submits.
