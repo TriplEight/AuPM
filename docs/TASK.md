@@ -724,6 +724,25 @@ does not reach the response body. Owner: `x402-proxy-engineer`.
 `AbortSignal.timeout` (30 s, a compiled-in constant); a timeout returns 504 with a short JSON
 error. Test: a stalled upstream returns 504. Owner: `x402-proxy-engineer`.
 
+### P8d. One split on every network (decided 2026-09-28)
+
+The contract is rebuilt with 300/700, and TestNet moves to a new app from that build after the
+merge. The TestNet app 772553842 (400/600) is retired. Result: every doc states one split
+(target 30/10/20/25/10/5, MVP 30/70) and no TestNet 40/60 text is left. The proxy has one split
+again: the per-network table from P8a goes (replace, don't deprecate), and the ledger check,
+the attribution rules and the 402 text read the single 300/700 split. Tests: the auditor share
+and the 402 text; odd totals round like the contract. Owner: `x402-proxy-engineer` and docs.
+
+### P9. Cross-package imports through the workspace (decided 2026-09-28)
+
+`cli/` and `proxy/` import `mcp/src/money.ts` and other `mcp/` files by relative `../../`
+paths, with tsconfig `paths` entries and a single-file `COPY` in `proxy/Dockerfile`. Result: the
+consumers depend on `aupm-mcp` with `workspace:*` and import by package name through an
+`exports` entry in `mcp/package.json`. The tsconfig path entries and the single-file `COPY` go;
+the Docker build installs the workspace dependency. Check: no `../../mcp` import is left;
+`pnpm typecheck` and every package test pass. A human confirms `docker build`.
+Owner: `mcp-payer-engineer`.
+
 ## Order
 
 - **Wave 1 (parallel worktrees):** H1; Q1; Q5; Q9 + Q10; R1.
