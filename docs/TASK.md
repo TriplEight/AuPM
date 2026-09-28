@@ -597,7 +597,7 @@ integer micro-units (invariant 7). One helper formats micro-units as dollars; te
 
 Owner: `x402-proxy-engineer` (proxy text) and `mcp-payer-engineer` (CLI, MCP, Action).
 
-### P4. Tier filter — planned (decided 2026-09-28)
+### P4. Tier filter — planned (decided 2026-09-28) — DONE 5eb4f73
 
 The MVP has two tiers (`UNREVIEWED`, `COMMUNITY_REVIEWED`, SPEC §4.1) and no filter in any
 client. The README describes filtering by tier as planned (SPEC §8), not as built. Donations
@@ -658,7 +658,7 @@ must use the share 300 (`ONCHAIN_AUDITOR_SHARE_MICRO`, about line 282), because 
 fresh app from the committed artifacts. Then run P8 item 3 (LocalNet: deploy, rekey a `payTo`,
 credit one batch, claim; also announce and execute a release). Blocked on the human build.
 
-### P5. README as a product page
+### P5. README as a product page — DONE 5eb4f73
 
 The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
 
