@@ -164,7 +164,7 @@ export function assertNetworkMatchesGenesis(
 /**
  * Refuses when the crediter address coincides with any other named address.
  * The crediter key can call only credit(); it must never double as a cold
- * key (spm-payment-router skill: never the deployer, the admin, the donor
+ * key (aupm-payment-router skill: never the deployer, the admin, the donor
  * or payTo). Pure: covered directly by deploy-config.spec.ts.
  *
  * @param crediterAddress - the address about to be set as the crediter.
