@@ -681,7 +681,7 @@ links. All examples use `ms@2.1.3`.
 - ASD-STE100 style. Never name the production domain or host provider (use `<domain>`).
 Owner: docs subagent after P2, P3 and P4. `bash scripts/guard.sh` must pass (split text rules).
 
-### P6. Operator doc fixes carried from wave 6
+### P6. Operator doc fixes carried from wave 6 — DONE ff64c16
 
 - M0 text: a new attestation key gets a new `AUPM_KEY_VALID_FROM`; a reused key keeps its date.
 - Local deploy guide: Compose prefixes the volume name with the project (`spm_aupm-db`), and the
