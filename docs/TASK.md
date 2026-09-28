@@ -630,7 +630,7 @@ Result:
 4. A human runs `algokit project run build` and commits the artifacts.
 Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subagent (texts).
 
-### P8a. Split per network in the proxy (decided 2026-09-28)
+### P8a. Split per network in the proxy (decided 2026-09-28) — DONE bbe899e
 
 The off-chain ledger and the 402 text hardcode one split: `proxy/src/claims/credit.ts` checks
 `attributedMicro * 400 / 1000` before `credit()`, `proxy/src/claims/attribution-rules.ts` holds
