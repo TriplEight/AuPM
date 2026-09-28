@@ -25,3 +25,7 @@ is more than 26 hours old.
   process.
 - `nightly-main.ts` still exists, for a one-off, by-hand pass — for example right after a
   deploy — and now takes the same lease, so it never races the in-process scheduler.
+- The in-process scheduler needs a clean SIGTERM/SIGINT path (item F4, `proxy/src/shutdown.ts`):
+  a Portainer redeploy stops the scheduler and the server, gives an in-flight run up to 8 s to
+  finish, and closes SQLite only when it did. A run still busy at that deadline is left alone —
+  the process exits non-zero instead, and the 1-hour `nightly_lease` staleness rule reclaims it.

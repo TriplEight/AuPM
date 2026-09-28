@@ -339,7 +339,7 @@ Result, in two parts:
 
 Acceptance: the txid of each step is in `NOTES.md`.
 
-### M0. Move the TestNet deployment (human, before the MainNet deploy)
+### M0. Move the TestNet deployment (human, before the MainNet deploy) — DONE 2026-09-26
 
 TestNet and MainNet run on separate hosts, one instance per host. The current TestNet host
 becomes the MainNet host. Before the MainNet deploy, the operator moves TestNet to its own host:
@@ -423,10 +423,209 @@ After the tracks are merged and `verify.sh` passes:
 
 Result: on every network, the server refuses to boot when `SPM_ISSUER_URL` is not an
 `https://` origin or `SPM_KEY_VALID_FROM` is not an ISO-8601 UTC time. Neither has a default.
-`compose.yaml` refuses to start without them. TestNet tests the same config as MainNet. The team does not own the placeholder domain.
+They come only from `.env` or `stack.env`; a shell export does not change them (F2). TestNet
+tests the same config as MainNet. The team does not own the placeholder domain.
 Every signed statement carries the issuer, so a wrong value cannot be corrected later.
 
 Acceptance: tests for unset, malformed and valid values on both networks. Owner: `x402-proxy-engineer`.
+
+### F1. Compose pins the published image — DONE 68ed80d
+
+The `v0.1.0` image build failed, and the `v0.1.0` tag is deleted. The first published image is
+`ghcr.io/tripleight/spm:v0.1.1`. `compose.yaml` and the MainNet runbook §3 name `v0.1.1`.
+
+Acceptance: `rg 'v0\.1\.0' compose.yaml docs/` finds nothing. Owner: `x402-proxy-engineer`.
+
+### F2. Issuer and key date come only from the env file — DONE e3d349c
+
+Compose interpolation lets a shell export override `.env`. `compose.yaml` no longer interpolates
+`SPM_ISSUER_URL` or `SPM_KEY_VALID_FROM`; they come only from `env_file`. The server still refuses
+to boot without valid values (Q13). `SPM_BACKUP_HOST_DIR` and `PORT` stay interpolated.
+
+Acceptance: with a shell export of `SPM_ISSUER_URL`, `docker compose config` has no
+`environment:` entry for it. Owner: `x402-proxy-engineer`.
+
+### F4. Clean shutdown on SIGTERM — DONE e9aa06f..c34839f
+
+The proxy runs as PID 1 and had no SIGTERM handler, so every stop ended in SIGKILL. Now SIGTERM or
+SIGINT stops the scheduler, starts the server close, and waits up to 8 s for an in-flight nightly
+run. The database closes only when that run is idle; else the process exits 1 and the lease
+expiry reclaims the run. A second signal exits 1 at once. ADR 0009 records this.
+
+Acceptance: tests for idle, busy, a server close that never ends, a failed server close and a
+second signal. Owner: `x402-proxy-engineer`.
+
+### V1. The verify e2e proxy runs on a free port — DONE 9de186e
+
+`scripts/verify.sh` started its e2e proxy on the fixed port 4873. With a live stack on that port,
+e2e tested the live stack and failed. The e2e proxy now takes a free port from the OS, and the
+readiness check confirms that the started process is still alive.
+
+Acceptance: with another process on 4873, `verify.sh` prints `VERIFY: PASS`. Owner:
+`x402-proxy-engineer`.
+
+## Wave 7 — production readiness before the MainNet launch
+
+Goal: before the MainNet deploy, the project reads as a product, a donor and an auditor can
+start from the README alone, and the contract's trust model is written down. The MainNet
+deploy is final: PaymentRouter cannot be updated after it is created, and `payTo` is the
+leaderboard key (invariant 1). So P1 comes first.
+
+### P1. Contract change policy (analysis, first)
+
+Question: after the MainNet deploy, which changes force a new PaymentRouter? A contract that
+its operator replaces at will undermines trust.
+
+Facts found on 2026-09-28 (check each against the code before you use it):
+- `contract.algo.ts` sets no `allowActions` for update or delete. Confirm with a contract test
+  that `UpdateApplication` and `DeleteApplication` are rejected.
+- Compiled-in values: the auditor share `400/1000`, `MIN_CLAIM`, `MIN_CLAIM_FEE`, the `ops`
+  identity, and the two-role `credit()` shape. The target six-way split (ADR 0003) needs a new
+  contract.
+- `releaseAuthority(to)` lets the creator key rekey `payTo` to any address. USDC stays in
+  `payTo` until a claim. So the creator key controls every credited, unclaimed balance.
+
+Result:
+1. A list of change triggers. For each trigger: a new contract, an admin call, or no change.
+   Include the six-way split, a new role, a changed `MIN_CLAIM`, a lost crediter key, a lost
+   admin key, a bug.
+2. Options to limit `releaseAuthority`, with tradeoffs. Examples: only to an application
+   address; a delay with a public announcement; a multisig creator; a rule to credit and let
+   payees claim before a migration. Also state what an old app keeps doing after a migration.
+3. The user picks the options. Then: a new ADR 0010, the matching SPEC §10 text, and one
+   contract item if the user picks a contract change. A contract change needs
+   `algokit project run build` by a human and a new TestNet rehearsal before MainNet.
+
+Owner: `algorand-contract-engineer` (analysis and tests). Decision: human.
+
+### P2. `spm` as a drop-in for npm
+
+Main use case (user, 2026-09-28): a regular user runs SPM in place of npm, with as little
+friction as possible. Today `spm install <pkg> <version>` takes a fixed argument shape and is
+not npm-compatible. Donation needs a separate `spm attest --donate`.
+
+Facts (check each against the code first):
+- A user who only sets `npm config set registry https://<domain>/` never gets a 402 and never
+  sees a donation prompt. A reviewed tarball returns 200 free without `X-SPM-Donate: 1`
+  (invariant 4, ADR 0006). The proxy sets a hint header, but npm does not show response
+  headers. A 402 to plain npm would break `npm install`, so this stays.
+- npm fetches tarballs itself and cannot pay a 402. So a donation from an npm install goes
+  through the lockfile route: one payment, 1,000 microUSDC per reviewed entry (ADR 0008).
+
+Result:
+1. `spm <npm args>` runs `npm <npm args>` with the SPM registry, and passes every argument and
+   the exit code through unchanged. Output and behavior are npm's. SPM adds only its own flags
+   (`--donate`, and a flag to write the attestation file). SPM flags never reach npm.
+2. After a successful install, `spm` prints one summary line: how many lockfile entries are
+   `COMMUNITY_REVIEWED`, and the donation amount in dollars. Without `--donate` it signs
+   nothing and adds one hint line: how to donate.
+3. With `--donate` (or a persistent opt-in in the SPM config), `spm` runs the lockfile
+   attestation with donation after the install. A failed donation never fails the install:
+   it logs one line and keeps npm's exit code.
+4. `spm attest` and `spm verify` stay, for CI and offline checks. A regular user does not need
+   them.
+5. pnpm: check if `POST /v1/attest/lockfile` parses `pnpm-lock.yaml`. If yes, `spm pnpm <args>`
+   behaves the same way. If no, write down the gap as a later item. npx: out of scope for
+   wave 7; write it down as planned.
+6. Walk the path as a new user on TestNet, from the README only. Cover: the one-line registry
+   config, `spm install --donate`, the MCP `attest_lockfile` with `allowDonation`, and the
+   Action with `donate: 'true'`. Record every step that needs a repo clone, a hidden env var, or
+   a guess, and fix it or list it.
+7. Examples in every doc use `ms@2.1.3`. It is the package with a real anchored review.
+
+Tests: argument pass-through (flags, `--`, positional args), exit code pass-through, SPM flags
+removed, donation failure keeps npm's exit code, summary line with 0 and with N reviewed
+entries. Owner: `mcp-payer-engineer`.
+
+### P2a. Package names (decision first)
+
+The npm names `spm-cli` and `spm-mcp` belong to unrelated authors (`spm-cli`: "the awesome
+style project manager"; `spm-mcp`: a product-document tool). A user who runs `npx spm-cli`
+gets a stranger's code. For a security product this blocks the launch.
+
+Candidates for the human to pick from, after a registry check at the start of the session
+(`curl -s -o /dev/null -w '%{http_code}' https://registry.npmjs.org/<name>`, 404 = free):
+- Unscoped: `spm` (probably taken; "SPM" also names the Swift Package Manager), `snpm`,
+  `spm-proxy`.
+- Scoped under an npm org that the team owns, for example `@<org>/spm` and `@<org>/spm-mcp`.
+  A scope cannot be squatted per package and makes the publisher visible. Recommended.
+- The command name (`bin`) is separate from the package name. `spm` as the command works with
+  any package name. Check for a clash with a common global command.
+
+Result: the chosen names in `cli/package.json`, `mcp/package.json`, the Action and all docs. No
+doc or config names the foreign packages. Publish is a human step (npm login, 2FA,
+provenance).
+
+### P3. Amounts in dollars
+
+User-facing text shows amounts in US dollars: 1,000 microUSDC is $0.001 per reviewed package.
+USDC on Algorand stays the named settlement asset. Scope: README, docs, CLI and MCP output,
+the 402 `description` text, the Action log lines. Code, SQLite columns and on-chain values stay
+integer micro-units (invariant 7). One helper formats micro-units as dollars; test it at 0, 1,
+999, 1,000 and 1,000,000.
+
+Owner: `x402-proxy-engineer` (proxy text) and `mcp-payer-engineer` (CLI, MCP, Action).
+
+### P4. Tier filter — planned (decided 2026-09-28)
+
+The MVP has two tiers (`UNREVIEWED`, `COMMUNITY_REVIEWED`, SPEC §4.1) and no filter in any
+client. The README describes filtering by tier as planned (SPEC §8), not as built. Donations
+already go only to reviewed versions; the README states that as built.
+
+### P8. New split: 30 / 10 / 20 / 25 / 10 / 5 (MainNet contract only)
+
+Decided by the user, 2026-09-28:
+- Target: auditor 30, contributor 10, maintainer 20, adversarial reviewer 25, treasury 10,
+  ops 5 (per 1,000: 300 / 100 / 200 / 250 / 100 / 50).
+- MVP: auditor 30, ops 70 (per 1,000: 300 / 700).
+- TestNet keeps app 772553842 with the 40 / 60 split. No TestNet redeploy. The docs say so.
+
+Result:
+1. `contract.algo.ts`: `AUDITOR_SHARE_NUM` 300. Contract tests for the new amounts, including
+   the rounding of odd totals. Bundle any P1 contract change into the same build.
+2. SPEC §6.1, §6.2 and every place that states the split; a new ADR that supersedes ADR 0003;
+   `CLAUDE.md` (overview and the canonical facts table); README; public texts; `guard.sh` rules
+   that check split text. Invariant 8 still holds.
+3. Because TestNet is not redeployed, rehearse the new build on LocalNet: deploy, rekey a
+   `payTo`, credit one batch, claim. Record the result.
+4. A human runs `algokit project run build` and commits the artifacts.
+Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subagent (texts).
+
+### P5. README as a product page
+
+The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
+
+> Many companies use open source and audit their dependencies internally. These findings
+> never get back to open source. SPM creates an opportunity for security auditors, open-source
+> supporters and repository maintainers to improve security and get paid for their labour.
+> Users and their agents donate to the products and dependencies they use, as they go.
+
+Sections: the problem and the product; the review tiers (filtering is planned, P4); what a
+donation pays for, in dollars, with the P8 target split and MVP split (invariant 8); "For users
+and donors" (`spm` as a drop-in for npm, P2); "For auditors" (next paragraph); verify offline;
+links. All examples use `ms@2.1.3`.
+- Auditor path: an Algorand account opted in to USDC; the admin maps the identity
+  (`setIdentity`); the auditor reads the exact tarball; the review anchor (a 0-ALGO
+  self-payment with an ARC-2 `spm:j{...}` note, ADR 0007); the operator runs `record-review`;
+  the nightly batch credits; the auditor claims at `MIN_CLAIM` or more. State that onboarding
+  is manual in the MVP (item A1).
+- Move development setup, the repository layout and all deploy text to `docs/DEVELOPMENT.md`
+  and the runbooks. The README links to them.
+- ASD-STE100 style. Never name the production domain or host provider (use `<domain>`).
+Owner: docs subagent after P2, P3 and P4. `bash scripts/guard.sh` must pass (split text rules).
+
+### P6. Operator doc fixes carried from wave 6
+
+- M0 text: a new attestation key gets a new `SPM_KEY_VALID_FROM`; a reused key keeps its date.
+- Local deploy guide: Compose prefixes the volume name with the project (`spm_spm-db`), and the
+  backup directory is owned by uid 1000.
+
+### P7. Production review pass
+
+A read-only review of `proxy/`, `cli/`, `mcp/` and the Action for launch risks: secrets in logs,
+error text that leaks internals, request size limits, timeouts on upstream fetches,
+`pnpm audit --audit-level=moderate`, the image user and pinned versions. Output: a ranked
+finding list. Each accepted finding becomes one item. Owner: `code-reviewer`.
 
 ## Order
 
@@ -436,6 +635,10 @@ Acceptance: tests for unset, malformed and valid values on both networks. Owner:
 - **Qualification (human, by Sept 25):** SPEC §17 Q steps 1–6 on MainNet.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
+- **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1.
+- **Wave 7:** P1 (decision) and P2a (names, decision) first → P8 (with P1's contract change)
+  ‖ P7 → P2 → P3 → P5 → P6 → MainNet launch (human steps, checked by the orchestrator). P4 is
+  decided (planned).
 
 ### S1. Dependency advisories — DONE 349de5c
 
@@ -473,6 +676,8 @@ patched version.
 - Real package reviews and their anchors.
 - The first real payment; the form and the Electric Capital submission.
 - `algokit project run build` after a contract change.
+- Wave 7 decisions: the contract change policy (P1), the package names and publisher (P2a).
+- Wave 7 human steps: `algokit project run build` for P8, the npm publish.
 - Legal read before any payout to a third party (SPEC §13.4).
 
 ## Definition of done

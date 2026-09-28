@@ -77,7 +77,22 @@ else
   export NETWORK="${NETWORK:-testnet}"
   sqlite_path="${TMPDIR:-/tmp}/spm_verify_$(date +%s).db"
   export SQLITE_PATH="$sqlite_path"
-  export SPM_PROXY_URL="${SPM_PROXY_URL:-http://localhost:4873}"
+  # Ask the OS for a free TCP port instead of a fixed one. A fixed port can
+  # already be bound by an unrelated process (for example a live Docker
+  # stack); the readiness probe would then answer from that other process
+  # while this proxy silently failed to bind, and e2e would run against the
+  # wrong service. Binding port 0 and reading back the assigned port avoids
+  # that race.
+  free_port="$(node -e '
+    const net = require("node:net")
+    const srv = net.createServer()
+    srv.listen(0, "127.0.0.1", () => {
+      console.log(srv.address().port)
+      srv.close()
+    })
+  ')"
+  export PORT="$free_port"
+  export SPM_PROXY_URL="http://localhost:${free_port}"
   # Ephemeral, throwaway values — never a real key or a real deployed
   # contract. Good enough to exercise the 402 gate and the signing path;
   # never good enough to move real funds. Generated fresh every run.
@@ -100,12 +115,17 @@ else
   pnpm --dir proxy dev >"$PROXY_LOG" 2>&1 &
   PROXY_PID=$!
 
+  # Readiness means both: the PID this script started is still alive, and
+  # it is the process answering on the free port picked above. Checking
+  # kill -0 before every probe, and again right after a successful probe,
+  # rules out a stale or unrelated process on that port answering instead.
   ready=0
   for _ in $(seq 1 40); do
     if ! kill -0 "$PROXY_PID" 2>/dev/null; then
       break
     fi
-    if curl -sf "$SPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1; then
+    if curl -sf "$SPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1 \
+      && kill -0 "$PROXY_PID" 2>/dev/null; then
       ready=1
       break
     fi
@@ -126,7 +146,8 @@ else
     reason="facilitator unreachable from this environment (see $PROXY_LOG) -- proxy refuses to boot without it"
     skip_line "$E2E_NAME" "$reason"
   else
-    echo "FAIL  ($E2E_NAME: proxy never became ready; see $PROXY_LOG)"
+    echo "FAIL  ($E2E_NAME: proxy never became ready; last lines of $PROXY_LOG)"
+    tail -n 30 "$PROXY_LOG" 2>/dev/null
     SUMMARY+=("FAIL  $E2E_NAME -- proxy never became ready, see $PROXY_LOG")
     fail=1
   fi

@@ -146,6 +146,49 @@ describe('startNightlyScheduler: item N1.2 (start-up catch-up)', () => {
   })
 })
 
+describe('startNightlyScheduler: waitForIdle (item F4)', () => {
+  test('resolves immediately when no run is in flight', async () => {
+    const clock = fakeClock(new Date('2026-03-05T00:00:00.000Z'))
+    // A recent successful run skips the start-up catch-up run, so nothing
+    // is ever in flight here.
+    recordNightlyRunEnd(
+      recordNightlyRunStart(clock.now().getTime() - 1000),
+      clock.now().getTime() - 500,
+      'success',
+      null,
+      null,
+      null,
+    )
+
+    const handle = startNightlyScheduler(stubDeps(), clock)
+
+    await expect(handle.waitForIdle()).resolves.toBeUndefined()
+  })
+
+  test('resolves only after the in-flight catch-up run finishes', async () => {
+    const clock = fakeClock(new Date('2026-03-05T00:00:00.000Z'))
+    let releaseRun: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      releaseRun = resolve
+    })
+    const assertGenesisMatches = vi.fn(() => gate)
+
+    const handle = startNightlyScheduler(stubDeps({ assertGenesisMatches }), clock)
+    await vi.waitFor(() => expect(assertGenesisMatches).toHaveBeenCalledTimes(1))
+
+    let idleResolved = false
+    const idle = handle.waitForIdle().then(() => {
+      idleResolved = true
+    })
+    await new Promise((resolve) => setImmediate(resolve))
+    expect(idleResolved).toBe(false)
+
+    releaseRun()
+    await idle
+    expect(idleResolved).toBe(true)
+  })
+})
+
 describe('startNightlyScheduler: item N1.3 (a failed run never stops the caller)', () => {
   test('a catch-up run that throws is caught, logged, and recorded — startNightlyScheduler itself never throws', () => {
     const clock = fakeClock(new Date('2026-03-05T00:00:00.000Z'))
