@@ -112,7 +112,7 @@ To donate, you need a funded Algorand account holding USDC. See "Donor account s
 
 ## For auditors
 
-Onboarding is manual in the MVP (planned: item A1, `docs/TASK.md`). The path today:
+Onboarding is manual in the MVP (planned). The path today:
 
 1. Open an Algorand account and opt it in to USDC.
 2. The admin maps your identity on-chain with `setIdentity`.
@@ -136,7 +136,6 @@ aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 
 - [SPEC.md](SPEC.md) — the authoritative specification.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
-- [docs/TASK.md](docs/TASK.md) — next steps and work items.
 - [docs/adr/](docs/adr/) — design decisions.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
 
