@@ -3,17 +3,14 @@ const [command] = argv
 
 const USAGE_LINES = [
   'Usage:',
-  '  aupm status <pkg> <version>',
-  '  aupm install <pkg> <version> [--donate]',
+  '  aupm <npm args>                     runs npm against the AuPM registry',
+  '  aupm install ms@2.1.3 [--donate] [--attest-out <path>]',
   '  aupm attest <lockfile> [--donate] [--out <path>]',
   '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
+  '',
+  'Every first argument other than attest and verify goes to npm unchanged.',
+  'AuPM adds only --donate and --attest-out <path>; both are removed before npm runs.',
 ]
-
-/** Splits --donate out of the remaining positional args, wherever it appears. */
-function extractDonateFlag(args: string[]): { allowDonation: boolean; rest: string[] } {
-  const rest = args.filter((arg) => arg !== '--donate')
-  return { allowDonation: rest.length !== args.length, rest }
-}
 
 async function main(): Promise<void> {
   if (command === 'verify') {
@@ -28,30 +25,13 @@ async function main(): Promise<void> {
     process.exit(exitCode)
   }
 
-  const { allowDonation, rest } = extractDonateFlag(argv.slice(1))
-  const [pkg, version] = rest
-
-  if (!command || !pkg || !version) {
+  if (!command) {
     for (const line of USAGE_LINES) console.log(line)
     process.exit(1)
   }
 
-  if (command === 'status') {
-    const { checkTool } = await import('../../mcp/src/tools/check.js')
-    const result = await checkTool.handler({ pkg, version })
-    console.log(JSON.stringify(result, null, 2))
-  } else if (command === 'install') {
-    const { installTool } = await import('../../mcp/src/tools/install.js')
-    const result = await installTool.handler({ pkg, version, allowDonation })
-    console.log(JSON.stringify(result, null, 2))
-    if (result.status === 'donation_required') {
-      process.exit(2)
-    }
-    if (result.loraUrl) console.log('\nLora:', result.loraUrl)
-  } else {
-    console.error('Unknown command:', command)
-    process.exit(1)
-  }
+  const { runNpmWrapper } = await import('./npm-wrapper.js')
+  process.exit(await runNpmWrapper(argv))
 }
 
 main().catch((e: unknown) => {
