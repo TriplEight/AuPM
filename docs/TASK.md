@@ -672,7 +672,7 @@ P7a, P7b and P7c. Not accepted: timeouts on algod and indexer calls in the night
 Action stderr in `::warning::` (low, no secret on that path), the Compose image tag (human
 release), and the `elliptic` dev advisory (no patch).
 
-### P7a. Rate limit before the lockfile parse
+### P7a. Rate limit before the lockfile parse — DONE e62666c
 
 `POST /v1/attest/lockfile` reads up to 5 MB and parses up to 10,000 entries before any rate
 limit. The per-IP limiter guards only the free branch (`proxy/src/routes/attest.ts`). A caller
