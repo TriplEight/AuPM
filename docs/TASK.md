@@ -587,7 +587,7 @@ Result: the chosen names in `cli/package.json`, `mcp/package.json`, the Action a
 doc or config names the foreign packages. Publish is a human step (npm login, 2FA,
 provenance).
 
-### P3. Amounts in dollars
+### P3. Amounts in dollars — DONE b42cdfa
 
 User-facing text shows amounts in US dollars: 1,000 microUSDC is $0.001 per reviewed package.
 USDC on Algorand stays the named settlement asset. Scope: README, docs, CLI and MCP output,
