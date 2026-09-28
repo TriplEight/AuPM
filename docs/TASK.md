@@ -795,6 +795,13 @@ patched version.
   `aupm pnpm <args>` can behave the same way as `aupm <npm args>`. `aupm npx <args>` needs its
   own design: npx does not produce a lockfile to attest.
 
+- **A3. TODO (human): finish the TestNet `.env` rename.** On 2026-09-28 the TestNet host moved
+  to the `v0.2` image with the `AUPM_*` names. Two values still carry the old name:
+  `AUPM_BACKUP_HOST_DIR` (a backup path under `/var/backups/`) and `AUPM_ISSUER_URL` (the
+  TestNet issuer origin). A new issuer origin changes the attestation `iss` and needs a new
+  `AUPM_KEY_VALID_FROM` only if the key also changes; a new backup path needs the Backrest plan
+  updated and the directory owned by uid 1000.
+
 ## Human-only items
 
 - P0 donor recruitment (SPEC §17 P0).

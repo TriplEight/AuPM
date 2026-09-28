@@ -1,6 +1,6 @@
 {
   "name": "aupm",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "type": "module",
   "workspaces": [
     "contracts",
@@ -19,7 +19,7 @@
     "type": "git",
     "url": "ssh://git@ssh.github.com:443/TriplEight/AuPM.git"
   },
-  "license": "ISC",
+  "license": "AGPL-3.0-only",
   "devDependencies": {
     "@biomejs/biome": "2.5.14"
   }
