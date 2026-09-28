@@ -529,7 +529,7 @@ Result:
 
 Owner: `algorand-contract-engineer` (analysis and tests). Decision: human.
 
-### P2. `aupm` as a drop-in for npm
+### P2. `aupm` as a drop-in for npm — DONE eb7bc37
 
 Main use case (user, 2026-09-28): a regular user runs AuPM in place of npm, with as little
 friction as possible. Today `aupm install <pkg> <version>` takes a fixed argument shape and is
