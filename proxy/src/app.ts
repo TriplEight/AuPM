@@ -57,8 +57,12 @@ export function createApp(
   const app = new Hono<{ Variables: AppVariables }>()
 
   // Fails cleanly on a thrown error instead of an opaque crash. WARNING:
-  // never let this leak a secret; it returns only `err.message`.
-  app.onError((err, c) => c.json({ error: err.message }, 500))
+  // never return `err.message` to the client — a SQLite error can carry the
+  // database path. Log the error server-side and return a fixed message.
+  app.onError((err, c) => {
+    console.error('[aupm] request failed —', err)
+    return c.json({ error: 'internal error' }, 500)
+  })
 
   const attest = buildAttestRoutes({
     getSigningKey: options.getSigningKey ?? getAttestationSigningKey,
