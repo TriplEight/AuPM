@@ -464,6 +464,112 @@ readiness check confirms that the started process is still alive.
 Acceptance: with another process on 4873, `verify.sh` prints `VERIFY: PASS`. Owner:
 `x402-proxy-engineer`.
 
+## Wave 7 — production readiness before the MainNet launch
+
+Goal: before the MainNet deploy, the project reads as a product, a donor and an auditor can
+start from the README alone, and the contract's trust model is written down. The MainNet
+deploy is final: PaymentRouter cannot be updated after it is created, and `payTo` is the
+leaderboard key (invariant 1). So P1 comes first.
+
+### P1. Contract change policy (analysis, first)
+
+Question: after the MainNet deploy, which changes force a new PaymentRouter? A contract that
+its operator replaces at will undermines trust.
+
+Facts found on 2026-09-28 (check each against the code before you use it):
+- `contract.algo.ts` sets no `allowActions` for update or delete. Confirm with a contract test
+  that `UpdateApplication` and `DeleteApplication` are rejected.
+- Compiled-in values: the auditor share `400/1000`, `MIN_CLAIM`, `MIN_CLAIM_FEE`, the `ops`
+  identity, and the two-role `credit()` shape. The target six-way split (ADR 0003) needs a new
+  contract.
+- `releaseAuthority(to)` lets the creator key rekey `payTo` to any address. USDC stays in
+  `payTo` until a claim. So the creator key controls every credited, unclaimed balance.
+
+Result:
+1. A list of change triggers. For each trigger: a new contract, an admin call, or no change.
+   Include the six-way split, a new role, a changed `MIN_CLAIM`, a lost crediter key, a lost
+   admin key, a bug.
+2. Options to limit `releaseAuthority`, with tradeoffs. Examples: only to an application
+   address; a delay with a public announcement; a multisig creator; a rule to credit and let
+   payees claim before a migration. Also state what an old app keeps doing after a migration.
+3. The user picks the options. Then: a new ADR 0010, the matching SPEC §10 text, and one
+   contract item if the user picks a contract change. A contract change needs
+   `algokit project run build` by a human and a new TestNet rehearsal before MainNet.
+
+Owner: `algorand-contract-engineer` (analysis and tests). Decision: human.
+
+### P2. Donor UX from zero
+
+Walk the donor path as a new user on TestNet, from the README only: npm pointed at the proxy,
+`spm attest --donate`, the MCP `attest_lockfile` with `allowDonation`, and the GitHub Action with
+`donate: 'true'`. Record every step that needs a repo clone, a hidden env var, or a guess.
+
+Known blocker: the npm names `spm-cli` and `spm-mcp` belong to unrelated authors. A donor who
+runs `npx spm-cli` gets a stranger's package. Result: the CLI and the MCP server get names
+that the team controls (for example an npm scope). They are published, or the README installs
+them from a pinned git tag. No doc or config names the foreign packages.
+
+Target: each client has one line of config.
+- npm: `npm config set registry https://<domain>/` (free, no wallet).
+- Donation: one opt-in flag or setting per client, and the donor key from a secret manager.
+
+Owner: `mcp-payer-engineer`. Decision: human (the npm scope and who publishes).
+
+### P3. Amounts in dollars
+
+User-facing text shows amounts in US dollars: 1,000 microUSDC is $0.001 per reviewed package.
+USDC on Algorand stays the named settlement asset. Scope: README, docs, CLI and MCP output,
+the 402 `description` text, the Action log lines. Code, SQLite columns and on-chain values stay
+integer micro-units (invariant 7). One helper formats micro-units as dollars; test it at 0, 1,
+999, 1,000 and 1,000,000.
+
+Owner: `x402-proxy-engineer` (proxy text) and `mcp-payer-engineer` (CLI, MCP, Action).
+
+### P4. Tier filter (decision first)
+
+The README draft says that users filter dependencies by security status. Today the MVP has two
+tiers (`UNREVIEWED`, `COMMUNITY_REVIEWED`, SPEC §4.1) and no filter in any client. Donations
+already go only to reviewed versions. The human picks one:
+- (a) Build a report or a filter: for example `spm attest` prints the tier of each lockfile
+  entry, and a flag fails when an entry is below a tier.
+- (b) The README describes the filter as planned (SPEC §8 phases), not as built.
+No phantom features: the README never describes (a) before it exists.
+
+### P5. README as a product page
+
+The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
+
+> Many companies use open source and audit their dependencies internally. These findings
+> never get back to open source. SPM creates an opportunity for security auditors, open-source
+> supporters and repository maintainers to improve security and get paid for their labour.
+> Users and their agents donate to the products and dependencies they use, as they go.
+
+Sections: the problem and the product; the review tiers (and P4 as decided); what a donation
+pays for, in dollars, with the target split and the MVP split (invariant 8); "For users and
+donors" (one-line config from P2); "For auditors" (next paragraph); verify offline; links.
+- Auditor path: an Algorand account opted in to USDC; the admin maps the identity
+  (`setIdentity`); the auditor reads the exact tarball; the review anchor (a 0-ALGO
+  self-payment with an ARC-2 `spm:j{...}` note, ADR 0007); the operator runs `record-review`;
+  the nightly batch credits; the auditor claims at `MIN_CLAIM` or more. State that onboarding
+  is manual in the MVP (item A1).
+- Move development setup, the repository layout and all deploy text to `docs/DEVELOPMENT.md`
+  and the runbooks. The README links to them.
+- ASD-STE100 style. Never name the production domain or host provider (use `<domain>`).
+Owner: docs subagent after P2, P3 and P4. `bash scripts/guard.sh` must pass (split text rules).
+
+### P6. Operator doc fixes carried from wave 6
+
+- M0 text: a new attestation key gets a new `SPM_KEY_VALID_FROM`; a reused key keeps its date.
+- Local deploy guide: Compose prefixes the volume name with the project (`spm_spm-db`), and the
+  backup directory is owned by uid 1000.
+
+### P7. Production review pass
+
+A read-only review of `proxy/`, `cli/`, `mcp/` and the Action for launch risks: secrets in logs,
+error text that leaks internals, request size limits, timeouts on upstream fetches,
+`pnpm audit --audit-level=moderate`, the image user and pinned versions. Output: a ranked
+finding list. Each accepted finding becomes one item. Owner: `code-reviewer`.
+
 ## Order
 
 - **Wave 1 (parallel worktrees):** H1; Q1; Q5; Q9 + Q10; R1.
@@ -472,8 +578,9 @@ Acceptance: with another process on 4873, `verify.sh` prints `VERIFY: PASS`. Own
 - **Qualification (human, by Sept 25):** SPEC §17 Q steps 1–6 on MainNet.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
-- **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1 → MainNet launch (human steps, checked by the
-  orchestrator).
+- **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1.
+- **Wave 7:** P1 (decision) → P2 ‖ P7 → P3 → P4 (decision) → P5 → P6 → MainNet launch (human
+  steps, checked by the orchestrator).
 
 ### S1. Dependency advisories — DONE 349de5c
 
@@ -511,6 +618,8 @@ patched version.
 - Real package reviews and their anchors.
 - The first real payment; the form and the Electric Capital submission.
 - `algokit project run build` after a contract change.
+- Wave 7 decisions: the contract change policy (P1), the npm scope and publisher (P2), the tier
+  filter (P4).
 - Legal read before any payout to a third party (SPEC §13.4).
 
 ## Definition of done
