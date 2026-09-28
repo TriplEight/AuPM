@@ -690,7 +690,7 @@ show the database path. Result: the handler logs the error on the server and ret
 `{ "error": "internal error" }` with status 500. Test: a thrown error with a path in its message
 does not reach the response body. Owner: `x402-proxy-engineer`.
 
-### P7c. Timeout on the npm upstream fetch
+### P7c. Timeout on the npm upstream fetch — DONE 8cd5b5f
 
 `proxyToNpm` in `proxy/src/proxy.ts` calls `fetch` with no timeout. Result: the fetch has an
 `AbortSignal.timeout` (30 s, a compiled-in constant); a timeout returns 504 with a short JSON
