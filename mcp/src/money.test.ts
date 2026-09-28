@@ -9,6 +9,7 @@ describe('formatMicroUsd', () => {
     [999, '$0.000999'],
     [1_000, '$0.001'],
     [1_000_000, '$1.00'],
+    [123_456_789, '$123.456789'],
   ])('formats %i microUSDC as %s', (microUsd, expected) => {
     expect(formatMicroUsd(microUsd)).toBe(expected)
   })

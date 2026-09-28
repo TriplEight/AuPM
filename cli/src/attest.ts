@@ -6,6 +6,7 @@
 // the reviewed entries are withheld, not refused — the CLI still writes
 // the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
+import { formatMicroUsd } from '../../mcp/src/money.js'
 import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
 
 const DEFAULT_OUT_PATH = 'aupm-attestation.json'
@@ -84,7 +85,7 @@ export async function runAttest(argv: string[]): Promise<number> {
       console.log(`attestation written to ${args.outPath}`)
       console.log(
         `withheld ${result.withheld} reviewed ${result.withheld === 1 ? 'entry' : 'entries'} ` +
-          `(${result.priceMicro} microUSDC) — retry with --donate to include them`,
+          `(${formatMicroUsd(result.priceMicro)}) — retry with --donate to include them`,
       )
       console.log(
         JSON.stringify(
@@ -96,7 +97,7 @@ export async function runAttest(argv: string[]): Promise<number> {
       return 0
     }
 
-    console.log(`donation required: ${result.priceMicro} microUSDC for ${result.resourceUrl}`)
+    console.log(`donation required: ${formatMicroUsd(result.priceMicro)} for ${result.resourceUrl}`)
     console.log('retry with --donate to opt in')
     return 0
   }
