@@ -500,3 +500,11 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Blocked (human): `algokit project run build`, then P8c; npm publish of `aupm`, `aupm-mcp`;
   image `ghcr.io/tripleight/aupm`; TestNet host volume and env rename; new `aupm:j` anchor.
 - Next action: a human runs `algokit project run build` and commits the artifacts.
+
+## 2026-09-28 — wave 7 follow-ups
+- Merged `master` (#28 license). Skills and repo URL renamed to AuPM.
+- P8d `b918abf`: one split (30/70) on every network; TestNet app 772553842 retired.
+- P9 `f7304bb`: cli and proxy import `aupm-mcp` through the workspace.
+- Contract artifacts rebuilt `7e6291e`; e2e share 300 and app schema 5/3 `45d2e54`. `VERIFY: PASS`.
+- Open (human): LocalNet rehearsal (Docker); new TestNet app; image release; npm publish.
+- Next action: a human runs the LocalNet rehearsal from `docs/TASK.md` P8c.
