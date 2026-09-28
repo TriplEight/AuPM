@@ -1,3 +1,4 @@
+import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
@@ -5,7 +6,7 @@ import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils
 import type { AlgoClientConfig } from '@algorandfoundation/algokit-utils/types/network-client'
 import algosdk from 'algosdk'
 import type { BinaryState } from '../artifacts/payment_router/PaymentRouterClient'
-import { PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
+import { APP_SPEC, PaymentRouterFactory } from '../artifacts/payment_router/PaymentRouterClient'
 
 /**
  * The subset of scripts/network.mjs this package reuses: the per-network
@@ -456,10 +457,191 @@ async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<Algo
   return AlgorandClient.fromConfig(await resolveClientConfig(network))
 }
 
+// --- 2-of-3 admin multisig creator (ADR 0010, SPEC §10.2a) ------------------
+//
+// Global.creatorAddress must be a 2-of-3 Algorand multisig, never one key
+// (docs/adr/0010): no single lost or leaked key can call setCrediter,
+// setIdentity, announceRelease, or executeRelease alone. This workstation
+// never holds two of the three admin private keys at once, so the create
+// call — like every later admin call — cannot be signed here in one step.
+// The offline signing ceremony (`goal`, not algokit, since the holders sign
+// independently, not through one shared AlgorandClient):
+//   1. deployMultisigCreate() below writes the unsigned createApplication
+//      call to a file (PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH).
+//   2. Each signing holder imports the 3 addresses and threshold 2 into
+//      `goal` once: `goal account multisig new <addr1> <addr2> <addr3> -T 2`.
+//   3. Two of the three holders each sign the same file in turn:
+//      `goal clerk multisig sign -t payment-router-create.txn`.
+//   4. Whoever holds the twice-signed file submits it:
+//      `goal clerk rawsend -f payment-router-create.txn`, then records the
+//      resulting app id as PAYMENT_ROUTER_APP_ID.
+// setCrediter/setIdentity/announceRelease/executeRelease follow the same
+// build-sign-submit shape afterwards (built with `goal app call` or a
+// future helper here); this work item covers only the create step.
+
+export const ADMIN_MSIG_THRESHOLD = 2
+
+/**
+ * Parses AUPM_ADMIN_MSIG_ADDRS ("addr1,addr2,addr3") into exactly three
+ * distinct, valid Algorand addresses — the admin multisig's signer set
+ * (ADR 0010). Pure: covered directly by deploy-config.spec.ts.
+ *
+ * @param addrsEnv - the raw AUPM_ADMIN_MSIG_ADDRS environment value.
+ */
+export function parseAdminMultisigAddrs(addrsEnv: string | undefined): string[] {
+  const raw = (addrsEnv ?? '').trim()
+  if (!raw) {
+    throw new Error('AUPM_ADMIN_MSIG_ADDRS is not set (ADR 0010: a 2-of-3 multisig creator)')
+  }
+  const addrs = raw
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean)
+  if (addrs.length !== 3) {
+    throw new Error(`AUPM_ADMIN_MSIG_ADDRS must list exactly 3 addresses, got ${addrs.length}`)
+  }
+  for (const addr of addrs) {
+    if (!algosdk.isValidAddress(addr)) {
+      throw new Error(`AUPM_ADMIN_MSIG_ADDRS contains an invalid Algorand address: ${addr}`)
+    }
+  }
+  if (new Set(addrs).size !== addrs.length) {
+    throw new Error('AUPM_ADMIN_MSIG_ADDRS addresses must be distinct')
+  }
+  return addrs
+}
+
+/**
+ * The algosdk multisig metadata for the fixed 2-of-3 admin multisig
+ * (ADR 0010). The threshold is always ADMIN_MSIG_THRESHOLD — never read
+ * from the environment. Pure: covered directly by deploy-config.spec.ts.
+ *
+ * @param addrs - the three signer addresses (parseAdminMultisigAddrs).
+ */
+export function buildAdminMultisigParams(addrs: string[]): algosdk.MultisigMetadata {
+  return { version: 1, threshold: ADMIN_MSIG_THRESHOLD, addrs }
+}
+
+/**
+ * Derives the multisig account's own address from its metadata — this
+ * becomes Global.creatorAddress once the create call lands. Pure: covered
+ * directly by deploy-config.spec.ts.
+ *
+ * @param params - the multisig metadata (buildAdminMultisigParams).
+ */
+export function deriveAdminMultisigAddress(params: algosdk.MultisigMetadata): string {
+  return algosdk.multisigAddress(params).toString()
+}
+
+const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)void'
+
+/**
+ * Builds the unsigned createApplication(payTo, usdcAsset) call, sender set
+ * to the admin multisig address, ready for the offline goal signing flow
+ * documented above. Reads the compiled approval/clear programs and the
+ * global state schema straight off the generated ARC-56 spec — never
+ * hand-copied — so it always matches whatever `algokit project run build`
+ * last produced. Pure given `suggestedParams`: no network access, so
+ * deploy-config.spec.ts covers it directly with a fabricated suggestedParams
+ * object.
+ *
+ * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
+ * @param payToAddress - the payTo account this deploy fixes at creation (SPEC §10.2).
+ * @param usdcAssetId - the USDC asset id for the target network.
+ * @param suggestedParams - the algod transaction params (fee, validity window, genesis).
+ */
+export function buildUnsignedCreateApplicationTxn(
+  multisigAddress: string,
+  payToAddress: string,
+  usdcAssetId: number,
+  suggestedParams: algosdk.SuggestedParams,
+): algosdk.Transaction {
+  if (!APP_SPEC.byteCode) {
+    throw new Error(
+      'PaymentRouter.arc56.json has no byteCode — run `algokit project run build` first',
+    )
+  }
+  const method = algosdk.ABIMethod.fromSignature(CREATE_APPLICATION_METHOD_SIGNATURE)
+  const appArgs = [
+    method.getSelector(),
+    new algosdk.ABIAddressType().encode(payToAddress),
+    new algosdk.ABIUintType(64).encode(usdcAssetId),
+  ]
+  const schema = APP_SPEC.state.schema
+  return algosdk.makeApplicationCreateTxnFromObject({
+    sender: multisigAddress,
+    suggestedParams,
+    onComplete: algosdk.OnApplicationComplete.NoOpOC,
+    approvalProgram: new Uint8Array(Buffer.from(APP_SPEC.byteCode.approval, 'base64')),
+    clearProgram: new Uint8Array(Buffer.from(APP_SPEC.byteCode.clear, 'base64')),
+    numGlobalInts: schema.global.ints,
+    numGlobalByteSlices: schema.global.bytes,
+    numLocalInts: schema.local.ints,
+    numLocalByteSlices: schema.local.bytes,
+    appArgs,
+  })
+}
+
+/**
+ * Writes an unsigned transaction to `outPath` in algosdk's own msgpack
+ * encoding — the format `goal clerk sign`/`multisig sign` read. Pure I/O:
+ * covered directly by deploy-config.spec.ts with a temp file.
+ *
+ * @param txn - the unsigned transaction (buildUnsignedCreateApplicationTxn).
+ * @param outPath - the file path to write.
+ */
+export function writeUnsignedTxnFile(txn: algosdk.Transaction, outPath: string): void {
+  fs.writeFileSync(outPath, algosdk.encodeUnsignedTransaction(txn))
+}
+
+/**
+ * CLI entry point: builds PaymentRouter's createApplication call for the
+ * 2-of-3 admin multisig (AUPM_ADMIN_MSIG_ADDRS, threshold fixed at
+ * ADMIN_MSIG_THRESHOLD) and writes it, unsigned, to
+ * PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH (default ./payment-router-create.txn).
+ * Never signs or sends it — see the module comment above for the offline
+ * goal flow that does. Refuses on MainNet without CONFIRM_MAINNET=1, and
+ * refuses when the connected algod's genesis id does not match NETWORK.
+ */
+export async function deployMultisigCreate(): Promise<void> {
+  const network = parseNetwork(process.env.NETWORK)
+  assertMainnetConfirmed(network, process.env.CONFIRM_MAINNET)
+
+  const addrs = parseAdminMultisigAddrs(process.env.AUPM_ADMIN_MSIG_ADDRS)
+  const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
+
+  const payToAddress = process.env.PAY_TO_ADDRESS
+  if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
+
+  const algorand = await buildAlgorandClient(network)
+  const suggestedParams = await algorand.client.algod.getTransactionParams().do()
+  assertNetworkMatchesGenesis(network, suggestedParams.genesisID ?? '')
+
+  const txn = buildUnsignedCreateApplicationTxn(
+    multisigAddress,
+    payToAddress,
+    USDC_ASSET_ID[network],
+    suggestedParams,
+  )
+
+  const outPath = process.env.PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH ?? './payment-router-create.txn'
+  writeUnsignedTxnFile(txn, outPath)
+
+  console.log(`Admin multisig address (2-of-3, ADR 0010): ${multisigAddress}`)
+  console.log(`Unsigned createApplication call written to ${outPath}.`)
+  console.log(
+    'Two of the three holders must sign it offline (goal clerk multisig sign) before ' +
+      'submitting with goal clerk rawsend — see the comment above parseAdminMultisigAddrs.',
+  )
+}
+
 /**
  * `algokit project deploy`'s entry point (docs/TASK.md R2): reads every
  * role's address from the environment and calls `deployPaymentRouter()`
- * with them. Behavior unchanged from before the R3a refactor.
+ * with them. Behavior unchanged from before the R3a refactor. Single-key
+ * (DEPLOYER_MNEMONIC): kept for TestNet/LocalNet rehearsal (R3d's hermetic
+ * fresh-app runs). The MainNet operator path uses deployMultisigCreate()
+ * above instead, per ADR 0010.
  */
 export async function deploy(): Promise<void> {
   const network = parseNetwork(process.env.NETWORK)

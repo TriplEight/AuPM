@@ -1,6 +1,10 @@
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import algosdk from 'algosdk'
 import { describe, expect, test, vi } from 'vitest'
 import {
+  ADMIN_MSIG_THRESHOLD,
   assertAppCreatedFresh,
   assertCrediterDistinct,
   assertExistingAppMatchesConfig,
@@ -8,9 +12,14 @@ import {
   assertMainnetConfirmed,
   assertNetworkMatchesGenesis,
   assertOptedIntoUsdc,
+  buildAdminMultisigParams,
+  buildUnsignedCreateApplicationTxn,
+  deriveAdminMultisigAddress,
+  parseAdminMultisigAddrs,
   parseAuditorMap,
   parseNetwork,
   resolveClientConfig,
+  writeUnsignedTxnFile,
 } from './deploy-config'
 
 describe('parseNetwork', () => {
@@ -284,5 +293,149 @@ describe('assertExistingAppSafeToReuse (chain mocked — no real algod call)', (
     await expect(
       assertExistingAppSafeToReuse(fakeAppClient(123n, undefined, 31566704n), PAY_TO, 31566704),
     ).rejects.toThrow(/already owns a PaymentRouter for another payTo/)
+  })
+})
+
+// --- Multisig creator (ADR 0010, SPEC §10.2a) --------------------------
+
+describe('parseAdminMultisigAddrs', () => {
+  const [a1, a2, a3] = [
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+  ]
+
+  test('refuses an unset value', () => {
+    expect(() => parseAdminMultisigAddrs(undefined)).toThrow(/AUPM_ADMIN_MSIG_ADDRS is not set/)
+  })
+
+  test('refuses fewer than 3 addresses', () => {
+    expect(() => parseAdminMultisigAddrs(`${a1},${a2}`)).toThrow(/exactly 3 addresses, got 2/)
+  })
+
+  test('refuses more than 3 addresses', () => {
+    expect(() => parseAdminMultisigAddrs(`${a1},${a2},${a3},${a1}`)).toThrow(
+      /exactly 3 addresses, got 4/,
+    )
+  })
+
+  test('refuses an invalid address', () => {
+    expect(() => parseAdminMultisigAddrs(`${a1},${a2},not-an-address`)).toThrow(
+      /invalid Algorand address/,
+    )
+  })
+
+  test('refuses duplicate addresses', () => {
+    expect(() => parseAdminMultisigAddrs(`${a1},${a2},${a1}`)).toThrow(/must be distinct/)
+  })
+
+  test('parses exactly 3 distinct, valid addresses', () => {
+    expect(parseAdminMultisigAddrs(`${a1}, ${a2} ,${a3}`)).toEqual([a1, a2, a3])
+  })
+})
+
+describe('buildAdminMultisigParams / deriveAdminMultisigAddress', () => {
+  const addrs = [
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+  ]
+
+  test('fixes the threshold at ADMIN_MSIG_THRESHOLD (2), never from input', () => {
+    expect(ADMIN_MSIG_THRESHOLD).toBe(2)
+    expect(buildAdminMultisigParams(addrs)).toEqual({ version: 1, threshold: 2, addrs })
+  })
+
+  test('derives the same multisig address algosdk itself would compute', () => {
+    const params = buildAdminMultisigParams(addrs)
+    const expected = algosdk.multisigAddress(params).toString()
+    expect(deriveAdminMultisigAddress(params)).toBe(expected)
+  })
+
+  test('a different address order derives a different multisig address', () => {
+    const params = buildAdminMultisigParams(addrs)
+    const reordered = buildAdminMultisigParams([addrs[1], addrs[0], addrs[2]])
+    expect(deriveAdminMultisigAddress(reordered)).not.toBe(deriveAdminMultisigAddress(params))
+  })
+})
+
+describe('buildUnsignedCreateApplicationTxn', () => {
+  const addrs = [
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+  ]
+  const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
+  const payToAddress = algosdk.generateAccount().addr.toString()
+  const FAKE_SUGGESTED_PARAMS: algosdk.SuggestedParams = {
+    fee: 0n,
+    minFee: 1000n,
+    firstValid: 100n,
+    lastValid: 1100n,
+    genesisID: 'mainnet-v1.0',
+    genesisHash: new Uint8Array(32),
+    flatFee: false,
+  }
+
+  test('sets the sender to the multisig address and encodes payTo/usdcAsset as ABI args', () => {
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+    )
+
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs).toHaveLength(3)
+    expect(appArgs[0]).toEqual(
+      algosdk.ABIMethod.fromSignature('createApplication(address,uint64)void').getSelector(),
+    )
+    expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(payToAddress)
+    expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(31566704n)
+  })
+
+  test('a different payToAddress or usdcAssetId changes the encoded args, not the sender', () => {
+    const otherPayTo = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      otherPayTo,
+      10458941,
+      FAKE_SUGGESTED_PARAMS,
+    )
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(otherPayTo)
+    expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(10458941n)
+  })
+})
+
+describe('writeUnsignedTxnFile', () => {
+  test('writes bytes that decode back to an equivalent unsigned transaction', () => {
+    const addrs = [
+      algosdk.generateAccount().addr.toString(),
+      algosdk.generateAccount().addr.toString(),
+      algosdk.generateAccount().addr.toString(),
+    ]
+    const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
+    const payToAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedCreateApplicationTxn(multisigAddress, payToAddress, 31566704, {
+      fee: 0n,
+      minFee: 1000n,
+      firstValid: 100n,
+      lastValid: 1100n,
+      genesisID: 'mainnet-v1.0',
+      genesisHash: new Uint8Array(32),
+      flatFee: false,
+    })
+
+    const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-msig-')), 'create.txn')
+    writeUnsignedTxnFile(txn, outPath)
+
+    const decoded = algosdk.decodeUnsignedTransaction(new Uint8Array(fs.readFileSync(outPath)))
+    expect(decoded.sender.toString()).toBe(multisigAddress)
+    const decodedArgs = (decoded.applicationCall?.appArgs ?? []).map((a) => new Uint8Array(a))
+    const originalArgs = (txn.applicationCall?.appArgs ?? []).map((a) => new Uint8Array(a))
+    expect(decodedArgs).toEqual(originalArgs)
   })
 })
