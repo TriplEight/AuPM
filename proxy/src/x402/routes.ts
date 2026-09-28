@@ -7,7 +7,8 @@ import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/ht
 import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
 import { formatMicroUsd } from '../../../mcp/src/money.js'
-import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
+import { mvpSplit, targetSplitRow } from '../claims/attribution-rules.js'
+import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, NETWORK, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
 import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
@@ -22,12 +23,16 @@ export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 
 // SPEC §6.2 disclosure rule: every public text (README, `og:description`,
-// Bazaar descriptions) shows both the target split and the MVP split, in
-// this exact wording. Never claim the maintainer's target share is paid
-// out today: in the MVP it is unclaimed ops income until that role onboards.
+// Bazaar descriptions) shows both the target split and the MVP split, for
+// the network this proxy runs on (NETWORK, ../config.js) — never a literal,
+// so the disclosed split can never drift from the one the ledger actually
+// uses (docs/TASK.md P8a). Never claim the maintainer's target share is
+// paid out today: in the MVP it is unclaimed ops income until that role
+// onboards (CLAUDE.md invariant 8).
+const { auditorPercent: MVP_AUDITOR_PERCENT, opsPercent: MVP_OPS_PERCENT } = mvpSplit(NETWORK)
 const SPLIT_DISCLOSURE =
-  'Target split 30/10/20/25/10/5. In the MVP: 30% to the auditor, 70% to ' +
-  'the operator until the other roles launch.'
+  `Target split ${targetSplitRow(NETWORK)}. In the MVP: ${MVP_AUDITOR_PERCENT}% to the auditor, ` +
+  `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
 
 // The canonical text for the `og:description` meta tag the operator sets
 // at the domain root for the Bazaar merchant card (SPEC §6.2, §11.2,

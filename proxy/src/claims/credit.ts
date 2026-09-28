@@ -13,6 +13,7 @@
 // invariant 6). This module never touches x402 settlement at all.
 
 import algosdk from 'algosdk'
+import { auditorShareMicro } from './attribution-rules.js'
 import {
   assignUncreditedToBatch,
   type CreditEntry,
@@ -150,17 +151,18 @@ export type CreditOutcome =
   | { ran: true; batchSeq: number; creditTxid: string }
 
 /**
- * Asserts `entries` sum to exactly `attributedMicro * 400 / 1000` — the
- * same check the contract itself makes (ADR 0005). Defence in depth: a
- * ledger bug here must fail loudly before it ever reaches the chain, not
- * surface only as a rejected transaction.
+ * Asserts `entries` sum to exactly `auditorShareMicro(attributedMicro)` —
+ * the same check the contract itself makes, for the auditor share of the
+ * network this process is configured for (ADR 0005, ADR 0011, docs/TASK.md
+ * P8a). Defence in depth: a ledger bug here must fail loudly before it
+ * ever reaches the chain, not surface only as a rejected transaction.
  */
 function assertEntriesMatchAuditorShare(attributedMicro: number, entries: CreditEntry[]): void {
   const entriesTotal = entries.reduce((sum, e) => sum + e.amountMicro, 0)
-  const auditorShare = (attributedMicro * 400) / 1000
+  const auditorShare = auditorShareMicro(attributedMicro)
   if (entriesTotal !== auditorShare) {
     throw new Error(
-      `runCreditStep: entries sum to ${entriesTotal}, expected attributedMicro x 400 / 1000 ` +
+      `runCreditStep: entries sum to ${entriesTotal}, expected auditorShareMicro(attributedMicro) ` +
         `= ${auditorShare} (attributedMicro=${attributedMicro})`,
     )
   }

@@ -673,7 +673,7 @@ describe('claims ledger, wired into the real app', () => {
     const accruals = getAccrualsForTxid('INTEGRATION-TX-1')
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(400)
+    expect(auditorRow?.amount_micro).toBe(300)
 
     const earningsRes = await paidApp.request('/api/v1/earnings/github/alice')
     expect(earningsRes.status).toBe(200)
@@ -681,14 +681,14 @@ describe('claims ledger, wired into the real app', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     const auditorEarnings = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(400)
+    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(300)
   })
 
-  // SPEC §11.2, §13.2, ADR 0008: a settled lockfile payment for N reviewed
-  // packages ledgers each package's own full 400/100/200/150/100/50 role
-  // shares — never a cross-package split — and the accrual sum across all
-  // packages equals the exact amount charged.
-  test('a settled paid lockfile request accrues 400/100/200/150/100/50 per reviewed package', async () => {
+  // SPEC §11.2, §13.2, ADR 0008, ADR 0011: a settled lockfile payment for N
+  // reviewed packages ledgers each package's own full 300/100/200/250/100/50
+  // role shares (MainNet) — never a cross-package split — and the accrual
+  // sum across all packages equals the exact amount charged.
+  test('a settled paid lockfile request accrues 300/100/200/250/100/50 per reviewed package', async () => {
     setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_A', null, REVIEWED_INTEGRITY, 'alice')
     setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_B', null, REVIEWED_INTEGRITY, 'bob')
     setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_C', null, REVIEWED_INTEGRITY, 'carol')
@@ -761,13 +761,13 @@ describe('claims ledger, wired into the real app', () => {
     ] as const) {
       const pkgRows = accruals.filter((row) => row.pkg === pkg)
       const byRole = Object.fromEntries(pkgRows.map((row) => [row.role, row]))
-      expect(byRole.auditor?.amount_micro).toBe(400)
+      expect(byRole.auditor?.amount_micro).toBe(300)
       expect(byRole.auditor?.identity).toBe(`github:${login}`)
       expect(byRole.contributor?.amount_micro).toBe(100)
       expect(byRole.contributor?.identity).toBe('unassigned')
       expect(byRole.maintainer?.amount_micro).toBe(200)
       expect(byRole.maintainer?.identity).toBe('unassigned')
-      expect(byRole.reviewer?.amount_micro).toBe(150)
+      expect(byRole.reviewer?.amount_micro).toBe(250)
       expect(byRole.reviewer?.identity).toBe('unassigned')
       expect(byRole.treasury?.amount_micro).toBe(100)
       expect(byRole.treasury?.identity).toBe('unassigned')
@@ -828,7 +828,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:carol')
-    expect(auditorRow?.amount_micro).toBe(400)
+    expect(auditorRow?.amount_micro).toBe(300)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {
