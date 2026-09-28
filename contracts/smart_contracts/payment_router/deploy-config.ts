@@ -895,7 +895,7 @@ function printMultisigSigningInstructions(callLabel: string, outPath: string): v
   console.log(`Unsigned ${callLabel} call written to ${outPath}.`)
   console.log(
     'Two of the three holders must sign it offline (goal clerk multisig sign) before ' +
-      'submitting with goal clerk rawsend — see docs/RUNBOOK-mainnet-launch.md.',
+      'submitting with goal clerk rawsend — see the operator runbook (not published).',
   )
 }
 
@@ -967,7 +967,7 @@ export async function deployMultisigAnnounceRelease(): Promise<void> {
  * PAYMENT_ROUTER_MSIG_EXECUTE_RELEASE_TXN_PATH (default ./payment-router-execute-release.txn).
  * Refuses on MainNet without CONFIRM_MAINNET=1, same as every other entry here — running this
  * before the delay has passed still writes a file, since only a live executeRelease() call
- * checks the delay; docs/RUNBOOK-mainnet-launch.md gates the operator's own timing.
+ * checks the delay; the operator runbook (not published) gates the operator's own timing.
  */
 export async function deployMultisigExecuteRelease(): Promise<void> {
   const payToAddress = process.env.PAY_TO_ADDRESS
@@ -1007,7 +1007,7 @@ export function assertSingleKeyDeployNotMainnet(network: 'mainnet' | 'testnet'):
     throw new Error(
       'refusing a single-key deploy() on MainNet: ADR 0010 requires the 2-of-3 admin multisig ' +
         'as Global.creatorAddress there — run deployMultisigCreate() and the deployMultisig* ' +
-        'admin-call entries instead (docs/RUNBOOK-mainnet-launch.md §2a)',
+        'admin-call entries instead (operator runbook section 2a, not published)',
     )
   }
 }

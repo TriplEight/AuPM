@@ -8,11 +8,10 @@
 # - Local machine: `docker compose up --build` builds from `build:` below
 #   (proxy/Dockerfile) and reads config from .env (gitignored, never baked
 #   into the image — see .dockerignore).
-# - Portainer: `image:` pins the published tag. Bump it in a commit to
-#   deploy a new version; a Portainer git stack redeploys from that commit
-#   (N2). Portainer writes the stack's configured variables to a stack.env
-#   file next to this compose file and supplies it both for ${VAR}
-#   interpolation and, via the env_file entry below, as container
+# - Deployed stack: `image:` pins the published tag. Bump it in a commit to
+#   deploy a new version; a redeploy pulls that commit (N2). An optional
+#   stack.env file next to this compose file supplies variables both for
+#   ${VAR} interpolation and, via the env_file entry below, as container
 #   environment.
 # Either config file may be absent; each entry below is optional.
 #
@@ -27,7 +26,7 @@
 # CI job or cron entry.
 #
 # The nightly job needs no `docker compose run`. The proxy process
-# schedules its own nightly run (ADR 0009); a Portainer redeploy of this
+# schedules its own nightly run (ADR 0009); a redeploy of this
 # service carries the schedule with it.
 #
 # AUPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly

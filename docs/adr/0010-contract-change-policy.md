@@ -71,7 +71,7 @@ nowhere to send `creditedUnclaimed`.
 - The 7-day delay is public: any observer can see an announced migration and its target address
   before it executes. It gives payees a warning window; it does not stop a determined multisig
   from migrating.
-- `docs/RUNBOOK-mainnet-launch.md` gets the D procedure as an operator checklist.
+- The operator runbook (not published) gets the D procedure as a checklist.
 
 ## Options rejected
 

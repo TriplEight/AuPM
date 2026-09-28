@@ -19,13 +19,13 @@ is more than 26 hours old.
 ## Consequences
 
 - The host timer unit files are deleted. No host unit to install, edit, or enable.
-- A Portainer redeploy of the `aupm` container carries the schedule with it — no separate step.
+- A redeploy of the `aupm` container carries the schedule with it — no separate step.
 - A failed run logs `aupm-nightly: failed — <reason>` and never stops the server; an operator (or
   monitoring) reads the failure from `GET /api/v1/health` or the log line, not from a lost
   process.
 - `nightly-main.ts` still exists, for a one-off, by-hand pass — for example right after a
   deploy — and now takes the same lease, so it never races the in-process scheduler.
 - The in-process scheduler needs a clean SIGTERM/SIGINT path (item F4, `proxy/src/shutdown.ts`):
-  a Portainer redeploy stops the scheduler and the server, gives an in-flight run up to 8 s to
+  a redeploy stops the scheduler and the server, gives an in-flight run up to 8 s to
   finish, and closes SQLite only when it did. A run still busy at that deadline is left alone —
   the process exits non-zero instead, and the 1-hour `nightly_lease` staleness rule reclaims it.
