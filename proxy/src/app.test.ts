@@ -16,7 +16,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402-avm/core/http'
 import type { FacilitatorClient } from '@x402-avm/core/server'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dsse.js'
 import { createRateLimiter } from './attest/ratelimit.js'
 
@@ -889,6 +889,32 @@ describe('.well-known/aupm-keys.json', () => {
     const body = (await res.json()) as { error?: string }
     expect(typeof body.error).toBe('string')
     expect((body.error as string).length).toBeGreaterThan(0)
+  })
+
+  test('a thrown error never returns its message to the client, only logs it', async () => {
+    const leakyPath = '/var/lib/aupm/proxy.sqlite'
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { httpServer: leakyHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+      const leakyApp = createApp(leakyHttpServer, {
+        getSigningKey: async () => {
+          throw new Error(`cannot open database file ${leakyPath}`)
+        },
+      })
+
+      const res = await leakyApp.request('/.well-known/aupm-keys.json')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { error: string }
+      expect(body).toEqual({ error: 'internal error' })
+      const serialized = JSON.stringify(body)
+      expect(serialized).not.toContain(leakyPath)
+
+      expect(consoleError).toHaveBeenCalled()
+      const logged = consoleError.mock.calls.flat().map(String).join(' ')
+      expect(logged).toContain(leakyPath)
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   test('round trip: an envelope signed by the proxy verifies against only the fetched keys', async () => {
