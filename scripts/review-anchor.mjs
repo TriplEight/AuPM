@@ -6,8 +6,8 @@
 // network and no facilitator involved (this is the auditor's own
 // self-payment, sent by algod — never the facilitator, never the proxy).
 
-// ARC-2 prefix for the review anchor's note (`spm:j{...}`, SPEC §14).
-export const NOTE_PREFIX = 'spm:j'
+// ARC-2 prefix for the review anchor's note (`aupm:j{...}`, SPEC §14).
+export const NOTE_PREFIX = 'aupm:j'
 
 /**
  * Encodes one review's fields into the ARC-2 JSON note bytes the auditor's
@@ -27,7 +27,7 @@ export function encodeReviewNote({ name, version, integrity, reviewer, scope }) 
 /**
  * Decodes and validates a review anchor's note bytes (or its plain string
  * form, for tests). Throws on anything that is not exactly the expected
- * ARC-2 `spm:j{...}` shape — a malformed note must never resolve to a
+ * ARC-2 `aupm:j{...}` shape — a malformed note must never resolve to a
  * partially-trusted record (SPEC §14, §12.4).
  *
  * @param {Uint8Array|string} noteBytes

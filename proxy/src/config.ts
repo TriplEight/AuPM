@@ -121,7 +121,7 @@ export function resolveFeePayer(
 // network — TestNet rehearsal proves the same public config MainNet will
 // carry, so it never masks a broken value before the MainNet launch. Call it
 // once, explicitly, from main() in proxy/src/index.ts.
-export const ISSUER = process.env.SPM_ISSUER_URL ?? ''
+export const ISSUER = process.env.AUPM_ISSUER_URL ?? ''
 
 export const LOCKFILE_PREDICATE_TYPE = `${ISSUER}/attestation/lockfile/v1`
 export const SINGLE_PREDICATE_TYPE = `${ISSUER}/attestation/single/v1`
@@ -131,7 +131,7 @@ export const SINGLE_PREDICATE_TYPE = `${ISSUER}/attestation/single/v1`
  * above.
  *
  * Accepts only a bare HTTPS origin: scheme "https:", no trailing slash, no
- * path, no query string, no fragment (for example "https://spm-example.org").
+ * path, no query string, no fragment (for example "https://aupm-example.org").
  * Comparing the raw input against the parsed URL's own `origin` catches all
  * four shape problems (trailing slash, path, query, fragment) in one check.
  */
@@ -139,8 +139,8 @@ export function assertValidIssuerUrl(issuer: string = ISSUER): void {
   const problem = describeIssuerUrlProblem(issuer)
   if (problem) {
     throw new Error(
-      `x402 boot guard: SPM_ISSUER_URL ${problem}; ` +
-        'set it to a bare https origin the team controls, e.g. https://spm-example.org',
+      `x402 boot guard: AUPM_ISSUER_URL ${problem}; ` +
+        'set it to a bare https origin the team controls, e.g. https://aupm-example.org',
     )
   }
 }
@@ -168,11 +168,11 @@ function describeIssuerUrlProblem(value: string): string | undefined {
 }
 
 // `validFrom` published on the configured attestation signing key's entry at
-// GET /.well-known/spm-keys.json (SPEC.md 12.2). Defaults to '' so importing
+// GET /.well-known/aupm-keys.json (SPEC.md 12.2). Defaults to '' so importing
 // this module never throws (same lazy pattern as ISSUER above);
 // assertValidKeyValidFrom() is the boot guard, called from main() alongside
 // assertValidIssuerUrl(). Runs on every network, for the same reason.
-export const ATTEST_SIGNING_KEY_VALID_FROM = process.env.SPM_KEY_VALID_FROM ?? ''
+export const ATTEST_SIGNING_KEY_VALID_FROM = process.env.AUPM_KEY_VALID_FROM ?? ''
 
 const ISO_8601_UTC_TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,9})?Z$/
 
@@ -184,7 +184,7 @@ export function assertValidKeyValidFrom(value: string = ATTEST_SIGNING_KEY_VALID
   const problem = describeKeyValidFromProblem(value)
   if (problem) {
     throw new Error(
-      `x402 boot guard: SPM_KEY_VALID_FROM ${problem}; ` +
+      `x402 boot guard: AUPM_KEY_VALID_FROM ${problem}; ` +
         'set it to an ISO-8601 UTC timestamp, e.g. 2026-01-01T00:00:00Z',
     )
   }
@@ -200,7 +200,7 @@ function describeKeyValidFromProblem(value: string): string | undefined {
   return undefined
 }
 
-// The SPM attestation signing key (DSSE, ed25519). Hot on the server by
+// The AuPM attestation signing key (DSSE, ed25519). Hot on the server by
 // necessity; never funded, never used on-chain, and separate from
 // payTo/admin/pool keys (CLAUDE.md). ATTEST_SIGNING_KEY is either a 25-word
 // Algorand mnemonic or a hex-encoded 32-byte seed. Loaded once and memoized

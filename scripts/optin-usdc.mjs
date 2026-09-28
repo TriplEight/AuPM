@@ -7,7 +7,7 @@
 // this script now serves both.
 //
 // Usage: node scripts/optin-usdc.mjs <MNEMONIC_ENV_VAR> [--network testnet|mainnet] [--confirm-mainnet]
-// Example: node scripts/optin-usdc.mjs SPM_DONOR_MNEMONIC --network testnet
+// Example: node scripts/optin-usdc.mjs AUPM_DONOR_MNEMONIC --network testnet
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -41,7 +41,7 @@ function printUsage() {
   console.error(
     'Usage: node scripts/optin-usdc.mjs <MNEMONIC_ENV_VAR> [--network testnet|mainnet] [--confirm-mainnet]',
   )
-  console.error('Example: node scripts/optin-usdc.mjs SPM_DONOR_MNEMONIC --network testnet')
+  console.error('Example: node scripts/optin-usdc.mjs AUPM_DONOR_MNEMONIC --network testnet')
 }
 
 /**

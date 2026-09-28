@@ -16,4 +16,4 @@ Answer in at most 6 lines:
 
 Also flag these traps: `@x402/*` instead of `@x402-avm/*`, float money, a per-payment
 split, an omitted `extra.asset`, a 402 on an unreviewed package, a 402 on a reviewed tarball
-without `X-SPM-Donate: 1`, a withheld integrity warning, a fabricated review record.
+without `X-AuPM-Donate: 1`, a withheld integrity warning, a fabricated review record.

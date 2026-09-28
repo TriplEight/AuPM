@@ -11,7 +11,7 @@ import path from 'node:path'
 import { validateDiscoveryExtension } from '@x402-avm/extensions'
 import { describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-routes-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-x402-routes-test-${randomUUID()}.db`)
 
 const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY, OG_DESCRIPTION } = await import(
   './routes.js'
@@ -74,8 +74,8 @@ describe('buildRoutes', () => {
     ]
     for (const text of texts) {
       expect(text).toContain('$0.001')
-      expect(text).toContain('40/10/20/15/10/5')
-      expect(text).toContain('40% to the auditor, 60% to the operator')
+      expect(text).toContain('30/10/20/25/10/5')
+      expect(text).toContain('30% to the auditor, 70% to the operator')
       expect(text).not.toContain(OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER)
     }
   })

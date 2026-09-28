@@ -1,7 +1,7 @@
-# SPM — Specification
+# AuPM — Specification
 
 **Audience:** a fresh Claude session with no prior context on this project.
-**Repo:** `github.com/TriplEight/SPM` (public, `master`)
+**Repo:** `github.com/TriplEight/AuPM` (public, `master`)
 
 Part I is the product: the problem, the model, the roles and the phases. Part II is Phase 1,
 the MVP for the Global x402 Challenge on Algorand MainNet. Read the whole document before you
@@ -18,7 +18,7 @@ Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items: `docs/TASK.md`.
 - **v4 (2026-09-20):** implementation corrections: `getSupported()`; the 402 body is `{}` and
   the requirements are in the `PAYMENT-REQUIRED` header; §10.5 ordering resolved from the
   middleware source; `integrity` column; boot-guard error-text risk.
-- **v5 (2026-09-22):** merged with the product spec (formerly `docs/SPM-spec-v4.local.md`) and
+- **v5 (2026-09-22):** merged with the product spec (formerly `docs/AuPM-spec-v4.local.md`) and
   its architecture diagram. Decisions: 6-way split 40/10/20/15/10/5; PaymentRouter with repo
   pools and a trusted crediter replaces SplitRouter `distribute()`; PostgreSQL + Drizzle
   replaces SQLite; `payTo` is a plain account rekeyed to the contract (Variant B); the MVP
@@ -75,7 +75,7 @@ funding while critical low-visibility packages (xz failure mode) starve.
 
 ## 2. Solution
 
-SPM is a **registry-compatible proxy overlay** in front of npm that adds:
+AuPM is a **registry-compatible proxy overlay** in front of npm that adds:
 
 - **Free by default** — unreviewed packages proxy straight through, zero friction, same as npm
   today.
@@ -89,10 +89,10 @@ SPM is a **registry-compatible proxy overlay** in front of npm that adds:
   transaction that the auditor signs (review anchor, ADR 0007), bound to the tarball
   `dist.integrity`. IPFS JSON manifests, ARC-19 NFTs
   and independent hash mirroring are additive post-MVP upgrades.
-- **Self-sustaining security job market** — revenue split: auditors 40%, contributors 10%,
-  maintainers 20%, adversarial pool 15%, treasury 10%, ops 5% (§6).
+- **Self-sustaining security job market** — revenue split: auditors 30%, contributors 10%,
+  maintainers 20%, adversarial pool 25%, treasury 10%, ops 5% (§6).
 
-Adoption path: `registry=https://<domain>` in `.npmrc`, or the `spm` CLI wrapper that adds it.
+Adoption path: `registry=https://<domain>` in `.npmrc`, or the `aupm` CLI wrapper that adds it.
 No migration, no new tooling. **MVP client support is wrapper-only:** pnpm/yarn/bun plugins
 and x402-capable npm plugins are post-MVP.
 
@@ -110,8 +110,8 @@ and x402-capable npm plugins are post-MVP.
 - **Sybil reviewers** — Phase 2 identity = funded Algorand wallet (~0.1 ALGO min balance per
   identity); Sybil cost scales linearly with funding. Wallet cost alone is weak; stake/identity
   weighting is governance scope (Phase 5). In the MVP the auditors are the team.
-- **Standard not fork** — SPM never replaces npm; a user can always go direct. This bounds
-  the attack surface of SPM as a gatekeeper.
+- **Standard not fork** — AuPM never replaces npm; a user can always go direct. This bounds
+  the attack surface of AuPM as a gatekeeper.
 
 Known-open attack economics (deferred to governance, Phase 5): maintainer↔contributor
 collusion to farm the 10% fix line (self-introduced bugs), deliberate sloppiness loops,
@@ -176,12 +176,12 @@ these four only. The shares of the other roles are ops income until those roles 
 
 | Role | What they do | MVP | Onboarding (target) | How they get paid (target) |
 |---|---|---|---|---|
-| **Free user** | Installs unreviewed packages; reads status; attests zero-coverage lockfiles | Yes | Set registry or install `spm` wrapper | — |
+| **Free user** | Installs unreviewed packages; reads status; attests zero-coverage lockfiles | Yes | Set registry or install `aupm` wrapper | — |
 | **Donor** | Opts in and pays for reviewed resources (§11.4) | Yes | `--donate`, `allowDonation`, `donate: 'true'` | — |
-| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`spm register`, USDC opt-in); GPG tiers later | 40%, claimed from PaymentRouter |
+| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in); GPG tiers later | 30%, claimed from PaymentRouter |
 | **Contributor** | Authors the fix PR; PR must reference the audit ID | No | Register wallet; link forge account | 10%, credited on merge of the fix PR. Fix completeness is verified by the maintainer who reviewed, approved and merged the PR |
 | **Maintainer** | Reviews/merges code; verifies fix completeness; keeps the package at a high tier | No | Register wallet; prove package ownership | 20% (covers merge-review work) |
-| **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 15% pool share; bounty on successful challenge |
+| **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 25% pool share; bounty on successful challenge |
 | **Treasury** (global) | Grants, bounties, incentivization (high-dep/low-download packages) | No | Multisig-held address; later an elected council | 10% |
 | **Ops** (global) | Registry hosting, facilitator fees, gas | Yes | — | 5%; in the MVP also the shares of roles not yet onboarded |
 
@@ -207,10 +207,10 @@ Phase 5 governance, together with the decline/donate flow.
 
 | Recipient | Share | Per 1,000 µUSDC | Rationale |
 |---|---|---|---|
-| Auditor(s) | 40% | 400 | Compensation for audit work. Cut from 50% to fund the contributor line |
+| Auditor(s) | 30% | 300 | Compensation for audit work. Cut to fund the adversarial reviewer line |
 | Contributor(s) | 10% | 100 | Author of the merged fix PR; completeness verified by the merging maintainer |
 | Maintainer | 20% | 200 | Quality + audit cooperation + merge-review work |
-| Adversarial reviewer pool | 15% | 150 | Funds secondary review of existing audits |
+| Adversarial reviewer pool | 25% | 250 | Funds secondary review of existing audits |
 | Treasury | 10% | 100 | Bounty subsidies for high-dep/low-download packages (xz mode) |
 | Ops | 5% | 50 | Registry hosting, gas |
 
@@ -218,15 +218,18 @@ Phase 5 governance, together with the decline/donate flow.
 
 | Recipient | Share | Per 1,000 µUSDC |
 |---|---|---|
-| Auditor | 40% | 400 |
-| Ops (ops 5% + the 55% of roles not yet onboarded) | 60% | 600 |
+| Auditor | 30% | 300 |
+| Ops (ops 5% + the 65% of roles not yet onboarded) | 70% | 700 |
 
-The 60% is ops income, not a debt owed to anyone (ADR 0003).
+The 70% is ops income, not a debt owed to anyone (ADR 0011, supersedes ADR 0003).
 
 **Disclosure rule.** Every public text (README, `og:description`, Bazaar descriptions, the
-submission form) shows both splits: "Target split 40/10/20/15/10/5. In the MVP: 40% to the
-auditor, 60% to the operator until the other roles launch." Never write "20% goes to
+submission form) shows both splits: "Target split 30/10/20/25/10/5. In the MVP: 30% to the
+auditor, 70% to the operator until the other roles launch." Never write "20% goes to
 maintainers" while that share is ops income.
+
+TestNet runs the same 30/70 split (docs/TASK.md P8d). The earlier TestNet app (772553842,
+40/60, ADR 0003) is retired; TestNet now runs a new app from the rebuilt 300/700 contract.
 
 Payments are USDC on Algorand MainNet. No other chains or rails in the MVP.
 
@@ -259,10 +262,10 @@ in PaymentRouter → the auditor and ops claim.
 GitHub Action pinned to a published CLI; Dependabot/Renovate integration; Stripe x402
 subscriptions/donations + business tiers; IDE/MCP status badges; forge integrations (Codeberg,
 Radicle) + pay-at-forge; onboarding of contributor, maintainer, adversarial reviewer and
-treasury, with balances per `(repo, role, identity)`; wallet registration (`spm register`),
-`spm audit`, `POST /api/v1/review`; claim registration and GitHub proof verification;
+treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm register`),
+`aupm audit`, `POST /api/v1/review`; claim registration and GitHub proof verification;
 oracle-signed identity binding for claims; on-chain AuditorRegistry; review bounty on each new
-version; review lineage with delta review (§21); `spm donor init` (§21); `AUTO_SCANNED`
+version; review lineage with delta review (§21); `aupm donor init` (§21); `AUTO_SCANNED`
 pipeline and flags; IPFS/ARC-19/mirror manifest upgrades;
 AI-skills/MCP-plugin publishing; opt-in maintainer notifications; provenance-verified
 maintainer mapping; L2 online verification.
@@ -278,7 +281,7 @@ model.
 ### Phase 4 — scale
 
 PyPI, crates.io, Maven, Docker; PostgreSQL when a second proxy instance runs (ADR 0001).
-`spm` stays the umbrella brand across all ecosystems — no per-ecosystem sub-brands.
+`aupm` stays the umbrella brand across all ecosystems — no per-ecosystem sub-brands.
 
 ### Phase 5 — governance
 
@@ -294,7 +297,7 @@ from §5.2.
 
 ## 9. Context
 
-SPM won the Algorand x402 Ideathon and has a working TestNet MVP. It is entering the **Global
+AuPM won the Algorand x402 Ideathon and has a working TestNet MVP. It is entering the **Global
 x402 Challenge**. The team is registered for the challenge (confirmed 2026-09-19).
 
 ### 9.1 Challenge requirements (hard gates)
@@ -351,15 +354,15 @@ Nothing is deployed to MainNet.
 - `proxy/` — Hono overlay on `paymentMiddlewareFromHTTPServer` and the `onProtectedRequest`
   free-tier grant. Routes: `POST /v1/attest/lockfile` and `GET /v1/attest`
   (`proxy/src/routes/attest.ts`), DSSE + in-toto signing (`proxy/src/attest/dsse.ts`),
-  `GET /.well-known/spm-keys.json`. No `settle.ts`, no EURD path.
+  `GET /.well-known/aupm-keys.json`. No `settle.ts`, no EURD path.
 - The SQLite status store and ledger (`better-sqlite3`). They stay (ADR 0001).
 - `mcp/` — MCP server: `check_audit_status` (free), `install_audited_package` (x402-gated,
   MainNet/TestNet selectable, `wrapFetchWithPayment`), `attest_lockfile` (donation opt-in,
   `mcp/src/donor.ts`, §11.4).
-- `cli/` — `spm status`, `spm install`, `spm verify` (offline L1),
-  `spm attest <lockfile> [--donate] [--out <path>]` (§11.4).
-- `.github/actions/spm-attest/` — composite Action (`action.yml`, `attest.mjs`). It runs
-  `spm attest` from its own checkout and sends no wallet credential unless `donate` is `'true'`.
+- `cli/` — `aupm status`, `aupm install`, `aupm verify` (offline L1),
+  `aupm attest <lockfile> [--donate] [--out <path>]` (§11.4).
+- `.github/actions/aupm-attest/` — composite Action (`action.yml`, `attest.mjs`). It runs
+  `aupm attest` from its own checkout and sends no wallet credential unless `donate` is `'true'`.
 - `scripts/verify.sh`, `scripts/guard.sh`, `scripts/e2e.mjs`, `scripts/payout.ts`,
   `scripts/demo.sh` — `verify.sh` prints PASS, FAIL, or SKIP per check. It never passes silently.
 
@@ -409,15 +412,16 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   The contract asserts:
   - `batchSeq` is exactly one more than the last credited batch (global state; no box per
     payment);
-  - the entries sum to exactly `attributedTotal × 400 / 1000` (every attributed price is a
+  - the entries sum to exactly `attributedTotal × 300 / 1000` (every attributed price is a
     multiple of 1,000 µUSDC, so this is exact);
   - `attributedTotal + unattributedTotal` is not above the unallocated balance of `payTo`.
 
   It credits each auditor `identity`'s balance directly, and credits `attributedTotal −
   sum(entries) + unattributedTotal` to the `"ops"` identity's balance. `unattributedTotal` is
-  USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 40/60 split
-  is enforced on-chain per batch. There is no rounding: each reviewed package in each payment
-  credits exactly 400 µUSDC. Balances are keyed by identity, not by address and not by
+  USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 30/70 split
+  is enforced on-chain per batch, on every network (docs/TASK.md P8d). There is no rounding:
+  each reviewed package in each payment credits exactly 300 µUSDC.
+  Balances are keyed by identity, not by address and not by
   `(repo, identity)`: the per-repo breakdown lives in the off-chain ledger only (§13.2). An
   identity credit()s before the admin maps it to an address; it just cannot claim() yet.
 - The admin maps each identity (an auditor's `identity`, or the fixed `"ops"` identity) to an
@@ -430,8 +434,10 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   future claims to the new address; it never touches a balance already claimed.
 - The contract keeps a running total of credited, unclaimed balances, so it can compute the
   unallocated balance as the USDC balance of `payTo` minus that total.
-- Admin-gated `releaseAuthority(to)` carries over from SplitRouter. `attest()` and
-  `setAttestationKey()` do not: reviews are anchored by the auditor (§14, ADR 0007).
+- Admin-gated `releaseAuthority(to)` carries over from SplitRouter. Planned for the MainNet
+  build (P8): it is replaced by `announceRelease(to)` and `executeRelease()`, a two-step flow
+  with a compiled-in delay (§10.2a, ADR 0010). `attest()` and `setAttestationKey()` do not:
+  reviews are anchored by the auditor (§14, ADR 0007).
 - Amount-agnostic: no assertion on a fixed payment amount.
 - Every price is a multiple of 1,000 µUSDC, so every attributed credit splits exactly.
 
@@ -446,7 +452,8 @@ a 1,000 µALGO fee (about 11% of a $0.001 payment) plus a replay record (ADR 000
 ### 10.2 payTo is a plain account rekeyed to PaymentRouter (Variant B, ADR 0004)
 
 `payTo` is a plain account. PaymentRouter issues the inner axfers with `sender = payTo`. A later
-contract takes over with `releaseAuthority(newApp)`, and `payTo` stays the same.
+contract takes over with `releaseAuthority(newApp)` (§10.2a, ADR 0010), and `payTo` stays the
+same.
 
 **Order is not reversible: opt into USDC 31566704 *before* rekeying.** A rekeyed account cannot
 sign anything with its own key, including its own asset opt-in, and the app cannot opt it in
@@ -458,6 +465,29 @@ sender) on TestNet (§17 R0) before the MainNet rekey.
 **Before the rekey,** `payTo` is a plain account that holds real USDC, and its key can move
 it. Keep that key cold and offline, and use it for exactly two actions: the USDC opt-in and the
 rekey. After the rekey the key has no signing power over `payTo`.
+
+### 10.2a Contract admin policy and migration (ADR 0010)
+
+`Global.creatorAddress` is a 2-of-3 Algorand multisig address, not one key. No single lost or
+leaked key can call `setCrediter`, `setIdentity`, `announceRelease`, or `executeRelease`.
+
+Planned for the MainNet build (P8): `releaseAuthority(to)` is replaced by two admin methods.
+- `announceRelease(to)` records `to` and the current round in global state.
+- `executeRelease()` runs only after a compiled-in delay of about 7 days (216,000 rounds) from
+  the announced round. In order, it: (1) issues one inner USDC transfer of `creditedUnclaimed`
+  from `payTo` to the address mapped to identity `"treasury"` — it fails if `"treasury"` is not
+  mapped; (2) sets `creditedUnclaimed` to 0; (3) marks the app retired, so `credit()` and
+  `claim()` both fail on it from then on; (4) rekeys `payTo` to `to`. `payTo`'s address does not
+  change; the rekey changes the authorizer, not the address (invariant 1 holds).
+
+Before `announceRelease`, run the migration runbook procedure (`docs/RUNBOOK-mainnet-launch.md`):
+a final credit batch, an announcement to payees, a claim window, and stopping the nightly job
+against the old app id before `executeRelease` runs. After `executeRelease`, the treasury pays
+each swept balance to its payee off-chain, on request. The old app's balance boxes stay in place
+as proof of the amount owed.
+
+Public texts say the treasury role is onboarded only once `"treasury"` is mapped with
+`setIdentity` (invariant 8, CLAUDE.md). Before that, `executeRelease` cannot run.
 
 ### 10.3 SQLite is the store (ADR 0001)
 
@@ -475,9 +505,9 @@ rekey. After the rekey the key has no signing power over `payTo`.
 
 `paymentMiddleware` route config is static: a matching route always demands payment. npm cannot
 pay a 402, and the seed list (`ms`, `once`, `inherits`) is in almost every lockfile. So a
-reviewed tarball is **free unless the request carries `X-SPM-Donate: 1`**. Every tarball
-response carries `X-SPM-Tier: <tier>`. A free reviewed tarball also carries
-`X-SPM-Donate-Hint: 1000` (the price in µUSDC).
+reviewed tarball is **free unless the request carries `X-AuPM-Donate: 1`**. Every tarball
+response carries `X-AuPM-Tier: <tier>`. A free reviewed tarball also carries
+`X-AuPM-Donate-Hint: 1000` (the price in µUSDC).
 
 **Fix:** use `paymentMiddlewareFromHTTPServer` and the documented `onProtectedRequest` hook:
 
@@ -487,12 +517,12 @@ httpServer.onProtectedRequest(async (ctx) => {
   const { name, version } = parseTarballPath(ctx.path)    // handles @scope/name
   const s = await statusStore.get(name, version)
   if (s.tier === 'UNREVIEWED') return { grantAccess: true }
-  return ctx.adapter.getHeader('x-spm-donate') === '1' ? undefined : { grantAccess: true }
+  return ctx.adapter.getHeader('x-aupm-donate') === '1' ? undefined : { grantAccess: true }
 })
 ```
 
 Test three cases: unreviewed tarball → 200; reviewed tarball, no header → 200 with
-`X-SPM-Tier`; reviewed tarball with `X-SPM-Donate: 1` → 402. An unreviewed tarball never
+`X-AuPM-Tier`; reviewed tarball with `X-AuPM-Donate: 1` → 402. An unreviewed tarball never
 returns 402, with or without the header.
 
 ### 10.5 Handler/settlement ordering — resolved
@@ -525,12 +555,12 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 
 ```
 ┌───────────────────────────────────── Clients ─────────────────────────────────────┐
-│ npm CLI (spm wrapper) · AI agents · IDE / MCP · CI/CD (spm CLI, spm-attest Action) │
+│ npm CLI (aupm wrapper) · AI agents · IDE / MCP · CI/CD (aupm CLI, aupm-attest Action) │
 │ · browser                                                                          │
 └──────────────────────────────────────────┬────────────────────────────────────────┘
                                            │ HTTPS (x402), one root domain
 ┌──────────────────────────────────────────▼────────────────────────────────────────┐
-│ SPM proxy (Hono + @x402-avm/hono, paymentMiddlewareFromHTTPServer)                  │
+│ AuPM proxy (Hono + @x402-avm/hono, paymentMiddlewareFromHTTPServer)                  │
 │  npm proxy (registry overlay) · x402 payment middleware · attestation routes        │
 │  Audit status API: GET /api/v1/status · earnings: GET /api/v1/earnings/...          │
 │  Core: metadata cache · audit status store · auditor identity map ·                 │
@@ -558,16 +588,16 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 |---|---|
 | `POST /v1/attest/lockfile` | $0.001 × reviewed entries (free if 0 — pre-middleware) ← volume driver |
 | `GET /v1/attest?name=&version=` | $0.001, free unless reviewed |
-| `GET /<pkg>/-/<tarball>` | $0.001 only with `X-SPM-Donate: 1` and a reviewed version; else free |
+| `GET /<pkg>/-/<tarball>` | $0.001 only with `X-AuPM-Donate: 1` and a reviewed version; else free |
 | `GET /api/v1/status/...` | free |
 | `GET /api/v1/earnings/github/:login` | free (ledger read) |
-| `GET /.well-known/spm-keys.json` | free (attestation pubkeys) |
+| `GET /.well-known/aupm-keys.json` | free (attestation pubkeys) |
 
 **Entry type: Composite.** All routes share one payTo → one merchant entry, each route listed in
 the Bazaar.
 
 At $0.001/download, volume requires thousands of developers to change `.npmrc` — the
-highest-friction ask SPM has. `POST /v1/attest/lockfile` takes a `package-lock.json` and returns
+highest-friction ask AuPM has. `POST /v1/attest/lockfile` takes a `package-lock.json` and returns
 a signed attestation for the whole tree; one integration in CI produces a call per PR. It
 matches Algorand's published use-case list ("paid endpoints for trust scores, proofs, audit
 trails… validation services before an agent or user takes action") and it is the SOC2 CC9.1 /
@@ -584,11 +614,11 @@ volume leaderboard.
 |---|---|---|
 | `POST /v1/attest/lockfile` (N ≥ 1 reviewed entries) | **$0.001 × N** | 1,000 × N |
 | `POST /v1/attest/lockfile` (0 reviewed entries) | **free** (signed, returned without 402) | 0 |
-| `POST /v1/attest/lockfile` with `X-SPM-Donate: 0` | **free** partial attestation (§12.3) | 0 |
+| `POST /v1/attest/lockfile` with `X-AuPM-Donate: 0` | **free** partial attestation (§12.3) | 0 |
 | `GET /v1/attest?name=&version=` (unreviewed version) | **free** | 0 |
 | `GET /v1/attest?name=&version=` (reviewed version) | $0.001 | 1,000 |
-| `GET /v1/attest?…` (reviewed) with `X-SPM-Donate: 0` | **free** partial attestation | 0 |
-| Tarball, reviewed version, `X-SPM-Donate: 1` | $0.001 | 1,000 |
+| `GET /v1/attest?…` (reviewed) with `X-AuPM-Donate: 0` | **free** partial attestation | 0 |
+| Tarball, reviewed version, `X-AuPM-Donate: 1` | $0.001 | 1,000 |
 | Tarball, any other case | **free** | 0 |
 
 N counts entries whose tier is `COMMUNITY_REVIEWED` and whose integrity matches. An
@@ -664,7 +694,7 @@ const accepts = (price: string) => ({
 
 const routes = {
   'POST /v1/attest/lockfile': {
-    // DynamicPrice: 1,000 µUSDC × reviewed entries (§11.2). Zero entries and X-SPM-Donate: 0
+    // DynamicPrice: 1,000 µUSDC × reviewed entries (§11.2). Zero entries and X-AuPM-Donate: 0
     // never reach the middleware (pre-middleware free paths).
     accepts: accepts(reviewedEntriesPrice),
     description:
@@ -680,7 +710,7 @@ const routes = {
         required: ['lockfileVersion', 'packages'],
       },
       output: { example: { summary: { total: 512, reviewed: 14, unreviewed: 497, integrityMismatch: 0 },
-                           attestation: { payloadType: 'application/vnd.in-toto+json', payload: '…', signatures: [{ keyid: 'SPM…', sig: '…' }] } } },
+                           attestation: { payloadType: 'application/vnd.in-toto+json', payload: '…', signatures: [{ keyid: 'AuPM…', sig: '…' }] } } },
     }),
   },
   'GET /v1/attest': {
@@ -695,7 +725,7 @@ const routes = {
       output: { example: { tier: 'COMMUNITY_REVIEWED', attestation: { /* DSSE */ } } },
     }),
   },
-  // tarball route: same accepts('$0.001'); 402 only with X-SPM-Donate: 1, via
+  // tarball route: same accepts('$0.001'); 402 only with X-AuPM-Donate: 1, via
   // onProtectedRequest (§10.4)
 }
 
@@ -740,8 +770,8 @@ Opt-in names: CLI `--donate`, MCP argument `allowDonation: true`, Action input `
 It applies to reviewed tarball installs and to lockfile and single attestation.
 
 On the wire (ADR 0006):
-- With the opt-in, a client sends `X-SPM-Donate: 1` and pays the 402.
-- Without the opt-in, a client sends `X-SPM-Donate: 0`. The tarball comes back free. An
+- With the opt-in, a client sends `X-AuPM-Donate: 1` and pays the 402.
+- Without the opt-in, a client sends `X-AuPM-Donate: 0`. The tarball comes back free. An
   attestation route returns a free partial attestation (§12.3). The CLI prints how many reviewed
   entries it withheld and exits 0. The MCP tool returns the partial attestation with
   `status: 'donation_required'`, the price and the resource. The Action passes and prints the
@@ -749,7 +779,7 @@ On the wire (ADR 0006):
 - A generic x402 client that sends neither header gets standard x402: a 402 for reviewed
   content on the attestation routes, and a free tarball.
 
-Key: env `SPM_DONOR_MNEMONIC`, for a dedicated donor account (`CONTEXT.md`). No stored
+Key: env `AUPM_DONOR_MNEMONIC`, for a dedicated donor account (`CONTEXT.md`). No stored
 credential file.
 
 Spend cap: a client refuses to sign above 1,000 µUSDC × the number of entries in the lockfile
@@ -764,24 +794,29 @@ withdrawal.
 
 Reason: a lockfile that pins a reviewed version must work the same way on every surface.
 
+**Planned — pnpm and npx (docs/TASK.md P2).** `aupm pnpm <args>` and `aupm npx <args>` are not
+built. `POST /v1/attest/lockfile` parses only `package-lock.json` (lockfileVersion 2 or 3); it
+does not parse `pnpm-lock.yaml`. `aupm <npm args>` covers `npm install`, `i`, `ci`, and `add`
+only.
+
 ## 12. Attestations
 
 ### 12.1 Is a signature needed at all?
 
 For the immediate HTTP caller, TLS already authenticates the response. The signature matters for
 **every consumer after that**: compliance evidence checked months later (must verify after the
-database has changed or SPM is gone); agent-to-agent handoff; CI artifacts attached to a
+database has changed or AuPM is gone); agent-to-agent handoff; CI artifacts attached to a
 release. An unsigned "attestation" is a JSON report anyone can edit. Offline verification means
 **pubkey only, no network** — ed25519.
 
 ### 12.2 Key: dedicated service key, not an auditor key
 
-The lockfile attestation is SPM's statement *aggregating* many reviewers' on-chain review
-anchors, so it is signed by an **SPM attestation key**:
+The lockfile attestation is AuPM's statement *aggregating* many reviewers' on-chain review
+anchors, so it is signed by an **AuPM attestation key**:
 - ed25519, generated as an Algorand account so `keyid` is a familiar 58-char address. **Never
   funded, never used on-chain.**
 - Hot key on the server by necessity. Separate from payTo/admin/crediter keys.
-- Published at `/.well-known/spm-keys.json`: `[{ keyid, publicKey, validFrom, validUntil }]`.
+- Published at `/.well-known/aupm-keys.json`: `[{ keyid, publicKey, validFrom, validUntil }]`.
   Rotation = append.
 
 Auditor keys never live on the server.
@@ -794,7 +829,7 @@ DSSE signs exact payload bytes, so **no JSON canonicalisation** is needed.
 {
   "payloadType": "application/vnd.in-toto+json",
   "payload": "<base64(Statement JSON bytes)>",
-  "signatures": [{ "keyid": "<SPM attestation key address>", "sig": "<base64 ed25519>" }]
+  "signatures": [{ "keyid": "<AuPM attestation key address>", "sig": "<base64 ed25519>" }]
 }
 ```
 `sig = ed25519_sign(PAE)`, where `PAE = "DSSEv1" SP len(type) SP type SP len(payload) SP payload`.
@@ -841,18 +876,22 @@ shape with one package.
 - **`predicate.packages` lists only reviewed, `INTEGRITY_MISMATCH`, and `UNRESOLVABLE` entries.**
   `summary` carries the counts; `predicate.absentMeans: "UNREVIEWED"`.
 - `anchorTxid` is the review anchor (§14): a transaction whose sender is the auditor's address.
-- **Partial attestation** (request with `X-SPM-Donate: 0`, ADR 0006): the same statement, with
+- **Partial attestation** (request with `X-AuPM-Donate: 0`, ADR 0006): the same statement, with
   every reviewed entry whose integrity matches left out of `predicate.packages`.
   `predicate.withheld` is the number left out, and `predicate.absentMeans` is
   `"UNREVIEWED_OR_WITHHELD"`. `INTEGRITY_MISMATCH` and `UNRESOLVABLE` entries are always listed:
-  SPM never charges for a security warning. A full attestation has `predicate.withheld: 0`.
+  AuPM never charges for a security warning. A full attestation has `predicate.withheld: 0`.
 - Response: `{ summary, attestation }`. `summary` is an unsigned convenience copy; verifiers use
   `attestation`.
 - **Free paths are rate-limited** per IP (e.g. 20/hour, 429 beyond): the zero-coverage path
   and the partial path.
+- **Every lockfile request is also rate-limited** per IP (e.g. 120/hour, 429 beyond), paid or
+  free, checked before the body is read. Without this, a lockfile with at least one reviewed
+  entry could spend server CPU (a parse, status lookups, a signature) on every request at no
+  cost — the free-path limit above never sees the priced branch.
 
 **Verification levels:**
-- **L1 (offline, MVP):** `spm verify att.json --lockfile package-lock.json` — checks the ed25519
+- **L1 (offline, MVP):** `aupm verify att.json --lockfile package-lock.json` — checks the ed25519
   signature against keyid ∈ pinned or `.well-known` keys, and the sha256 of the local file
   against the subject.
 - **L2 (online, Phase 2):** fetch each `anchorTxid` from the indexer and confirm that its note
@@ -900,7 +939,7 @@ The ledger is the crediter's input queue and the audit trail. PaymentRouter hold
 - **contributor, maintainer, adversarial reviewer, treasury, ops** → recorded with identity
   `unassigned` (ops: `ops`). Credited on-chain to the ops balance.
 - **Every route:** each reviewed package in a payment carries exactly 1,000 µUSDC (§11.2), so
-  each package gets exact role shares (400 / 100 / 200 / 150 / 100 / 50). No division, no
+  each package gets exact role shares (300 / 100 / 200 / 250 / 100 / 50). No division, no
   remainder.
 
 **Write path:** a Hono middleware registered *outside* the payment middleware. After `next()`, if
@@ -909,7 +948,7 @@ from attribution data the handler put on the context (`c.set('attribution', …)
 
 **Nightly job (one job, in-process):** the proxy process itself runs it, daily at 03:17 UTC, and
 catches up once at start when the last successful run is more than 24 hours old or none exists
-(ADR 0009). `SPM_NIGHTLY=off` disables the schedule. `nightly-main.ts` stays the manual entry
+(ADR 0009). `AUPM_NIGHTLY=off` disables the schedule. `nightly-main.ts` stays the manual entry
 point for an operator-run pass. In order:
 1. **Reconcile.** List USDC axfers into `payTo` (indexer, `INDEXER_URL`) and compare them with
    ledger `settle_txid`s. An unmatched inflow (crash between settle and write, direct deposit)
@@ -917,7 +956,7 @@ point for an operator-run pass. In order:
    (`MIN_INFLOW_AGE_SECONDS`).
 2. **Back up.** `VACUUM INTO` a dated copy of the SQLite file in `BACKUP_DIR`. If this fails,
    stop: do not credit. The host's own backup (restic) ships `BACKUP_DIR` off the host once a
-   day, after the job. SPM does not check that backup; its error alert goes to the operator.
+   day, after the job. AuPM does not check that backup; its error alert goes to the operator.
    A lost host loses at most one day of attribution. Reconcile rebuilds those inflows as
    `unassigned` ops income.
 3. **Credit.** If `PAYMENT_ROUTER_APP_ID` is unset or `payTo` is not yet rekeyed, stop here.
@@ -945,7 +984,7 @@ admin, the donor or `payTo`.
   product. Unsolicited commercial email is restricted under German UWG §7.
 - Phase 2: opt-in notifications.
 
-**Legal note before the first third-party payout:** paying third parties from funds SPM
+**Legal note before the first third-party payout:** paying third parties from funds AuPM
 attributes to them may touch payment-services regulation (ZAG) for a German operator. Get a
 lawyer's read before any role other than the team's auditors and ops is paid. In the MVP only
 the team claims.
@@ -961,7 +1000,7 @@ fabricated record.
 **Review flow (MVP):**
 1. The auditor reviews the tarball, then signs and sends the review anchor from their own
    machine: a 0-ALGO payment from their address to itself, with the ARC-2 note
-   `spm:j{"v":1,"name":…,"version":…,"integrity":…,"reviewer":"github:<login>","scope":…}`.
+   `aupm:j{"v":1,"name":…,"version":…,"integrity":…,"reviewer":"github:<login>","scope":…}`.
    The auditor key never touches the server.
 2. The operator runs `record-review <anchorTxid>` on the server. The tool reads the anchor from
    the indexer, checks that the sender is the auditor's address in the server's auditor map
@@ -986,10 +1025,10 @@ reputation scoring · peer review / cross-signing · adversarial-review UX · go
 CodeQL auto-scan · `AUTO_SCANNED` pipeline and flags · Dependabot/Renovate integrations ·
 PyPI/crates.io · Stripe pre-funding · subscriptions · EURD/Quantoz · direct-submit settlement
 fallback · `PEER_REVIEWED` / `MISSION_CRITICAL_SAFE` tiers · onboarding of contributor,
-maintainer, adversarial reviewer or treasury · wallet registration (`spm register`),
-`spm audit`, `POST /api/v1/review` · claim registration and GitHub proof verification ·
+maintainer, adversarial reviewer or treasury · wallet registration (`aupm register`),
+`aupm audit`, `POST /api/v1/review` · claim registration and GitHub proof verification ·
 on-chain AuditorRegistry · `attest()` or `setAttestationKey()` in PaymentRouter · per-payment
-`credit()` · review bounties · review lineage and delta review · `spm donor init` ·
+`credit()` · review bounties · review lineage and delta review · `aupm donor init` ·
 automated maintainer notifications · automated payouts · L2 online verification · bulk
 discounts or price caps · 1-year escrow.
 
@@ -1005,8 +1044,9 @@ Use the `scope-sentinel` subagent before anything sizable.
 - Price: 1,000 µUSDC per reviewed package on every route. The lockfile price is
   1,000 × reviewed entries, no cap, no discount; free at zero.
 - `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
-- Target split **40/10/20/15/10/5** → per 1,000 µUSDC: 400/100/200/150/100/50.
-- MVP split **40/60** → per 1,000 µUSDC: auditor 400, ops 600.
+- Target split **30/10/20/25/10/5** → per 1,000 µUSDC: 300/100/200/250/100/50.
+- MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. One split on every network
+  (docs/TASK.md P8d); the earlier TestNet app (772553842, 40/60) is retired.
 - `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per nightly batch.
 - `MIN_CLAIM` = 100,000 µUSDC. A claim's fee (2,000 µALGO) is pooled by the claimant.
 - Facilitator `https://facilitator.goplausible.xyz`, mandatory. It pays network fees for
@@ -1015,10 +1055,10 @@ Use the `scope-sentinel` subagent before anything sizable.
   before the first claim.
 - Store: SQLite, one writer. Money columns `INTEGER` micro-units. Nightly off-host copy.
 - Unreviewed content never returns 402. A reviewed tarball returns 402 only with
-  `X-SPM-Donate: 1`. Attestation routes return 402 for reviewed content unless the request
-  sends `X-SPM-Donate: 0`, which gets a free partial attestation.
+  `X-AuPM-Donate: 1`. Attestation routes return 402 for reviewed content unless the request
+  sends `X-AuPM-Donate: 0`, which gets a free partial attestation.
 - Version bump → `UNREVIEWED`. The narrative spine. A tier never carries forward.
-- Reviews: anchored by the auditor's own note transaction (ARC-2 `spm:j`).
+- Reviews: anchored by the auditor's own note transaction (ARC-2 `aupm:j`).
 - Attestations: DSSE + in-toto Statement v1, ed25519, dedicated unfunded service key.
 - pnpm only, `pnpm add --save-exact`.
 - Append a dated `NOTES.md` entry after each unit of work (`/handoff`).
@@ -1029,7 +1069,7 @@ The work items with acceptance checks are in `docs/TASK.md`. This section fixes 
 the gates.
 
 **P0. Recruit third-party donors (spans the whole plan; owner: the team).** Line up 3–10
-external repos that will run `spm-attest` **with their own donor accounts**. Each one passes
+external repos that will run `aupm-attest` **with their own donor accounts**. Each one passes
 `donate: 'true'` and its own `donor-mnemonic` secret. Each needs a MainNet Algorand account
 with about 0.3 ALGO (minimum balance for the USDC opt-in), a USDC opt-in, and a few dollars of
 USDC on Algorand (§11.4). **Acquiring Algorand-native USDC is the bottleneck** — an exchange
@@ -1043,7 +1083,7 @@ withdrawal or bridge hop takes days; an in-app wallet purchase is faster. Chase 
 2. MainNet config; the server refuses to boot if `getSupported()` lacks MainNet `exact` with
    `x402Version` 2, and logs the resolved `feePayer`.
 3. Deploy with Docker Compose on the production host; `og:*` metadata at the domain root.
-   *Check:* `curl -sI -H 'X-SPM-Donate: 1' "https://<domain>/v1/attest?name=ms&version=2.1.3"`
+   *Check:* `curl -sI -H 'X-AuPM-Donate: 1' "https://<domain>/v1/attest?name=ms&version=2.1.3"`
    → 402 once `ms@2.1.3` is reviewed.
 4. Auditors anchor 3–5 real reviews; the operator records each with `record-review` (§14).
 5. Bazaar + tag: decode `PAYMENT-REQUIRED` and confirm `bazaar` and `tag`.
@@ -1058,13 +1098,13 @@ TestNet: `payTo` opt-in → pay through GoPlausible → rekey → nightly job cr
 rekey `payTo`, and let the nightly job credit the backlog. *Check:* credit and claim txids in
 `NOTES.md`.
 
-PaymentRouter test vectors:
-- One batch of one tarball payment (1,000 µUSDC, one reviewed package) → auditor 400, ops 600.
+These are PaymentRouter test vectors for the 30/70 split, on every network:
+- One batch of one tarball payment (1,000 µUSDC, one reviewed package) → auditor 300, ops 700.
 - One batch of one lockfile payment with 3 reviewed packages (3,000 µUSDC) → auditor entries
-  400 / 400 / 400, ops 1,800. Sums equal 3,000 exactly.
-- One batch of two payments for the same `(repo, identity)` → one entry of 800.
+  300 / 300 / 300, ops 2,100. Sums equal 3,000 exactly.
+- One batch of two payments for the same `(repo, identity)` → one entry of 600.
 - `unattributedTotal` 5,123 with `attributedTotal` 0 → ops 5,123, no entries.
-- Entries that do not sum to exactly `attributedTotal × 400 / 1000` → `credit()` fails.
+- Entries that do not sum to exactly `attributedTotal × 300 / 1000` → `credit()` fails.
 - `batchSeq` not equal to last + 1 (a repeat or a gap) → `credit()` fails.
 - `attributedTotal + unattributedTotal` above the unallocated balance → fails.
 - A balance of 99,999 → `claim()` fails. 100,000 → succeeds.
@@ -1102,20 +1142,20 @@ usage.
 
 **Qualification (by Sept 27, hard deadline Sept 29):**
 - [ ] Public HTTPS endpoint on MainNet. Unreviewed tarballs return 200 free. A reviewed tarball
-      returns 200 free without `X-SPM-Donate: 1` and 402 with it
+      returns 200 free without `X-AuPM-Donate: 1` and 402 with it
 - [ ] Payments verified and settled through GoPlausible; `extra.asset` = 31566704 in a settled
       txn
 - [ ] `x402-global-challenge` tag present before the first real payment; Bazaar row exists
 - [ ] ≥1 real MainNet payment; paid response returned; USDC in payTo; ledger row written
 - [ ] Merchant visible under `src=x402-global-challenge` (not `dev`/`direct`)
-- [ ] Attestation verifies offline with `spm verify`
+- [ ] Attestation verifies offline with `aupm verify`
 - [ ] SplitRouter, claim registration and GitHub proofs gone; `scripts/verify.sh` green
 - [ ] Public texts show both splits (§6.2)
 - [ ] Form submitted; repo submitted to Electric Capital
 
 **Placement (by Sept 29, running into early October) — in priority order:**
 - [ ] **≥3 external donors funded, opted in, and settling from their own donor accounts** (P0)
-- [ ] `spm-attest` Action running on those repos, failing open
+- [ ] `aupm-attest` Action running on those repos, failing open
 - [ ] Lockfile route live with per-package price, zero-coverage free path and partial path
 - [ ] 15–30 genuinely reviewed packages, each with a review anchor on MainNet
 - [ ] PaymentRouter deployed, `payTo` rekeyed, `credit()` and `claim()` executed on MainNet;
@@ -1136,7 +1176,7 @@ Decided in the v6 review. Not in the MVP.
   in the lineage. Payments for a version in the lineage split between the original auditor and
   the delta reviewers. The tier never carries forward; a patch release is the moment attacks are
   injected (axios 1.14.1). Each new version creates a delta-review bounty (Phase 2).
-- **`spm donor init` / `spm donor optin`.** Create a donor account, print the address and a
+- **`aupm donor init` / `aupm donor optin`.** Create a donor account, print the address and a
   funding QR code, wait for funds, opt in to USDC.
 - **Reviews as a file in git.** The review records live in the repo, signed and anchored
   on-chain; SQLite keeps only the ledger.

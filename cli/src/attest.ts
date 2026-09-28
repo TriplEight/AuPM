@@ -1,15 +1,16 @@
 // cli/src/attest.ts
 //
-// `spm attest <lockfile> [--donate] [--out <path>]` — requests a signed
+// `aupm attest <lockfile> [--donate] [--out <path>]` — requests a signed
 // lockfile attestation via the MCP attest_lockfile handler and writes the
 // envelope to disk. Donation is opt-in (SPEC.md §11.4): without --donate,
 // the reviewed entries are withheld, not refused — the CLI still writes
 // the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
-import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
+import { formatMicroUsd } from 'aupm-mcp/money'
+import { attestLockfileTool } from 'aupm-mcp/tools/attest'
 
-const DEFAULT_OUT_PATH = 'spm-attestation.json'
-const USAGE = 'Usage: spm attest <lockfile> [--donate] [--out <path>]'
+const DEFAULT_OUT_PATH = 'aupm-attestation.json'
+const USAGE = 'Usage: aupm attest <lockfile> [--donate] [--out <path>]'
 
 interface ParsedAttestArgs {
   lockfilePath?: string
@@ -49,7 +50,7 @@ function parseAttestArgv(argv: string[]): ParsedAttestArgs {
 }
 
 /**
- * Runs `spm attest` end to end: parses argv, requests the attestation,
+ * Runs `aupm attest` end to end: parses argv, requests the attestation,
  * writes it to disk, and returns the process exit code. Without --donate, a
  * `donation_required` result still writes the partial attestation (when the
  * server returned one) and always exits 0 — SPEC.md §11.4: donating is an
@@ -84,7 +85,7 @@ export async function runAttest(argv: string[]): Promise<number> {
       console.log(`attestation written to ${args.outPath}`)
       console.log(
         `withheld ${result.withheld} reviewed ${result.withheld === 1 ? 'entry' : 'entries'} ` +
-          `(${result.priceMicro} microUSDC) — retry with --donate to include them`,
+          `(${formatMicroUsd(result.priceMicro)}) — retry with --donate to include them`,
       )
       console.log(
         JSON.stringify(
@@ -96,7 +97,7 @@ export async function runAttest(argv: string[]): Promise<number> {
       return 0
     }
 
-    console.log(`donation required: ${result.priceMicro} microUSDC for ${result.resourceUrl}`)
+    console.log(`donation required: ${formatMicroUsd(result.priceMicro)} for ${result.resourceUrl}`)
     console.log('retry with --donate to opt in')
     return 0
   }

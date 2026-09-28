@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// spm-attest: spawns the workspace `spm attest` CLI to post a lockfile to
-// the SPM attestation server and write the signed envelope. Dependency-free
+// aupm-attest: spawns the workspace `aupm attest` CLI to post a lockfile to
+// the AuPM attestation server and write the signed envelope. Dependency-free
 // itself — it only shells out to a CLI that the action installed first.
 // Fails open on every error except an explicit integrity-mismatch failure
 // (see run()).
@@ -10,9 +10,9 @@ import { resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_LOCKFILE = 'package-lock.json'
-const DEFAULT_OUTPUT = 'spm-attestation.json'
+const DEFAULT_OUTPUT = 'aupm-attestation.json'
 
-// cli/ lives three levels above this file: .github/actions/spm-attest/ -> repo root -> cli.
+// cli/ lives three levels above this file: .github/actions/aupm-attest/ -> repo root -> cli.
 const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
 
 /** Print a GitHub Actions warning annotation. */
@@ -142,7 +142,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
     }
 
     if (!setupOk) {
-      warn('pnpm/dependency setup for the spm CLI failed; skipping attestation')
+      warn('pnpm/dependency setup for the aupm CLI failed; skipping attestation')
       return 0
     }
 
@@ -152,20 +152,22 @@ export async function run(options, { spawnFn = spawn } = {}) {
     }
 
     const args = buildPnpmArgs({ cliDir, lockfile, donate, output, cwd })
-    const env = { ...process.env, SPM_PROXY_URL: endpoint }
-    delete env.SPM_DONOR_MNEMONIC
-    if (donate) env.SPM_DONOR_MNEMONIC = donorMnemonic
+    const env = { ...process.env, AUPM_PROXY_URL: endpoint }
+    delete env.AUPM_DONOR_MNEMONIC
+    if (donate) env.AUPM_DONOR_MNEMONIC = donorMnemonic
 
     let result
     try {
       result = await runProcess('pnpm', args, { cwd, env }, spawnFn)
     } catch (err) {
-      warn(`could not start spm attest: ${err.message}`)
+      warn(`could not start aupm attest: ${err.message}`)
       return 0
     }
 
     if (result.code !== 0) {
-      warn(`spm attest exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`)
+      warn(
+        `aupm attest exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`,
+      )
       return 0
     }
 

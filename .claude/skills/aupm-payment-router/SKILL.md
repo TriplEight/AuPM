@@ -1,5 +1,5 @@
 ---
-name: spm-payment-router
+name: aupm-payment-router
 description: >
   PaymentRouter AVM contract: USDC accrues at a payTo account that is later rekeyed to
   the app, a crediter key credits auditor and ops balances in numbered batches, payees
@@ -67,7 +67,7 @@ with a note transaction (ADR 0007).
   deployer, the admin, the donor or `payTo`.
 - Deployer/admin (`DEPLOYER_MNEMONIC`): never on the server at runtime.
 - `payTo` key: cold, offline; opt-in and rekey only.
-- Donor (`SPM_DONOR_MNEMONIC`): client-side only.
+- Donor (`AUPM_DONOR_MNEMONIC`): client-side only.
 - Env: `PAY_TO_ADDRESS`, `PAYMENT_ROUTER_APP_ID`.
 
 ## Test vectors (SPEC §17 R0)

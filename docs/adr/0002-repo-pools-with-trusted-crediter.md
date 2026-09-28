@@ -18,3 +18,9 @@ Amended: balances are per identity, not per repository. A `MIN_CLAIM` floor per 
 would strand small pools below the floor, and paying one identity through many repo pools
 would cost one fee per pool instead of one fee per identity. The per-repo breakdown stays in
 the off-chain ledger (§13.2); the contract sees only an identity and an amount.
+
+Amended by ADR 0011: the contract asserts the auditor entries sum to exactly 30% of `total`,
+not 40%.
+
+Amended by docs/TASK.md P8d: TestNet moves to a new app from the rebuilt 30% contract; the
+earlier TestNet app, which still asserted 40%, is retired.

@@ -24,12 +24,12 @@ test('refuses a relative path (resolves outside the throwaway directory)', () =>
 })
 
 test('allows a path inside os.tmpdir()', () => {
-  const p = path.join(TMP, 'spm_verify_123.db')
+  const p = path.join(TMP, 'aupm_verify_123.db')
   assert.doesNotThrow(() => assertSqliteWriteAllowed(p, TMP))
 })
 
 test('allows a path inside a nested subdirectory of the throwaway directory', () => {
-  const p = path.join(TMP, 'spm-e2e-abc123', 'audit.db')
+  const p = path.join(TMP, 'aupm-e2e-abc123', 'audit.db')
   assert.doesNotThrow(() => assertSqliteWriteAllowed(p, TMP))
 })
 

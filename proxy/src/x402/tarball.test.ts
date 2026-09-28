@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-tarball-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-tarball-test-${randomUUID()}.db`)
 
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
@@ -115,13 +115,13 @@ describe('parseTarballPath', () => {
 })
 
 describe('tarballFreeTierHook', () => {
-  // `donateHeader` mirrors what a request's X-SPM-Donate header decoded to;
+  // `donateHeader` mirrors what a request's X-AuPM-Donate header decoded to;
   // omit it for "no header sent" (mirrors HTTPAdapter#getHeader returning
   // undefined for a missing header).
   const ctx = (path: string, donateHeader?: string) => ({
     adapter: {
       getHeader: (name: string) =>
-        name.toLowerCase() === 'x-spm-donate' ? donateHeader : undefined,
+        name.toLowerCase() === 'x-aupm-donate' ? donateHeader : undefined,
     } as never,
     path,
     method: 'GET',
@@ -132,27 +132,27 @@ describe('tarballFreeTierHook', () => {
     expect(result).toEqual({ grantAccess: true })
   })
 
-  test('grants access for an unreviewed tarball even with X-SPM-Donate: 1', async () => {
+  test('grants access for an unreviewed tarball even with X-AuPM-Donate: 1', async () => {
     const result = await tarballFreeTierHook(ctx('/lodash/-/lodash-4.17.21.tgz', '1'), {} as never)
     expect(result).toEqual({ grantAccess: true })
   })
 
-  test('grants access for a reviewed tarball with no X-SPM-Donate header', async () => {
+  test('grants access for a reviewed tarball with no X-AuPM-Donate header', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const result = await tarballFreeTierHook(ctx('/lodash/-/lodash-4.17.21.tgz'), {} as never)
     expect(result).toEqual({ grantAccess: true })
   })
 
-  // Only the exact value "1" opts in — CLAUDE.md invariant 4: "X-SPM-Donate: 0
+  // Only the exact value "1" opts in — CLAUDE.md invariant 4: "X-AuPM-Donate: 0
   // on an attestation route gets a free partial attestation", and the same
   // rule applies to the tarball route: any other value stays free.
-  test('grants access for a reviewed tarball with X-SPM-Donate: 0', async () => {
+  test('grants access for a reviewed tarball with X-AuPM-Donate: 0', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const result = await tarballFreeTierHook(ctx('/lodash/-/lodash-4.17.21.tgz', '0'), {} as never)
     expect(result).toEqual({ grantAccess: true })
   })
 
-  test('falls through to normal payment flow for a reviewed tarball with X-SPM-Donate: 1', async () => {
+  test('falls through to normal payment flow for a reviewed tarball with X-AuPM-Donate: 1', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const result = await tarballFreeTierHook(ctx('/lodash/-/lodash-4.17.21.tgz', '1'), {} as never)
     expect(result).toBeUndefined()
@@ -166,7 +166,7 @@ describe('tarballFreeTierHook', () => {
 
   // Paywall-bypass regression: every accepted encoding of a reviewed,
   // scoped package's tarball path must fall through to payment when the
-  // request opts in with X-SPM-Donate: 1 (never grant free access in that
+  // request opts in with X-AuPM-Donate: 1 (never grant free access in that
   // case). WARNING: never relax this — a defect here hands a reviewed
   // tarball out for free even when the caller asked to pay for it.
   test.each([
@@ -177,7 +177,7 @@ describe('tarballFreeTierHook', () => {
     ['both encoded', '/%40scope%2Fpkg/-/pkg-1.0.0.tgz'],
     ['the /-/ separator itself also encoded', '/%40scope%2Fpkg%2F-%2Fpkg-1.0.0.tgz'],
   ])(
-    '%s: a reviewed scoped tarball with X-SPM-Donate: 1 never grants free access',
+    '%s: a reviewed scoped tarball with X-AuPM-Donate: 1 never grants free access',
     async (_label, path) => {
       setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
       const result = await tarballFreeTierHook(ctx(path, '1'), {} as never)
@@ -229,7 +229,7 @@ describe('tarballFreeTierHook', () => {
   // Defect pin, hook level: the same duplicate-slash and trailing-slash
   // spellings that made isTarballPath/parseTarballPath disagree with the
   // route matcher must resolve identically through the hook — a reviewed
-  // package requested with X-SPM-Donate: 1 never grants free access, in
+  // package requested with X-AuPM-Donate: 1 never grants free access, in
   // any spelling.
   test.each([
     ['canonical', '/lodash/-/lodash-4.17.21.tgz'],
@@ -238,7 +238,7 @@ describe('tarballFreeTierHook', () => {
     ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
     ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
   ])(
-    '%s: a reviewed tarball with X-SPM-Donate: 1 never grants free access',
+    '%s: a reviewed tarball with X-AuPM-Donate: 1 never grants free access',
     async (_label, path) => {
       setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
       const result = await tarballFreeTierHook(ctx(path, '1'), {} as never)

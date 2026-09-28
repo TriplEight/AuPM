@@ -77,13 +77,13 @@ function unpaid402(amount: string, asset: string): Response {
 
 describe('fetchWithDonation', () => {
   beforeEach(() => {
-    delete process.env.SPM_DONOR_MNEMONIC
+    delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.SPM_DONOR_MNEMONIC
+    delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.NETWORK
   })
 
@@ -101,10 +101,10 @@ describe('fetchWithDonation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('without allowDonation, sends X-SPM-Donate: 0 (SPEC.md §11.4)', async () => {
+  it('without allowDonation, sends X-AuPM-Donate: 0 (SPEC.md §11.4)', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(requestUrl(input), init)
-      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      expect(request.headers.get('X-AuPM-Donate')).toBe('0')
       return new Response(new Uint8Array([1]), { status: 200 })
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -114,8 +114,8 @@ describe('fetchWithDonation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial 402 and the paid retry', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+  it('with allowDonation, sends X-AuPM-Donate: 1 on both the initial 402 and the paid retry', async () => {
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     const seenHeaderValues: (string | null)[] = []
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -123,7 +123,7 @@ describe('fetchWithDonation', () => {
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
 
       const request = input instanceof Request ? input : new Request(url, init)
-      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      seenHeaderValues.push(request.headers.get('X-AuPM-Donate'))
       const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
       if (!paymentSignature) return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
 
@@ -140,7 +140,7 @@ describe('fetchWithDonation', () => {
   })
 
   it('a lockfile with 25 entries scales the cap: a 402 for exactly 25,000 microUSDC is paid', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     let paidRequestCount = 0
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -165,7 +165,7 @@ describe('fetchWithDonation', () => {
   })
 
   it('a lockfile with 25 entries refuses a 402 one microUSDC over the scaled cap', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     const overCap = String(donationCapMicro(25) + 1n)
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -185,7 +185,7 @@ describe('fetchWithDonation', () => {
   })
 
   it('with allowDonation, a 402 at exactly the cap signs and retries exactly once', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     let paidRequestCount = 0
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -215,7 +215,7 @@ describe('fetchWithDonation', () => {
   })
 
   it('with allowDonation, a 402 one microUSDC over the cap does not sign', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     const overCap = String(donationCapMicro(1) + 1n)
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -235,7 +235,7 @@ describe('fetchWithDonation', () => {
   })
 
   it('with allowDonation, a 402 for a non-USDC asset does not sign', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input)
@@ -255,7 +255,7 @@ describe('fetchWithDonation', () => {
     )
   })
 
-  it('a zero-coverage 200 succeeds without SPM_DONOR_MNEMONIC set, even with allowDonation true', async () => {
+  it('a zero-coverage 200 succeeds without AUPM_DONOR_MNEMONIC set, even with allowDonation true', async () => {
     const mockFetch = vi.fn(
       async () => new Response(JSON.stringify({ summary: { reviewed: 0 } }), { status: 200 }),
     )
@@ -269,7 +269,7 @@ describe('fetchWithDonation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('fails with a message naming SPM_DONOR_MNEMONIC when it is unset and a donation is due', async () => {
+  it('fails with a message naming AUPM_DONOR_MNEMONIC when it is unset and a donation is due', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
       const url = requestUrl(input)
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
@@ -278,7 +278,7 @@ describe('fetchWithDonation', () => {
     vi.stubGlobal('fetch', mockFetch)
 
     await expect(fetchWithDonation(RESOURCE_URL, undefined, true)).rejects.toThrow(
-      /SPM_DONOR_MNEMONIC/,
+      /AUPM_DONOR_MNEMONIC/,
     )
   })
 })
@@ -287,13 +287,13 @@ describe('fetchWithDonation', () => {
 // exercised via the paid group shape below.
 describe('fetchWithDonation: paid transaction group shape', () => {
   beforeEach(() => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.SPM_DONOR_MNEMONIC
+    delete process.env.AUPM_DONOR_MNEMONIC
   })
 
   it('pays with a plain USDC asset transfer to payTo, never an appcall', async () => {

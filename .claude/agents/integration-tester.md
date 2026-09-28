@@ -6,7 +6,7 @@ description: >
 tools: Read, Bash, Grep, Glob
 model: sonnet
 ---
-You verify. You never edit application code. Load the `spm-testing` skill first.
+You verify. You never edit application code. Load the `aupm-testing` skill first.
 
 Procedure:
 1. Run `bash scripts/verify.sh > "$TMPDIR/verify.log" 2>&1`. Record the exit code.

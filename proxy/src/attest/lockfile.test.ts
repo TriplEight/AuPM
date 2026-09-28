@@ -11,7 +11,7 @@ import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 import type { Attribution } from './attribution.js'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-lockfile-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-lockfile-test-${randomUUID()}.db`)
 
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
@@ -378,7 +378,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     expect(rows).toHaveLength(6) // one row per ledgered role: all six of SPEC.md §13.2
 
     const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(400) // the one package's whole 400 auditor share
+    expect(auditorRow?.amountMicro).toBe(300) // the one package's whole 300 auditor share (MainNet)
 
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(1_000) // the one reviewed package's full 1,000 microUSDC
@@ -406,7 +406,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([300, 300])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(2_000)
   })
@@ -430,7 +430,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(400)
+    expect(auditorRow?.amountMicro).toBe(300)
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(1_000)
   })
@@ -462,7 +462,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
     const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
+    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([300, 300])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(2_000)
   })
@@ -547,7 +547,7 @@ describe('analyzeLockfile — multi-hash SSRI integrity', () => {
   })
 
   // Design decision: when the lockfile entry carries no sha512 entry at
-  // all (only a weaker hash), the comparison is unresolvable — SPM cannot
+  // all (only a weaker hash), the comparison is unresolvable — AuPM cannot
   // verify a digest it was never given. That state is reported as a
   // mismatch, never as a match: a weak algorithm must never satisfy the
   // check on its own.

@@ -16,8 +16,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402-avm/core/http'
 import type { FacilitatorClient } from '@x402-avm/core/server'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dsse.js'
+import { createRateLimiter } from './attest/ratelimit.js'
 
 // A real 64-byte sha512 digest, base64 encoded.
 //
@@ -37,14 +38,14 @@ process.env.NETWORK = 'mainnet'
 // Reserved for documentation examples (RFC 2606); never a real, owned
 // domain. Q13 removed the placeholder default in proxy/src/config.ts, so
 // every test that imports it now sets these explicitly.
-process.env.SPM_ISSUER_URL = 'https://spm-verify.invalid'
-process.env.SPM_KEY_VALID_FROM = '2026-01-01T00:00:00Z'
+process.env.AUPM_ISSUER_URL = 'https://aupm-verify.invalid'
+process.env.AUPM_KEY_VALID_FROM = '2026-01-01T00:00:00Z'
 // A 32-byte hex seed, not a real key — only the free attestation paths
 // (single-attest, zero-coverage lockfile) ever reach getAttestationSigningKey()
 // in this file; every paid path is blocked by the (stub, always-invalid)
 // facilitator before signing would run.
 process.env.ATTEST_SIGNING_KEY = 'fc982b5f02591ece632fde9d22879692daafd28398f928369c5f1c1f9ff0fd3a'
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-app-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-app-test-${randomUUID()}.db`)
 
 const db = (await import('./db.js')).default
 const { setStatus } = await import('./status.js')
@@ -108,14 +109,14 @@ describe('x402 gate', () => {
   test('unreviewed tarball path: returns 200 and sends no payment header', async () => {
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
     expect(res.status).not.toBe(402)
-    expect(res.headers.get('X-SPM-Tier')).toBe('UNREVIEWED')
+    expect(res.headers.get('X-AuPM-Tier')).toBe('UNREVIEWED')
   })
 
   // ADR 0006 / SPEC §10.4: npm install can never pay a 402, so a reviewed
-  // tarball is free unless the request opts in with X-SPM-Donate: 1.
-  test('unreviewed tarball path with X-SPM-Donate: 1: still returns 200', async () => {
+  // tarball is free unless the request opts in with X-AuPM-Donate: 1.
+  test('unreviewed tarball path with X-AuPM-Donate: 1: still returns 200', async () => {
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     expect(res.status).not.toBe(402)
   })
@@ -124,26 +125,26 @@ describe('x402 gate', () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
     expect(res.status).toBe(200)
-    expect(res.headers.get('X-SPM-Tier')).toBe('COMMUNITY_REVIEWED')
-    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Tier')).toBe('COMMUNITY_REVIEWED')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
   })
 
   // Any header value other than the exact string "1" does not opt in
-  // (CLAUDE.md invariant 4: "X-SPM-Donate: 0 ... gets a free partial
+  // (CLAUDE.md invariant 4: "X-AuPM-Donate: 0 ... gets a free partial
   // attestation" — the tarball route applies the identical rule).
-  test('reviewed tarball path, X-SPM-Donate: 0: returns 200, not 402', async () => {
+  test('reviewed tarball path, X-AuPM-Donate: 0: returns 200, not 402', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'X-SPM-Donate': '0' },
+      headers: { 'X-AuPM-Donate': '0' },
     })
     expect(res.status).toBe(200)
-    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
   })
 
-  test('reviewed tarball path, X-SPM-Donate: 1: returns 402', async () => {
+  test('reviewed tarball path, X-AuPM-Donate: 1: returns 402', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     expect(res.status).toBe(402)
   })
@@ -164,9 +165,9 @@ describe('x402 gate', () => {
     ['trailing slash', '/lodash/-/lodash-4.17.21.tgz/'],
     ['leading double slash', '//lodash/-/lodash-4.17.21.tgz'],
   ])('unscoped tarball path spelling: %s (reviewed)', (_label, path) => {
-    test('X-SPM-Donate: 1: 402, never 200, never tarball bytes', async () => {
+    test('X-AuPM-Donate: 1: 402, never 200, never tarball bytes', async () => {
       setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
-      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      const res = await app.request(path, { headers: { 'X-AuPM-Donate': '1' } })
       expect(res.status).toBe(402)
     })
 
@@ -209,7 +210,7 @@ describe('x402 gate', () => {
   test('402 body carries the asset id, the fee payer, and the tag', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     expect(res.status).toBe(402)
     // x402Version 2 puts the PaymentRequired payload in the PAYMENT-REQUIRED
@@ -226,10 +227,10 @@ describe('x402 gate', () => {
     expect(option?.extra?.tag).toBe(TAG)
   })
 
-  test('reviewed scoped package tarball, X-SPM-Donate: 1: returns 402', async () => {
+  test('reviewed scoped package tarball, X-AuPM-Donate: 1: returns 402', async () => {
     setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz', {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     expect(res.status).toBe(402)
   })
@@ -238,8 +239,8 @@ describe('x402 gate', () => {
     setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
     const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz')
     expect(res.status).not.toBe(402)
-    expect(res.headers.get('X-SPM-Tier')).toBe('COMMUNITY_REVIEWED')
-    expect(res.headers.get('X-SPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Tier')).toBe('COMMUNITY_REVIEWED')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
   })
 
   // Paywall-bypass regression, driven through the *real* app (the x402
@@ -264,9 +265,9 @@ describe('x402 gate', () => {
     ['duplicate slash combined with %40 scope encoding', '/%40scope/pkg//-/pkg-1.0.0.tgz'],
     ['trailing slash combined with %2F separator encoding', '/@scope%2Fpkg/-/pkg-1.0.0.tgz/'],
   ])('scoped tarball path encoding: %s (reviewed)', (_label, path) => {
-    test('X-SPM-Donate: 1: 402, regardless of encoding', async () => {
+    test('X-AuPM-Donate: 1: 402, regardless of encoding', async () => {
       setStatus('@scope/pkg', '1.0.0', 'COMMUNITY_REVIEWED', null, null)
-      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      const res = await app.request(path, { headers: { 'X-AuPM-Donate': '1' } })
       expect(res.status).toBe(402)
     })
 
@@ -352,9 +353,9 @@ describe('x402 gate', () => {
     ['uppercase .TGZ', '/chalk/-/chalk-5.3.0.TGZ'],
     ['mixed-case .Tgz', '/chalk/-/chalk-5.3.0.Tgz'],
   ])('tarball route scope, reviewed package, %s', (_label, path) => {
-    test('X-SPM-Donate: 1: 402, regardless of suffix case', async () => {
+    test('X-AuPM-Donate: 1: 402, regardless of suffix case', async () => {
       setStatus('chalk', '5.3.0', 'COMMUNITY_REVIEWED', null, null)
-      const res = await app.request(path, { headers: { 'X-SPM-Donate': '1' } })
+      const res = await app.request(path, { headers: { 'X-AuPM-Donate': '1' } })
       expect(res.status).toBe(402)
     })
 
@@ -499,20 +500,83 @@ describe('x402 gate', () => {
     expect(paymentRequired.accepts[0]?.amount).toBe('3000')
   })
 
+  // Defect this pins: the free-path limiter only guarded the zero-coverage
+  // and partial branches, never the priced one — a caller with one reviewed
+  // entry could spend server CPU (a parse, roughly 500 status lookups, and
+  // a signature) on every request at no cost (SPEC.md §12.3). A second,
+  // per-IP limiter now runs before the body is even read, on every lockfile
+  // request, paid or free.
+  test('POST /v1/attest/lockfile: a priced request under the per-request cap still reaches the 402 gate', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const { httpServer: cappedHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const cappedApp = createApp(cappedHttpServer, {
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+
+    const res = await cappedApp.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(402)
+  })
+
+  test('POST /v1/attest/lockfile: over the per-request cap, 429 before the payment gate runs', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const { httpServer: cappedHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const cappedApp = createApp(cappedHttpServer, {
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+    const lockfileBody = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        'node_modules/ms': {
+          version: '2.1.3',
+          resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+          integrity: REVIEWED_INTEGRITY,
+        },
+      },
+    })
+    const init = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: lockfileBody,
+    }
+
+    const first = await cappedApp.request('/v1/attest/lockfile', init)
+    expect(first.status).toBe(402)
+
+    const second = await cappedApp.request('/v1/attest/lockfile', init)
+    expect(second.status).toBe(429)
+    // The payment gate never ran on the rejected request: no
+    // PAYMENT-REQUIRED header, the tell-tale sign of the 402 path.
+    expect(second.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
   test('GET /v1/attest: 402 before the real handler runs (reviewed, with stored integrity)', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
     expect(res.status).toBe(402)
   })
 
-  // X-SPM-Donate: 0 opts into the free partial attestation (SPEC.md §11.2,
+  // X-AuPM-Donate: 0 opts into the free partial attestation (SPEC.md §11.2,
   // §12.3, ADR 0006) before the payment gate runs — the gate must never see
   // this request, on either attestation route.
-  test('POST /v1/attest/lockfile, X-SPM-Donate: 0: 200 partial, never 402', async () => {
+  test('POST /v1/attest/lockfile, X-AuPM-Donate: 0: 200 partial, never 402', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest/lockfile', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'X-SPM-Donate': '0' },
+      headers: { 'content-type': 'application/json', 'X-AuPM-Donate': '0' },
       body: JSON.stringify({
         lockfileVersion: 3,
         packages: {
@@ -529,10 +593,10 @@ describe('x402 gate', () => {
     expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
   })
 
-  test('GET /v1/attest, X-SPM-Donate: 0: 200 partial, never 402', async () => {
+  test('GET /v1/attest, X-AuPM-Donate: 0: 200 partial, never 402', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
     const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
-      headers: { 'X-SPM-Donate': '0' },
+      headers: { 'X-AuPM-Donate': '0' },
     })
     expect(res.status).toBe(200)
     expect(res.status).not.toBe(402)
@@ -609,7 +673,7 @@ describe('claims ledger, wired into the real app', () => {
     const accruals = getAccrualsForTxid('INTEGRATION-TX-1')
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(400)
+    expect(auditorRow?.amount_micro).toBe(300)
 
     const earningsRes = await paidApp.request('/api/v1/earnings/github/alice')
     expect(earningsRes.status).toBe(200)
@@ -617,14 +681,14 @@ describe('claims ledger, wired into the real app', () => {
       roles: Array<{ role: string; accruedMicro: number }>
     }
     const auditorEarnings = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(400)
+    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(300)
   })
 
-  // SPEC §11.2, §13.2, ADR 0008: a settled lockfile payment for N reviewed
-  // packages ledgers each package's own full 400/100/200/150/100/50 role
-  // shares — never a cross-package split — and the accrual sum across all
-  // packages equals the exact amount charged.
-  test('a settled paid lockfile request accrues 400/100/200/150/100/50 per reviewed package', async () => {
+  // SPEC §11.2, §13.2, ADR 0008, ADR 0011: a settled lockfile payment for N
+  // reviewed packages ledgers each package's own full 300/100/200/250/100/50
+  // role shares (MainNet) — never a cross-package split — and the accrual
+  // sum across all packages equals the exact amount charged.
+  test('a settled paid lockfile request accrues 300/100/200/250/100/50 per reviewed package', async () => {
     setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_A', null, REVIEWED_INTEGRITY, 'alice')
     setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_B', null, REVIEWED_INTEGRITY, 'bob')
     setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_C', null, REVIEWED_INTEGRITY, 'carol')
@@ -697,13 +761,13 @@ describe('claims ledger, wired into the real app', () => {
     ] as const) {
       const pkgRows = accruals.filter((row) => row.pkg === pkg)
       const byRole = Object.fromEntries(pkgRows.map((row) => [row.role, row]))
-      expect(byRole.auditor?.amount_micro).toBe(400)
+      expect(byRole.auditor?.amount_micro).toBe(300)
       expect(byRole.auditor?.identity).toBe(`github:${login}`)
       expect(byRole.contributor?.amount_micro).toBe(100)
       expect(byRole.contributor?.identity).toBe('unassigned')
       expect(byRole.maintainer?.amount_micro).toBe(200)
       expect(byRole.maintainer?.identity).toBe('unassigned')
-      expect(byRole.reviewer?.amount_micro).toBe(150)
+      expect(byRole.reviewer?.amount_micro).toBe(250)
       expect(byRole.reviewer?.identity).toBe('unassigned')
       expect(byRole.treasury?.amount_micro).toBe(100)
       expect(byRole.treasury?.identity).toBe('unassigned')
@@ -732,10 +796,10 @@ describe('claims ledger, wired into the real app', () => {
     )
     const paidApp = createApp(paidHttpServer)
 
-    // Opt in to payment — without X-SPM-Donate: 1, the free-tier hook would
+    // Opt in to payment — without X-AuPM-Donate: 1, the free-tier hook would
     // grant access here instead of returning 402 (ADR 0006, SPEC §10.4).
     const unpaidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     expect(unpaidRes.status).toBe(402)
     const requiredHeader = unpaidRes.headers.get('PAYMENT-REQUIRED')
@@ -750,11 +814,11 @@ describe('claims ledger, wired into the real app', () => {
       payload: {},
     } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
 
-    // The retry must also carry X-SPM-Donate: 1 — the hook runs on every
+    // The retry must also carry X-AuPM-Donate: 1 — the hook runs on every
     // request, so without it here the free-tier grant would short-circuit
     // the payment flow and no PAYMENT-RESPONSE header would ever be set.
     const paidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
-      headers: { 'PAYMENT-SIGNATURE': paymentSignature, 'X-SPM-Donate': '1' },
+      headers: { 'PAYMENT-SIGNATURE': paymentSignature, 'X-AuPM-Donate': '1' },
     })
     expect(paidRes.status).toBe(200)
     expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()
@@ -764,7 +828,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
     const auditorRow = accruals.find((row) => row.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:carol')
-    expect(auditorRow?.amount_micro).toBe(400)
+    expect(auditorRow?.amount_micro).toBe(300)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {
@@ -775,13 +839,13 @@ describe('claims ledger, wired into the real app', () => {
   })
 })
 
-// GET /.well-known/spm-keys.json publishes the attestation public key so a
+// GET /.well-known/aupm-keys.json publishes the attestation public key so a
 // third party can verify a DSSE envelope offline, without holding the key
 // out of band (see proxy/src/attest/keys.ts). Registered before the
 // payment gate in app.ts, so it must never require payment.
-describe('.well-known/spm-keys.json', () => {
+describe('.well-known/aupm-keys.json', () => {
   test('200, never 402, no payment header, body carries exactly the four published fields', async () => {
-    const res = await app.request('/.well-known/spm-keys.json')
+    const res = await app.request('/.well-known/aupm-keys.json')
     expect(res.status).toBe(200)
     expect(res.status).not.toBe(402)
     expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
@@ -797,13 +861,13 @@ describe('.well-known/spm-keys.json', () => {
   })
 
   test('sets content-type and a cache header', async () => {
-    const res = await app.request('/.well-known/spm-keys.json')
+    const res = await app.request('/.well-known/aupm-keys.json')
     expect(res.headers.get('content-type')).toContain('application/json')
     expect(res.headers.get('cache-control')).toBeTruthy()
   })
 
   test('never leaks the seed or the configured ATTEST_SIGNING_KEY value', async () => {
-    const res = await app.request('/.well-known/spm-keys.json')
+    const res = await app.request('/.well-known/aupm-keys.json')
     const serialized = await res.text()
     const configuredKey = await getAttestationSigningKey()
 
@@ -820,19 +884,45 @@ describe('.well-known/spm-keys.json', () => {
       },
     })
 
-    const res = await noKeyApp.request('/.well-known/spm-keys.json')
+    const res = await noKeyApp.request('/.well-known/aupm-keys.json')
     expect(res.status).toBeGreaterThanOrEqual(500)
     const body = (await res.json()) as { error?: string }
     expect(typeof body.error).toBe('string')
     expect((body.error as string).length).toBeGreaterThan(0)
   })
 
+  test('a thrown error never returns its message to the client, only logs it', async () => {
+    const leakyPath = '/var/lib/aupm/proxy.sqlite'
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    try {
+      const { httpServer: leakyHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+      const leakyApp = createApp(leakyHttpServer, {
+        getSigningKey: async () => {
+          throw new Error(`cannot open database file ${leakyPath}`)
+        },
+      })
+
+      const res = await leakyApp.request('/.well-known/aupm-keys.json')
+      expect(res.status).toBe(500)
+      const body = (await res.json()) as { error: string }
+      expect(body).toEqual({ error: 'internal error' })
+      const serialized = JSON.stringify(body)
+      expect(serialized).not.toContain(leakyPath)
+
+      expect(consoleError).toHaveBeenCalled()
+      const logged = consoleError.mock.calls.flat().map(String).join(' ')
+      expect(logged).toContain(leakyPath)
+    } finally {
+      consoleError.mockRestore()
+    }
+  })
+
   test('round trip: an envelope signed by the proxy verifies against only the fetched keys', async () => {
     const signingKey = await getAttestationSigningKey()
-    const payload = new TextEncoder().encode(JSON.stringify({ hello: 'spm' }))
-    const envelope = await signEnvelope(payload, 'application/vnd.spm.test+json', signingKey)
+    const payload = new TextEncoder().encode(JSON.stringify({ hello: 'aupm' }))
+    const envelope = await signEnvelope(payload, 'application/vnd.aupm.test+json', signingKey)
 
-    const res = await app.request('/.well-known/spm-keys.json')
+    const res = await app.request('/.well-known/aupm-keys.json')
     expect(res.status).toBe(200)
     const fetchedKeys = (await res.json()) as VerificationKey[]
 

@@ -8,7 +8,7 @@ import { lockfileNames, measure, median, parseCandidates } from './hit-rate.mjs'
 
 /** Creates a fresh temp directory for one test and returns its path. */
 function makeTempDir() {
-  return mkdtempSync(join(tmpdir(), 'spm-hit-rate-'))
+  return mkdtempSync(join(tmpdir(), 'aupm-hit-rate-'))
 }
 
 /** Writes `content` (already stringified or an object) to `path` as JSON. */

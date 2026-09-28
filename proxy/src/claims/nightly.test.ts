@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-nightly-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-nightly-test-${randomUUID()}.db`)
 
 const {
   default: db,
@@ -249,7 +249,7 @@ describe('runNightlyWithLease: run records (item N1.5)', () => {
     const outcome = await runNightlyWithLease(fullyConfiguredDeps({ backup, log }))
 
     expect(outcome).toEqual({ status: 'failed', error: 'backup destination is unwritable' })
-    expect(log).toHaveBeenCalledWith('spm-nightly: failed — backup destination is unwritable')
+    expect(log).toHaveBeenCalledWith('aupm-nightly: failed — backup destination is unwritable')
     const run = getLastNightlyRun()
     expect(run?.result).toBe('failed')
     expect(run?.error).toBe('backup destination is unwritable')
@@ -276,7 +276,7 @@ describe('runNightlyWithLease: a throw from the lease/run-record calls never rej
         status: 'failed',
         error: 'SQLITE_BUSY: database is locked',
       })
-      expect(log).toHaveBeenCalledWith('spm-nightly: failed — SQLITE_BUSY: database is locked')
+      expect(log).toHaveBeenCalledWith('aupm-nightly: failed — SQLITE_BUSY: database is locked')
       // No run row: the throw happened before recordNightlyRunStart ever ran.
       expect(getLastNightlyRun()).toBeUndefined()
     } finally {
@@ -343,7 +343,7 @@ describe('runNightlyWithLease: lease overlap and expiry (item N1.4)', () => {
 
     expect(second).toEqual({ status: 'lease-held' })
     expect(secondLog).toHaveBeenCalledWith(
-      'spm-nightly: another run already holds the lease; exiting',
+      'aupm-nightly: another run already holds the lease; exiting',
     )
     expect(secondBackup).not.toHaveBeenCalled()
 

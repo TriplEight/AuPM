@@ -2,8 +2,10 @@
 import { describe, expect, test } from 'vitest'
 import {
   type Attribution,
+  auditorShareMicro,
   buildAccrualInputs,
   computeRoleShareMicro,
+  mvpSplit,
   OPS_IDENTITY,
   ROLE_SHARE_PER_1000,
   ROLES,
@@ -14,20 +16,22 @@ import {
   resolveReviewerIdentity,
   resolveTreasuryIdentity,
   sortPackages,
+  targetSplitRow,
   UNASSIGNED,
 } from './attribution-rules.js'
 
+// One split on every network (ADR 0011, docs/TASK.md P8d).
 describe('role shares', () => {
-  test('400/100/200/150/100/50 of 20000 microUSDC scale exactly', () => {
-    expect(computeRoleShareMicro(20000, 'auditor')).toBe(8000)
+  test('300/100/200/250/100/50 of 20000 microUSDC scale exactly (ADR 0011)', () => {
+    expect(computeRoleShareMicro(20000, 'auditor')).toBe(6000)
     expect(computeRoleShareMicro(20000, 'contributor')).toBe(2000)
     expect(computeRoleShareMicro(20000, 'maintainer')).toBe(4000)
-    expect(computeRoleShareMicro(20000, 'reviewer')).toBe(3000)
+    expect(computeRoleShareMicro(20000, 'reviewer')).toBe(5000)
     expect(computeRoleShareMicro(20000, 'treasury')).toBe(2000)
     expect(computeRoleShareMicro(20000, 'ops')).toBe(1000)
   })
 
-  test('all six ledgered role shares sum to 1,000 (SPEC.md §13.2)', () => {
+  test('all six ledgered role shares sum to 1,000', () => {
     const sum = ROLES.reduce((s, r) => s + ROLE_SHARE_PER_1000[r], 0)
     expect(sum).toBe(1000)
     expect(ROLES).toHaveLength(6)
@@ -35,6 +39,34 @@ describe('role shares', () => {
 
   test('throws on a price that is not a multiple of 1,000 microUSDC', () => {
     expect(() => computeRoleShareMicro(1500, 'auditor')).toThrow()
+  })
+})
+
+describe('targetSplitRow and mvpSplit (docs/TASK.md P8d)', () => {
+  test('target row and MVP split (ADR 0011)', () => {
+    expect(targetSplitRow()).toBe('30/10/20/25/10/5')
+    expect(mvpSplit()).toEqual({ auditorPercent: 30, opsPercent: 70 })
+  })
+})
+
+describe('auditorShareMicro rounds like the contract (docs/TASK.md P8d)', () => {
+  // contract.algo.ts: auditorShare = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN,
+  // uint64 (floor) division. An attributedMicro that is not a multiple of 1,000
+  // never occurs in production (every price is a multiple of 1,000), but this
+  // defence-in-depth check must floor exactly like the contract, not merely
+  // when the division happens to be exact.
+  test('floors 1,001 x 300 / 1000, like the contract', () => {
+    expect(auditorShareMicro(1001)).toBe(Math.floor((1001 * 300) / 1000))
+    expect(auditorShareMicro(1001)).toBe(300)
+  })
+
+  test('floors 999 x 300 / 1000, like the contract', () => {
+    expect(auditorShareMicro(999)).toBe(Math.floor((999 * 300) / 1000))
+    expect(auditorShareMicro(999)).toBe(299)
+  })
+
+  test('exact multiples of 1,000 never lose a remainder', () => {
+    expect(auditorShareMicro(2000)).toBe(600)
   })
 })
 
@@ -129,7 +161,7 @@ describe('buildAccrualInputs', () => {
     expect(buildAccrualInputs(attribution)).toEqual([])
   })
 
-  test('tarball route: the one package gets its own full 400/100/200/150/100/50 shares', () => {
+  test('tarball route: the one package gets its own full 300/100/200/250/100/50 shares', () => {
     const attribution: Attribution = {
       route: 'tarball',
       priceMicro: 1000,
@@ -138,10 +170,10 @@ describe('buildAccrualInputs', () => {
     const rows = buildAccrualInputs(attribution)
     expect(rows).toHaveLength(6)
     const byRole = Object.fromEntries(rows.map((r) => [r.role, r.amountMicro]))
-    expect(byRole.auditor).toBe(400)
+    expect(byRole.auditor).toBe(300)
     expect(byRole.contributor).toBe(100)
     expect(byRole.maintainer).toBe(200)
-    expect(byRole.reviewer).toBe(150)
+    expect(byRole.reviewer).toBe(250)
     expect(byRole.treasury).toBe(100)
     expect(byRole.ops).toBe(50)
     expect(rows.reduce((s, r) => s + r.amountMicro, 0)).toBe(1000)
@@ -163,10 +195,10 @@ describe('buildAccrualInputs', () => {
     for (const pkg of ['zeta', 'alpha', 'mid']) {
       const pkgRows = rows.filter((r) => r.pkg === pkg)
       const byRole = Object.fromEntries(pkgRows.map((r) => [r.role, r.amountMicro]))
-      expect(byRole.auditor).toBe(400)
+      expect(byRole.auditor).toBe(300)
       expect(byRole.contributor).toBe(100)
       expect(byRole.maintainer).toBe(200)
-      expect(byRole.reviewer).toBe(150)
+      expect(byRole.reviewer).toBe(250)
       expect(byRole.treasury).toBe(100)
       expect(byRole.ops).toBe(50)
       expect(pkgRows.reduce((s, r) => s + r.amountMicro, 0)).toBe(1000)

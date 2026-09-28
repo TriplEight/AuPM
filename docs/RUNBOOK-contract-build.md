@@ -70,9 +70,10 @@ A passing test in `contracts/smart_contracts/payment_router/contract.algo.spec.t
 logic in `contract.algo.ts`. It never moves value and never touches Puya or the AVM. Check
 each of these on TestNet before any MainNet deploy (`SPEC.md` §17, item R0):
 
-- A tarball payment of 1,000 microUSDC credits the auditor 400 and ops 600.
-- A lockfile payment of 3,000 microUSDC across 3 reviewed packages credits the auditor 3 × 400
-  and ops the remainder. The entries sum exactly to `attributedTotal × 400 / 1000`.
+- A tarball payment of 1,000 microUSDC credits the auditor 300 and ops 700 (30/70 split, one
+  split on every network).
+- A lockfile payment of 3,000 microUSDC across 3 reviewed packages credits the auditor 3 × 300
+  and ops the remainder. The entries sum exactly to `attributedTotal × 300 / 1000`.
 - Two payments for the same `(repo, identity)` collapse into one entry in the same batch.
 - `credit()` with a `batchSeq` that repeats or skips the last credited batch fails.
 - `credit()` with `attributedTotal + unattributedTotal` above `payTo`'s unallocated USDC balance
@@ -80,6 +81,9 @@ each of these on TestNet before any MainNet deploy (`SPEC.md` §17, item R0):
 - `claim()` on a balance of 99,999 microUSDC fails. On 100,000 it succeeds.
 - `claim()` with an outer fee below 2,000 microALGO fails.
 - `releaseAuthority()` rekeys `payTo` to the given address, and only the admin can call it.
+  Planned for the MainNet build (P8): `announceRelease()` and `executeRelease()` replace it, with
+  a compiled-in delay (ADR 0010). Add `announceRelease()`/`executeRelease()` checks here once
+  that build lands.
 
 Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
 1. `payTo` opts into USDC.
@@ -101,7 +105,7 @@ Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
    Check: the account's `auth-addr` equals the app address.
 5. The nightly job credits a batch.
    ```bash
-   docker compose run --rm spm node --import tsx/esm src/claims/nightly-main.ts
+   docker compose run --rm aupm node --import tsx/esm src/claims/nightly-main.ts
    ```
    Check: the log line names the credited batch and a credit txid.
 6. The mapped identity claims its balance.

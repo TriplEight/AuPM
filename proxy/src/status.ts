@@ -41,7 +41,7 @@ export function reviewerIdentity(row: StatusRow): string | null {
 /**
  * True only for a paid-tier row that also carries a stored integrity.
  *
- * A paid-tier row with no stored integrity is an incomplete review: SPM
+ * A paid-tier row with no stored integrity is an incomplete review: AuPM
  * does not know which tarball a human read, so it must not sell a claim
  * about one. Callers that build or price a paid attestation (the lockfile
  * and single-package routes) must treat that row as UNREVIEWED, never as

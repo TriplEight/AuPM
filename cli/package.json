@@ -1,10 +1,10 @@
 {
-  "name": "spm-cli",
+  "name": "aupm",
   "version": "0.1.0",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "bin": {
-    "spm": "src/index.ts"
+    "aupm": "src/index.ts"
   },
   "scripts": {
     "start": "tsx src/index.ts",
@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@noble/ed25519": "3.2.0",
-    "algosdk": "3.5.2"
+    "algosdk": "3.5.2",
+    "aupm-mcp": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "22.15.21",

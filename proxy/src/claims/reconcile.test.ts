@@ -13,7 +13,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-reconcile-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-reconcile-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
 const { writeAccruals } = await import('./ledger.js')
@@ -159,7 +159,7 @@ describe('reconcile', () => {
     expect(result.unmatchedLedgered).toBe(0)
     // Exactly the 6 rows writeAccruals wrote above — reconcile added none.
     // (The reviewer role's identity is legitimately "unassigned" even on a
-    // normal payment — SPM has no adversarial review yet — so the row
+    // normal payment — AuPM has no adversarial review yet — so the row
     // count and route/pkg are what distinguish "no second write" here, not
     // identity alone.)
     const rows = db

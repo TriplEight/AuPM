@@ -1,5 +1,5 @@
 {
-  "name": "spm-proxy",
+  "name": "aupm-proxy",
   "version": "1.0.0",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
@@ -19,6 +19,7 @@
     "@x402-avm/extensions": "2.6.1",
     "@x402-avm/hono": "2.6.1",
     "algosdk": "3.5.2",
+    "aupm-mcp": "workspace:*",
     "better-sqlite3": "12.10.0",
     "hono": "4.13.8"
   },

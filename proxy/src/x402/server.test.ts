@@ -17,7 +17,7 @@ import type { Network, SupportedResponse } from '@x402-avm/core/types'
 import { describe, expect, test } from 'vitest'
 import { CAIP2_NETWORK, resolveFeePayer } from '../config.js'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-x402-server-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-x402-server-test-${randomUUID()}.db`)
 
 const { boot, buildHttpServer } = await import('./server.js')
 

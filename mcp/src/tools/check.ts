@@ -1,5 +1,5 @@
 // mcp/src/tools/check.ts
-const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
+const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
 
 export type AuditStatusResult = {
   pkg: string
@@ -13,7 +13,7 @@ export type AuditStatusResult = {
 export const checkTool = {
   name: 'check_audit_status',
   description:
-    'Check the audit status of an npm package version via the SPM proxy. ' +
+    'Check the audit status of an npm package version via the AuPM proxy. ' +
     'Returns status (UNREVIEWED/COMMUNITY_REVIEWED/PEER_REVIEWED), auditor address, and attestation txid. ' +
     'Free — no payment required.',
   async handler({ pkg, version }: { pkg: string; version: string }): Promise<AuditStatusResult> {

@@ -56,5 +56,5 @@ jobs:
       - name: Test cli
         run: pnpm -C cli test
 
-      - name: Test spm-attest action
-        run: node --test .github/actions/spm-attest/attest.test.mjs
+      - name: Test aupm-attest action
+        run: node --test .github/actions/aupm-attest/attest.test.mjs
