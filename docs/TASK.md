@@ -749,6 +749,204 @@ the Docker build installs the workspace dependency. Check: no `../../mcp` import
 `pnpm typecheck` and every package test pass. A human confirms `docker build`.
 Owner: `mcp-payer-engineer`.
 
+## Wave 8 — MainNet launch on PaymentRouter v1, then PaymentRouter v2
+
+Decided by the user, 2026-09-29:
+- MainNet launches now on the current contract (v1, build `7e6291e`). PaymentRouter v2 follows.
+  `payTo` moves from v1 to v2 with `announceRelease` and `executeRelease`. `payTo` keeps its
+  address, so the leaderboard key does not change.
+- v2 stores a split table that the admin changes only after a delay. Keep settlement lean.
+  Roles are optional per payment: a package can have no adversarial reviewer, one identity can
+  be both maintainer and contributor, and a payee can have no wallet yet. Governance designs
+  the attribution of these roles later. v2 only makes that design possible without a new
+  contract.
+- v2 makes `MIN_CLAIM` settable within bounds, and makes the admin rotatable after a delay.
+
+### W1. Runbook fixes for the v1 launch (first, blocks the MainNet deploy)
+
+Findings from the 2026-09-29 review. `docs/RUNBOOK-mainnet-launch.md`:
+1. §10 step 4 tells the operator to call `announceRelease(to)` with `to` set to `payTo`'s own
+   address. That is wrong. `executeRelease()` then rekeys `payTo` to itself, the app loses
+   control, and only the original `payTo` key can sign again. Set `to` to the new app's
+   address. State: keep the `payTo` mnemonic in cold storage; do not destroy it.
+2. §2a says to fund the app account before the first `credit()`. `setIdentity` already writes
+   an `id:` box, so fund the app account after `createApplication` and before the first
+   `setIdentity`. Amount: 0.1 ALGO base plus about 0.025 ALGO per identity for its two boxes.
+3. §2a: `goal clerk multisig sign` needs `goal` with kmd. `goal clerk rawsend` sends to the
+   node that `goal` points at (LocalNet under `algokit goal`). Document the MainNet submit:
+   `curl -X POST --data-binary @<file> -H 'Content-Type: application/x-binary'
+   https://mainnet-api.algonode.cloud/v2/transactions`. Document how to read the new app id:
+   `application-index` from `/v2/transactions/pending/<txid>`. State that an unsigned file is
+   valid for about 1,000 rounds (about 48 minutes): build, sign and submit in one sitting.
+4. §2a: fund the multisig address before `createApplication`: 0.1 ALGO base plus 0.3925 ALGO
+   app minimum balance (5 global uints, 3 global byte slices) plus fees.
+5. §6: monitor the app account's ALGO balance. Each new identity adds boxes. A low balance
+   makes `credit()` fail.
+6. `.env.example`: add `AUPM_ADMIN_MSIG_ADDRS`, `CREDITER_ADDRESS`, `IDENTITY`,
+   `IDENTITY_ADDRESS`, `RELEASE_TO_ADDRESS`, `TREASURY_ADDRESS`, each with a one-line comment.
+7. §10: before `executeRelease`, map `treasury` with `setIdentity` (the sweep target). This
+   makes treasury an onboarded role for public texts (invariant 8).
+Check: `bash scripts/guard.sh` passes; `rg -n "set to .payTo.s current address"
+docs/RUNBOOK-mainnet-launch.md` prints nothing. Owner: docs subagent.
+
+### W2. Public texts: remove operator detail (human decision recorded 2026-09-29)
+
+AuPM is not meant for other operators to deploy. Public files show the product, the contract,
+the decisions that stand, and no host detail.
+1. `SPEC.md` §13.4: delete the German operator, ZAG and UWG §7 text. Keep "no automated issues,
+   PRs or emails to third-party repositories".
+2. Delete `docs/adr/0003-six-way-split.md` (superseded by ADR 0011). Remove the "Supersedes ADR
+   0003" line from ADR 0011 and every reference to ADR 0003.
+3. `docs/adr/0009`, `compose.yaml` comments: replace "Portainer" with "a redeploy".
+4. Move to local-only files (`git rm --cached`, then add each path to `.git/info/exclude`; the
+   file stays on disk): `docs/RUNBOOK-mainnet-launch.md`, `docs/TASK.md`. Update `CLAUDE.md`
+   (repo map and pointers) so it does not point a public reader at a missing file.
+5. `NOTES.md`: move the session log to `NOTES.local.md` (local-only). Keep `NOTES.md` as a short
+   public changelog: date, what changed, txids. No host paths, no hostnames, no backup paths,
+   no discarded experiments. Update the `/handoff` command to write the local log.
+6. History: do not rewrite `master`. Removed text stays in git history. It holds no secret.
+Check: `rg -n -i 'ZAG|german|portainer|cloudflared|traefik|backrest|/var/backups|/opt/spm'
+$(git ls-files)` prints nothing outside `.claude/skills/`. Do this item last in the wave: it
+moves this file. Owner: docs subagent; the human approves the diff.
+
+### W3. Server secrets from files
+
+`CREDITER_MNEMONIC` and `ATTEST_SIGNING_KEY` are plain environment values today.
+`docker compose config`, `docker inspect` and the Portainer UI show them. Result:
+1. `proxy/src/config.ts` (`ATTEST_SIGNING_KEY`) and `proxy/src/claims/nightly-wiring.ts`
+   (`CREDITER_MNEMONIC`) also accept `<NAME>_FILE`: a path to a file that holds the value. Set
+   both the variable and `<NAME>_FILE`: refuse to boot. The file must not be readable by group
+   or other: refuse to boot. Trim one trailing newline.
+2. `compose.yaml`: top-level `secrets:` with `file:` sources for both, mounted at
+   `/run/secrets/...`, and the two `_FILE` variables set to those paths. Refuse to start when
+   the source path variable is unset, the same way `AUPM_BACKUP_HOST_DIR` does.
+3. `.env.example` and the runbook §3: the host files are mode 0400, owned by uid 1000. The
+   server env file then holds no secret.
+Tests: each refusal; a file value equals an env value; the error names the variable, not the
+value. Never log a value. Check: with the secrets set by file, `docker compose config` shows
+no mnemonic word. Owner: `x402-proxy-engineer`.
+
+### W4. Local deploy guide (local file, never committed)
+
+`docs/DEPLOY-GUIDE.local.md` is stale. Rewrite it against the code:
+1. `SPM_*` to `AUPM_*`; `spm-attest` to `aupm-attest`; `~/.spm` to `~/.aupm`;
+   `spm-keys.json` to `aupm-keys.json`.
+2. Account table: the MainNet admin is the 2-of-3 multisig (3 unfunded signer keys, 1 funded
+   multisig address). `deploy:ci` is TestNet and LocalNet only.
+3. The TestNet rehearsal uses the multisig path (§2a) end to end with the current artifacts:
+   create, fund the app account, `setCrediter`, `setIdentity`, rekey, credit, claim.
+4. The funding table and the order: ALGO first, then the USDC opt-in, then USDC.
+5. The self-payment caution: fund the donor straight from the exchange, not from `payTo`, ops
+   or the multisig. A third-party donor holds their own key.
+Check: every command in the guide exists in the repository as written. Owner: docs subagent.
+
+### W5. Front page and the default proxy URL (before the npm publish)
+
+`app.all('*')` sends `/` to the npm passthrough, so no page serves the `og:` tags that the
+Bazaar merchant card reads. Result:
+1. `GET /` (exact path) returns a static HTML page: title, the `og:site_name`, `og:title`,
+   `og:description` (the canonical text in `proxy/src/x402/routes.ts`) and `og:image` tags, and
+   links to the README and the key file. `og:image` is served by the app. Other paths still
+   pass through to npm. `HEAD /` behaves the same.
+2. The public origin comes from `AUPM_ISSUER_URL`. No new variable.
+3. `cli` and `mcp`: the default `AUPM_PROXY_URL` becomes `https://aupm.fyi` instead of
+   `http://localhost:4873`. Decided 2026-09-29: the MainNet origin is `https://aupm.fyi`. It is
+   fixed from the first MainNet payment on (one domain per `payTo`), and a published npm
+   version carries it. The domain may appear in code defaults and the README. The hosting
+   provider and host details stay out of committed files.
+Tests: `/` returns HTML with the four tags; `/ms` still passes through. Check: `curl -s
+https://<origin>/ | grep -c 'og:'` prints 4 or more. Owner: `x402-proxy-engineer`, then
+`mcp-payer-engineer` for item 3.
+
+### C1. PaymentRouter v2 contract
+
+Owner: `algorand-contract-engineer`. Read `docs/adr/0010`, `SPEC.md` §6, §10.1, §10.2a, §13,
+and `contract.algo.ts` first. v2 is a new contract, not an update of v1.
+
+State (the global schema is fixed at creation: pin it in a test):
+- Keep: `payTo`, `assetId`, `crediter`, `lastBatchSeq`, `creditedUnclaimed`, `retired`,
+  `identityAddress` (`id:` boxes), `balances` (`bal:` boxes, per identity only).
+- New `admin` (bytes). `createApplication` sets it to `Txn.sender` (the multisig). Every
+  admin check reads `admin`, never `Global.creatorAddress`.
+- New `minClaim` (uint64), 100,000 at creation.
+- New split table: 8 role slots, each a cap per 1,000. Slot ids: 0 auditor, 1 contributor,
+  2 maintainer, 3 adversarial reviewer, 4 treasury, 5–7 reserved (cap 0). The sum of all caps
+  is at most 1,000. Ops is not a slot: ops always gets the remainder. At creation the table is
+  the MVP split: auditor 300, all others 0.
+- Pending changes (admin, split table, `minClaim` raise, release): each stores its value and
+  its announce round. Use boxes or globals; pin the choice in a test.
+
+Methods:
+1. `credit(batchSeq, attributedTotal, unattributedTotal, entries)`. Each entry is
+   `{ role: uint8, identity: string, amount: uint64 }`; `repo` moves off-chain. Checks, in
+   order: not retired; sender is `crediter`; `batchSeq` is last + 1; `payTo`'s auth address is
+   this app's address (v1 does not check this); every `role` < 8; every `amount` > 0; every
+   `identity` is at most 60 bytes and is not `ops`; for each role, the sum of its entries is at
+   most `attributedTotal × cap[role] / 1000` (floor); the batch total is at most the
+   unallocated USDC. Ops gets `attributedTotal − Σ entries + unattributedTotal`. A role with
+   no payee for a package credits nothing, and its share goes to ops. This is a cap, not an
+   exact share: no role gets more than its table share. State this change from v1 (v1 asserts
+   the auditor sum equals 300/1000) in the ADR and in the public texts.
+2. `claim(identity)`: as v1, with the floor read from `minClaim`.
+3. `setCrediter`, `setIdentity`: as v1, admin from `admin`.
+4. `announceSplit(caps: uint64[8])`, `executeSplit()`, `cancelSplit()`. Execute only after
+   `RELEASE_DELAY_ROUNDS` from the announce round. A new split applies to later batches only.
+5. `setMinClaim(value)`: 10,000 ≤ value ≤ 1,000,000. A lower value applies at once. A higher
+   value needs `announceMinClaim` and `executeMinClaim` after the delay, plus a cancel.
+6. `announceAdmin(addr)`, `executeAdmin()`, `cancelAdmin()`. Execute after the delay.
+7. `announceRelease(to)`: refuse `to` equal to `payTo`, the zero address, or this app's own
+   address. `cancelRelease()` is new. `executeRelease()`: refuse when retired; otherwise as v1
+   (sweep `creditedUnclaimed` to `treasury`, retire, rekey).
+8. An ARC-28 event for each state change: credit, claim, setCrediter, setIdentity, each
+   announce, execute and cancel, setMinClaim.
+9. No update, no delete, no opt-in, no close-out (a test proves each call fails).
+Tests: every check above has a failing case; a property test over random batches holds
+`Σ balances == creditedUnclaimed ≤ payTo USDC`; the largest `entries` that fits the resource
+and opcode limits is measured and written into SPEC §10.1.
+
+### C2. Off-chain support for v2
+
+Owner: `x402-proxy-engineer` (ledger, crediter), `algorand-contract-engineer` (tooling).
+1. `proxy/src/claims/credit.ts`: entries carry the role; sum per `(role, identity)`; a role
+   whose identity is `unassigned` sends no entry (its share goes to ops on-chain). The client
+   check mirrors the per-role cap. Read the cap table from app state, not from a constant.
+2. The ledger records the app id with each batch. `batchSeq` starts at 1 for each app. After a
+   migration the crediter credits the new app from batch 1 and never re-sends a batch that the
+   old app took.
+3. `scripts/claim.mjs`: read the floor from `minClaim` in app state.
+4. `deploy-config.ts`: a multisig builder (unsigned file) for each new admin method, the same
+   way P8b does it. The runbook table lists each.
+5. Attribution does not change: only the auditor gets an identity in the MVP. The rules that
+   resolve contributor, maintainer, adversarial reviewer and treasury identities belong to the
+   governance design, not to this item.
+6. `scripts/e2e.mjs` and the ABI check in `docs/RUNBOOK-contract-build.md` use v2.
+7. Docs in the same change: a new ADR (supersedes the parts of ADR 0010 that v2 changes),
+   SPEC §6.2, §10.1, §10.2a, §13, `CLAUDE.md` canonical facts (`credit()` signature,
+   `MIN_CLAIM`), `CONTEXT.md`, and the `aupm-payment-router` skill. The sandbox denies writes
+   to `.claude/skills`: a human applies that skill diff.
+
+### C3. Contract audit
+
+Owner: `code-reviewer` agent, then `/reflect` (a different model family) on the result. Output:
+`docs/audit/payment-router.md`, one section for v1 (live on MainNet) and one for v2.
+Checklist per method: who can call it; each arithmetic step (overflow, underflow, floor); box
+names at most 64 bytes and the minimum balance they need; inner-transaction fees (0, pooled by
+the outer fee); rekey targets; the retired gate; resource references and the opcode budget
+for the largest batch; the OnCompletion paths; the clear program. Also the external risks:
+Circle can freeze or claw back USDC 31566704 (then `credit()` underflows and fails); a lost
+multisig quorum; a compromised crediter (what it can misallocate, what it cannot move). Every
+finding gets a severity, a test that shows it, and a fix or an accepted-risk line. Optional:
+run a TEAL static analyzer on `PaymentRouter.approval.teal`; pin its exact version.
+
+### C4. Build, rehearse, migrate (human)
+
+1. A human runs `algokit project run build` and commits the artifacts.
+2. LocalNet: create through the multisig path, fund, map, rekey a `payTo`, credit, claim,
+   announce a split and check that an early execute fails.
+3. TestNet: a new v2 app, one real x402 payment, one credit, one claim.
+4. MainNet migration v1 → v2: follow the fixed runbook §10 (W1). Map `treasury` on v1 first.
+   Tell payees to claim on v1 inside the 7-day window.
+
 ## Order
 
 - **Wave 1 (parallel worktrees):** H1; Q1; Q5; Q9 + Q10; R1.
@@ -761,6 +959,9 @@ Owner: `mcp-payer-engineer`.
 - **Wave 7:** N0 ‖ P1 (analysis) first; P2a is settled by N0 → P8 (with P1's contract change)
   ‖ P7 → P2 → P3 → P5 → P6 → MainNet launch (human steps, checked by the orchestrator). P4 is
   decided (planned).
+- **Wave 8 (2026-09-29):** W1 → W5 → W3 → W2 last (it moves this file). W4 if time allows.
+  Then the MainNet v1 launch (human).
+- **Wave 9 (postponed 2026-09-29):** C1 → C2 → C3 → C4 (human).
 
 ### S1. Dependency advisories — DONE 349de5c
 
