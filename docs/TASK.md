@@ -840,7 +840,7 @@ no mnemonic word. Owner: `x402-proxy-engineer`.
    or the multisig. A third-party donor holds their own key.
 Check: every command in the guide exists in the repository as written. Owner: docs subagent.
 
-### W5. Front page and the default proxy URL (before the npm publish)
+### W5. Front page and the default proxy URL (before the npm publish) — DONE 21b6900
 
 `app.all('*')` sends `/` to the npm passthrough, so no page serves the `og:` tags that the
 Bazaar merchant card reads. Result:
