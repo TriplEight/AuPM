@@ -21,7 +21,7 @@ did not claim before the rekey is stuck with a box that says it is owed money, o
 no longer pay it.
 
 The following changes need a new contract: a new on-chain split (any target beyond the current
-two-identity 400/1000 auditor share), a changed `MIN_CLAIM` or `MIN_CLAIM_FEE`, a new role with
+two-identity 300/1000 auditor share, ADR 0011), a changed `MIN_CLAIM` or `MIN_CLAIM_FEE`, a new role with
 an on-chain percentage, a contract bug, or a changed USDC asset id. The following do not: a lost
 crediter key (`setCrediter`), a lost identity key (`setIdentity`), a new identity credited
 off-chain through `entries` or `unattributedTotal`, or a facilitator change (the contract never

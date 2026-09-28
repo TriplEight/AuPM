@@ -7,7 +7,7 @@ AuPM is an npm-compatible registry overlay for the Global x402 Challenge on Algo
   key `AUPM_DONOR_MNEMONIC`. Plain `npm install` stays free (ADR 0006).
 - USDC accrues at one fixed `payTo`. It takes payments before it is rekeyed to `PaymentRouter`.
   A nightly job credits balances in numbered batches. The auditor and ops claim.
-  Target split 40/10/20/15/10/5; MVP 40 auditor / 60 ops.
+  Target split 30/10/20/25/10/5; MVP 30 auditor / 70 ops.
 - `POST /v1/attest/lockfile` is the volume route: one signed attestation and one settlement per
   lockfile, 1,000 µUSDC per reviewed entry.
 
@@ -48,7 +48,7 @@ WARNING: every change preserves these. A violation costs money or a false securi
 | USDC ASA | MainNet 31566704. TestNet 10458941 (rehearsal only). 6 decimals. |
 | Facilitator | `https://facilitator.goplausible.xyz`. Client method `getSupported()`, not `supported()`. |
 | Prices (microUSDC) | 1,000 per reviewed package on every route; lockfile 1,000 × reviewed entries, no cap, no discount; 0 reviewed = free |
-| Split per 1,000 | Target 400 / 100 / 200 / 150 / 100 / 50. MVP: auditor 400, ops 600 |
+| Split per 1,000 | Target 300 / 100 / 200 / 250 / 100 / 50. MVP: auditor 300, ops 700 |
 | `claim()` floor | `MIN_CLAIM` 100,000 microUSDC; outer fee at least 2,000 microALGO |
 | Store | SQLite, one writer (ADR 0001). Docker Compose, one service. Nightly off-host copy. |
 | `credit()` | `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per batch (ADR 0005) |

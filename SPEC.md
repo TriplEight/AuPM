@@ -89,8 +89,8 @@ AuPM is a **registry-compatible proxy overlay** in front of npm that adds:
   transaction that the auditor signs (review anchor, ADR 0007), bound to the tarball
   `dist.integrity`. IPFS JSON manifests, ARC-19 NFTs
   and independent hash mirroring are additive post-MVP upgrades.
-- **Self-sustaining security job market** — revenue split: auditors 40%, contributors 10%,
-  maintainers 20%, adversarial pool 15%, treasury 10%, ops 5% (§6).
+- **Self-sustaining security job market** — revenue split: auditors 30%, contributors 10%,
+  maintainers 20%, adversarial pool 25%, treasury 10%, ops 5% (§6).
 
 Adoption path: `registry=https://<domain>` in `.npmrc`, or the `aupm` CLI wrapper that adds it.
 No migration, no new tooling. **MVP client support is wrapper-only:** pnpm/yarn/bun plugins
@@ -178,10 +178,10 @@ these four only. The shares of the other roles are ops income until those roles 
 |---|---|---|---|---|
 | **Free user** | Installs unreviewed packages; reads status; attests zero-coverage lockfiles | Yes | Set registry or install `aupm` wrapper | — |
 | **Donor** | Opts in and pays for reviewed resources (§11.4) | Yes | `--donate`, `allowDonation`, `donate: 'true'` | — |
-| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in); GPG tiers later | 40%, claimed from PaymentRouter |
+| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in); GPG tiers later | 30%, claimed from PaymentRouter |
 | **Contributor** | Authors the fix PR; PR must reference the audit ID | No | Register wallet; link forge account | 10%, credited on merge of the fix PR. Fix completeness is verified by the maintainer who reviewed, approved and merged the PR |
 | **Maintainer** | Reviews/merges code; verifies fix completeness; keeps the package at a high tier | No | Register wallet; prove package ownership | 20% (covers merge-review work) |
-| **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 15% pool share; bounty on successful challenge |
+| **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 25% pool share; bounty on successful challenge |
 | **Treasury** (global) | Grants, bounties, incentivization (high-dep/low-download packages) | No | Multisig-held address; later an elected council | 10% |
 | **Ops** (global) | Registry hosting, facilitator fees, gas | Yes | — | 5%; in the MVP also the shares of roles not yet onboarded |
 
@@ -207,10 +207,10 @@ Phase 5 governance, together with the decline/donate flow.
 
 | Recipient | Share | Per 1,000 µUSDC | Rationale |
 |---|---|---|---|
-| Auditor(s) | 40% | 400 | Compensation for audit work. Cut from 50% to fund the contributor line |
+| Auditor(s) | 30% | 300 | Compensation for audit work. Cut to fund the adversarial reviewer line |
 | Contributor(s) | 10% | 100 | Author of the merged fix PR; completeness verified by the merging maintainer |
 | Maintainer | 20% | 200 | Quality + audit cooperation + merge-review work |
-| Adversarial reviewer pool | 15% | 150 | Funds secondary review of existing audits |
+| Adversarial reviewer pool | 25% | 250 | Funds secondary review of existing audits |
 | Treasury | 10% | 100 | Bounty subsidies for high-dep/low-download packages (xz mode) |
 | Ops | 5% | 50 | Registry hosting, gas |
 
@@ -218,15 +218,18 @@ Phase 5 governance, together with the decline/donate flow.
 
 | Recipient | Share | Per 1,000 µUSDC |
 |---|---|---|
-| Auditor | 40% | 400 |
-| Ops (ops 5% + the 55% of roles not yet onboarded) | 60% | 600 |
+| Auditor | 30% | 300 |
+| Ops (ops 5% + the 65% of roles not yet onboarded) | 70% | 700 |
 
-The 60% is ops income, not a debt owed to anyone (ADR 0003).
+The 70% is ops income, not a debt owed to anyone (ADR 0011, supersedes ADR 0003).
 
 **Disclosure rule.** Every public text (README, `og:description`, Bazaar descriptions, the
-submission form) shows both splits: "Target split 40/10/20/15/10/5. In the MVP: 40% to the
-auditor, 60% to the operator until the other roles launch." Never write "20% goes to
+submission form) shows both splits: "Target split 30/10/20/25/10/5. In the MVP: 30% to the
+auditor, 70% to the operator until the other roles launch." Never write "20% goes to
 maintainers" while that share is ops income.
+
+The TestNet app (772553842) still runs the earlier 40/60 split (ADR 0003) and is not
+redeployed; docs that describe that app state the 40/60 figure as a TestNet-only fact.
 
 Payments are USDC on Algorand MainNet. No other chains or rails in the MVP.
 
@@ -409,15 +412,16 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   The contract asserts:
   - `batchSeq` is exactly one more than the last credited batch (global state; no box per
     payment);
-  - the entries sum to exactly `attributedTotal × 400 / 1000` (every attributed price is a
+  - the entries sum to exactly `attributedTotal × 300 / 1000` (every attributed price is a
     multiple of 1,000 µUSDC, so this is exact);
   - `attributedTotal + unattributedTotal` is not above the unallocated balance of `payTo`.
 
   It credits each auditor `identity`'s balance directly, and credits `attributedTotal −
   sum(entries) + unattributedTotal` to the `"ops"` identity's balance. `unattributedTotal` is
-  USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 40/60 split
-  is enforced on-chain per batch. There is no rounding: each reviewed package in each payment
-  credits exactly 400 µUSDC. Balances are keyed by identity, not by address and not by
+  USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 30/70 split
+  is enforced on-chain per batch (the TestNet app, not redeployed, still enforces 40/60). There
+  is no rounding: each reviewed package in each payment credits exactly 300 µUSDC on MainNet.
+  Balances are keyed by identity, not by address and not by
   `(repo, identity)`: the per-repo breakdown lives in the off-chain ledger only (§13.2). An
   identity credit()s before the admin maps it to an address; it just cannot claim() yet.
 - The admin maps each identity (an auditor's `identity`, or the fixed `"ops"` identity) to an
@@ -935,7 +939,7 @@ The ledger is the crediter's input queue and the audit trail. PaymentRouter hold
 - **contributor, maintainer, adversarial reviewer, treasury, ops** → recorded with identity
   `unassigned` (ops: `ops`). Credited on-chain to the ops balance.
 - **Every route:** each reviewed package in a payment carries exactly 1,000 µUSDC (§11.2), so
-  each package gets exact role shares (400 / 100 / 200 / 150 / 100 / 50). No division, no
+  each package gets exact role shares (300 / 100 / 200 / 250 / 100 / 50). No division, no
   remainder.
 
 **Write path:** a Hono middleware registered *outside* the payment middleware. After `next()`, if
@@ -1040,8 +1044,9 @@ Use the `scope-sentinel` subagent before anything sizable.
 - Price: 1,000 µUSDC per reviewed package on every route. The lockfile price is
   1,000 × reviewed entries, no cap, no discount; free at zero.
 - `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
-- Target split **40/10/20/15/10/5** → per 1,000 µUSDC: 400/100/200/150/100/50.
-- MVP split **40/60** → per 1,000 µUSDC: auditor 400, ops 600.
+- Target split **30/10/20/25/10/5** → per 1,000 µUSDC: 300/100/200/250/100/50.
+- MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. The TestNet app (772553842,
+  not redeployed) still runs the earlier 40/60 split.
 - `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per nightly batch.
 - `MIN_CLAIM` = 100,000 µUSDC. A claim's fee (2,000 µALGO) is pooled by the claimant.
 - Facilitator `https://facilitator.goplausible.xyz`, mandatory. It pays network fees for
@@ -1093,13 +1098,14 @@ TestNet: `payTo` opt-in → pay through GoPlausible → rekey → nightly job cr
 rekey `payTo`, and let the nightly job credit the backlog. *Check:* credit and claim txids in
 `NOTES.md`.
 
-PaymentRouter test vectors:
-- One batch of one tarball payment (1,000 µUSDC, one reviewed package) → auditor 400, ops 600.
+These are PaymentRouter test vectors for the MainNet build (30/70 split). The TestNet app is
+not redeployed and still runs 40/60:
+- One batch of one tarball payment (1,000 µUSDC, one reviewed package) → auditor 300, ops 700.
 - One batch of one lockfile payment with 3 reviewed packages (3,000 µUSDC) → auditor entries
-  400 / 400 / 400, ops 1,800. Sums equal 3,000 exactly.
-- One batch of two payments for the same `(repo, identity)` → one entry of 800.
+  300 / 300 / 300, ops 2,100. Sums equal 3,000 exactly.
+- One batch of two payments for the same `(repo, identity)` → one entry of 600.
 - `unattributedTotal` 5,123 with `attributedTotal` 0 → ops 5,123, no entries.
-- Entries that do not sum to exactly `attributedTotal × 400 / 1000` → `credit()` fails.
+- Entries that do not sum to exactly `attributedTotal × 300 / 1000` → `credit()` fails.
 - `batchSeq` not equal to last + 1 (a repeat or a gap) → `credit()` fails.
 - `attributedTotal + unattributedTotal` above the unallocated balance → fails.
 - A balance of 99,999 → `claim()` fails. 100,000 → succeeds.
