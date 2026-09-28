@@ -762,7 +762,7 @@ Decided by the user, 2026-09-29:
   contract.
 - v2 makes `MIN_CLAIM` settable within bounds, and makes the admin rotatable after a delay.
 
-### W1. Runbook fixes for the v1 launch (first, blocks the MainNet deploy)
+### W1. Runbook fixes for the v1 launch (first, blocks the MainNet deploy) — DONE e2d7434
 
 Findings from the 2026-09-29 review. `docs/RUNBOOK-mainnet-launch.md`:
 1. §10 step 4 tells the operator to call `announceRelease(to)` with `to` set to `payTo`'s own
