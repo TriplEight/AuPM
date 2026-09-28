@@ -1,252 +1,131 @@
-# AuPM — Secure Package Manager
+# AuPM — audited package manager
 
-AuPM is an npm-compatible registry overlay for Algorand MainNet. It passes
-unreviewed packages through to npm for free. A human-reviewed package costs
-1,000 microUSDC ($0.001), settled through the mandatory GoPlausible
-facilitator. Target split 30/10/20/25/10/5. In the MVP: 30% to the auditor,
-70% to the operator until the other roles launch. See "Revenue split" below.
-Most supply-chain attacks land in packages nobody ever reviewed. AuPM turns
-human review into a paid, verifiable, on-chain-anchored public good.
+Many companies audit their open-source dependencies internally. That review work never
+reaches the open-source project. AuPM gives security auditors, open-source supporters and
+package maintainers a way to publish that work and get paid for it. Users and their agents
+donate to the packages they use, as they install them.
 
-Caution: no MainNet deployment exists yet. Read "Current status" before you
-rely on any figure here.
+AuPM is an npm-compatible registry overlay on Algorand MainNet. It looks up the review status
+of a package before it serves it. An unreviewed package installs free, exactly like plain
+npm. A reviewed package also installs free. A donor can also pay to fund the review, in USDC,
+on top of that install.
 
-## How it works
+Caution: no MainNet deployment exists yet. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+for the current build and deployment status.
 
-The proxy checks a package's review status before serving it. An unreviewed
-package always passes through to npm, free. A reviewed package returns HTTP
-402 with payment requirements. The caller signs a plain USDC transfer and
-retries the request with a payment header. The facilitator verifies and
-settles that transfer to a fixed `payTo` address.
+## Review tiers
 
-CAUTION: an earlier design signed a two-part group, one USDC transfer plus
-one application call. The facilitator rejects that group shape now. The
-client signs one plain USDC transfer only.
+The MVP has two tiers:
 
-```
-client / aupm CLI        AuPM proxy              GoPlausible facilitator     Algorand MainNet
-      |                     |                          |                        |
-      | 1. npm install pkg  |                          |                        |
-      |-------------------->|                          |                        |
-      | 2. 402 + payment requirements                   |                        |
-      |<--------------------|                          |                        |
-      | 3. sign a plain USDC transfer to payTo           |                        |
-      | 4. retry with payment header                     |                        |
-      |-------------------->| 5. verify(payload)       |                        |
-      |                     |------------------------->| 6. simulate           |
-      |                     |                          |----------------------->|
-      |                     |                          |<-----------------------|
-      |                     |<-------------------------| isValid: true          |
-      |                     | 7. settle(payload)        |                        |
-      |                     |------------------------->| 8. submit USDC transfer|
-      |                     |                          |----------------------->|
-      |                     |                          |<-----------------------| txId
-      |                     |<-------------------------|                        |
-      | 9. 200 + tarball + attestation                  |                        |
-      |<--------------------|                          |                        |
-```
+- `UNREVIEWED` — the default. No auditor has read this exact tarball.
+- `COMMUNITY_REVIEWED` — a human auditor read this exact tarball and anchored the review
+  on-chain (see "For auditors" below).
 
-USDC accrues at one fixed `payTo` address. A payment never splits per
-transfer. A nightly job reads the ledger and calls `PaymentRouter.credit()`
-in numbered batches, crediting the auditor and ops balances. Each payee then
-calls `claim()` for their own balance. A version bump resets a package's
-review status to `UNREVIEWED`.
+AuPM plans a tier filter for installs. It has not built that yet: today, `aupm` and the MCP
+server install any package, reviewed or not. Only the donation is tier-aware. A donation
+always pays for a reviewed version, never for an unreviewed one.
 
-## Revenue split
+## What a donation pays for
 
-Target split, per 1,000 microUSDC of a reviewed payment:
+A donation pays an auditor to read one exact tarball and match it against the published
+npm release. It costs $0.001 (1,000 microUSDC) per reviewed package, in USDC on Algorand, on every
+paid route. A lockfile donation costs $0.001 times the number of reviewed packages in that
+lockfile, with no cap and no discount. Installing without `--donate` stays free, always.
 
-| Recipient | Share | Per 1,000 µUSDC |
-|---|---|---|
-| Auditor | 30% | 300 |
-| Contributor | 10% | 100 |
-| Maintainer | 20% | 200 |
-| Adversarial reviewer pool | 25% | 250 |
-| Treasury | 10% | 100 |
-| Ops | 5% | 50 |
+Target split, per $0.001 donated:
 
-MVP split. Only the auditor and ops roles are onboarded so far:
+| Recipient | Share |
+|---|---|
+| Auditor | 30% |
+| Contributor | 10% |
+| Maintainer | 20% |
+| Adversarial reviewer pool | 25% |
+| Treasury | 10% |
+| Ops | 5% |
 
-| Recipient | Share | Per 1,000 µUSDC |
-|---|---|---|
-| Auditor | 30% | 300 |
-| Ops | 70% | 700 |
+MVP split. So far, the split pays only the auditor and ops roles:
 
-The MVP 70% is ops income now, not a debt owed to the other roles. Each role
-gets its target share once it onboards.
+| Recipient | Share |
+|---|---|
+| Auditor | 30% |
+| Ops | 70% |
 
-The TestNet app (772553842) is not redeployed and still runs the earlier
-40/60 split. That figure describes TestNet only.
+The MVP's 70% is ops income now, not a debt owed to the other roles. Each role gets its
+target share once it onboards. The TestNet rehearsal app keeps the older 40% auditor / 60%
+ops split. See [ADR 0011](docs/adr/0011-split-30-10-20-25-10-5.md) for the
+split rationale.
 
-## Routes and prices
+### Trust model
 
-| Route | Condition | Price |
-|---|---|---|
-| `POST /v1/attest/lockfile` | one or more reviewed packages | 1,000 µUSDC × reviewed packages |
-| `POST /v1/attest/lockfile` | zero reviewed packages | free, rate-limited |
-| `GET /v1/attest?name=&version=` | reviewed version | $0.001 |
-| `GET /v1/attest?name=&version=` | unreviewed version | free, rate-limited |
-| tarball download | reviewed version | $0.001 |
-| tarball download | unreviewed version | free |
-| `GET /api/v1/status/...` | — | free |
-| `GET /api/v1/earnings/github/:login` | — | free |
+The contract admin is a 2-of-3 multisig, not one key. A migration to a new contract needs a
+public announcement, then a 7-day delay before it takes effect. Any balance still unclaimed at
+that point moves to the treasury account, which pays it to the payee on request. See
+[ADR 0010](docs/adr/0010-contract-change-policy.md) for the full design.
 
-Every price is a multiple of 1,000 microUSDC. The lockfile price has no cap
-and no discount: it is always 1,000 µUSDC times the reviewed-package count.
-MainNet USDC asset id is 31566704. Every paid route sets `extra.asset`
-explicitly, so a client never falls back to ALGO.
+## For users and donors
 
-## How to call it
-
-### Point npm at the proxy
-
-Copy `.env.example` to `.env` and fill in a deployed `PAY_TO_ADDRESS`.
-Start the proxy, then install through it like any npm registry.
+`aupm` is a drop-in for `npm`. It runs the real npm against the AuPM registry and passes your
+arguments and npm's own exit code through unchanged.
 
 ```bash
-cp .env.example .env
-pnpm -C proxy start                 # binds http://localhost:4873
-npm install is-odd --registry http://localhost:4873   # unreviewed, free
-npm install <reviewed-pkg> --registry http://localhost:4873   # 402, then pays
+aupm install ms@2.1.3               # installs through the AuPM registry, same as npm
+aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
 ```
 
-CAUTION: the proxy calls the facilitator's `getSupported()` at startup and
-refuses to bind without a valid `feePayer`. It needs network access to
-`https://facilitator.goplausible.xyz` before it serves any request.
+`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `http://localhost:4873`.
+After the first npm release, a hosted `https://<domain>` deployment also works. You do not need
+to clone this repository to use `aupm`: after the first npm release, `npm install -g aupm`
+installs it. Until then, run it from a clone. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-### Use the MCP server
-
-An agent calls two tools over the MCP server: `check_audit_status` for a free
-status lookup, and `install_audited_package`, which pays and installs.
+Plain npm also works, and stays free:
 
 ```bash
-pnpm -C mcp start
+npm config set registry https://<domain>/
 ```
 
-### Use curl directly
+For a local proxy, use `http://localhost:4873/`.
 
-```bash
-# single-package attestation, query params carry the scoped name
-curl "http://localhost:4873/v1/attest?name=@babel/core&version=7.25.2"
+This never donates. Only `aupm --donate`, the MCP server's `allowDonation`, and the CI Action's
+`donate: 'true'` do.
 
-# whole-lockfile attestation
-curl -X POST http://localhost:4873/v1/attest/lockfile \
-  -H "Content-Type: application/json" \
-  --data-binary @package-lock.json
+An agent can call the MCP server directly: `check_audit_status` for a free status lookup, and
+`install_audited_package` with `allowDonation: true` to pay and install in one step. For a
+whole project, `attest_lockfile` with `allowDonation: true` donates once for every reviewed
+entry in the lockfile.
 
-# free status lookup
-curl http://localhost:4873/api/v1/status/lodash/4.17.21
-```
+The `aupm-attest` GitHub Action runs `aupm attest` against a repository's lockfile in CI. Set
+its `donate: 'true'` input and a `donor-mnemonic` secret to donate from CI. See
+[.github/actions/aupm-attest/README.md](.github/actions/aupm-attest/README.md).
 
-## Donate to a review
+To donate, you need a funded Algorand account holding USDC. See "Donor account setup" in
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
-Every paid route is opt-in. A 402 reports the price and no client signs
-anything unless the caller explicitly agrees to donate. A donation never
-signs above 1,000 microUSDC times the number of reviewed entries in the
-request (1,000 microUSDC for one tarball or one single-package attestation),
-and never in an asset other than the network's USDC ASA. There is no config
-knob for either limit.
+## For auditors
 
-Set the mnemonic from a secret manager for one command only — never in a `.env` file:
+Onboarding is manual in the MVP (planned: item A1, `docs/TASK.md`). The path today:
 
-```bash
-AUPM_DONOR_MNEMONIC="$(rbw get aupm-donor)" \
-  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out aupm-attestation.json
-```
-
-The same pattern installs one package:
-```bash
-AUPM_DONOR_MNEMONIC="$(rbw get aupm-donor)" pnpm -C cli exec tsx src/index.ts install <pkg> <version> --donate
-```
-
-Without `--donate`, `aupm attest` reports the price on a 402 and exits 2,
-signing nothing. The MCP `attest_lockfile` tool takes the same opt-in as
-`allowDonation`. `mcp/src/donor.ts` is the shared donation client behind
-both.
-
-The `aupm-attest` GitHub Action installs `aupm` and runs `aupm attest`. Its
-`donate` input defaults to `'false'`. Set it to `'true'` and pass a
-`donor-mnemonic` secret to donate from CI. Never pass a mnemonic as plain
-text — use a GitHub Actions secret. The Action fails open: a facilitator
-outage, a 5xx, or a missing `donor-mnemonic` logs a warning and exits 0, so
-it never reddens a caller's CI.
-
-### Donor account setup
-
-Create a fresh Algorand account. Do not reuse an account that holds anything
-else. Fund it with about 0.3 ALGO: 0.1 ALGO for the account minimum balance,
-0.1 ALGO for the USDC asset opt-in, plus a small margin. Add a few dollars of
-USDC on Algorand MainNet (ASA 31566704). Opt in to that USDC asset before the
-first donation.
-
-The facilitator pays the payment transaction fee, so the ALGO only covers the
-minimum balance and the opt-in. A wallet with an in-app USDC purchase, for
-example Pera, avoids an exchange withdrawal to a fresh address.
-
-Set the account's 25-word mnemonic in `AUPM_DONOR_MNEMONIC`. Never commit it
-and never log it.
+1. Open an Algorand account and opt it in to USDC.
+2. The admin maps your identity on-chain with `setIdentity`.
+3. You read the exact tarball you are reviewing.
+4. You anchor the review with a 0-ALGO self-payment to your own address, carrying an ARC-2
+   note (`aupm:j{...}`, see [ADR 0007](docs/adr/0007-auditor-anchors-review.md)).
+5. The operator runs `record-review` against your anchor transaction, which flips the package
+   to `COMMUNITY_REVIEWED`.
+6. The nightly batch credits your balance in PaymentRouter.
+7. You call `claim()` once your balance reaches `MIN_CLAIM`.
 
 ## Verify an attestation offline
 
-`aupm verify` checks one DSSE envelope against a published key. It makes no
-network request.
+`aupm verify` verifies one DSSE envelope against a published key. It makes no network request.
 
 ```bash
-pnpm -C cli exec tsx src/index.ts verify attestation.json \
-  --lockfile package-lock.json \
-  --keys aupm-keys.json
+aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 ```
 
-CAUTION: never verify with `algosdk.signBytes`. It prepends `MX` and breaks
-standard DSSE verifiers. The signing key uses raw ed25519 instead.
+## Links
 
-## Development setup
-
-Use `pnpm`. Never use `npm` or `yarn` to install packages in this project.
-
-```bash
-pnpm install                        # install all workspace dependencies
-pnpm test                           # proxy and contract test suites
-pnpm typecheck                      # contracts, proxy, mcp, cli
-pnpm lint                           # biome check
-bash scripts/guard.sh               # invariant guard over tracked files
-```
-
-Each of these commands was run against this repository state and exits 0.
-
-## Repository layout
-
-- `contracts/` — AlgoKit TypeScript. `PaymentRouter`: `createApplication`,
-  `setCrediter`, `setIdentity`, `credit`, `claim`, `releaseAuthority`.
-- `proxy/` — Hono overlay: npm passthrough, SQLite status store, x402
-  routes, attestation signing, claims ledger.
-- `mcp/` — MCP server: `check_audit_status`, `install_audited_package`.
-- `cli/` — `aupm` wrapper, including `aupm verify` offline verification.
-- `.github/actions/aupm-attest/` — CI Action. It fails open; it never reddens
-  a user's CI.
-- `docs/` — architecture notes and the contract build runbook.
-
-## Current status and limitations
-
-No MainNet deployment exists yet. No contract is deployed, and no payment
-has settled.
-
-`contracts/smart_contracts/artifacts/` holds a Puya build of `PaymentRouter`.
-No `PaymentRouter` application id is deployed on MainNet yet. Follow
-`docs/RUNBOOK-contract-build.md` before any MainNet deploy.
-
-Contract tests run under `algorand-typescript-testing`, in JavaScript. A
-passing test does not prove the contract compiles under Puya. Only
-`algokit project run build` on a machine with Docker proves that.
-
-Seeded reviews are real reviews. A `COMMUNITY_REVIEWED` record means a human
-read that exact tarball. A record with no stored integrity hash resolves to
-`UNREVIEWED`, never to a fabricated claim.
-
-## Further reading
-
-- `SPEC.md` — the authoritative specification.
-- `docs/TASK.md` — next steps and work items.
-- `docs/adr/` — design decisions.
-- `docs/RUNBOOK-contract-build.md` — regenerate the contract artifacts.
+- [SPEC.md](SPEC.md) — the authoritative specification.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
+- [docs/TASK.md](docs/TASK.md) — next steps and work items.
+- [docs/adr/](docs/adr/) — design decisions.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
