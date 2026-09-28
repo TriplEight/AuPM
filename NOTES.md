@@ -242,10 +242,8 @@ Next: `docs/TASK.md`, wave 1.
   Next: Q8 image must carry the record-review scripts; then the human Docker check.
 - Q8 `5e52f93`: `proxy/Dockerfile`, `compose.yaml` (service `spm`, volume `spm-db` at `/data`,
   `SQLITE_PATH=/data/audit.db`), `.dockerignore`; the image carries `scripts/record-review.mjs`.
-  Checked with podman-compose on TestNet config: status JSON 200, same `audit.db` inode after restart
-  and down/up, `record-review` no-TTY refusal in the container. Host quirk: podman storage under
-  `~` inherits a default ACL for `tripleight`, so apt fails with EINVAL; pass
-  `--podman-args=--root=/var/tmp/spm-podman-1001/root` (+ `--runroot`, `--storage-driver=vfs`).
+  Checked on TestNet config: status JSON 200, same `audit.db` inode after restart and down/up,
+  `record-review` no-TTY refusal in the container.
   Wave 2 is complete. Next: wave 3 (Q7; Q11; Q12; R2).
 
 ## 2026-09-23 — wave 3 (branch `spm-mvp-v6-wave3`, from `master` f664466)
@@ -470,7 +468,7 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - F1 `68ed80d`: `compose.yaml` and the MainNet runbook pin `v0.1.1`.
 
 ## 2026-09-26 — M0: TestNet moved
-- TestNet now runs on its own host (rootless podman-compose). `audit.db` copied from the old host.
+- TestNet now runs on its own host (Docker Compose). `audit.db` copied from the old host.
 - Checks over the public origin: health 200 (`lastRun` success), `ms@2.1.3`
   `COMMUNITY_REVIEWED` (anchor `4ABHLGBLN54YZMYIHIOVVITWGBJ4RUIJLLBOKGNFBRWZF36OTD3A`),
   `spm-keys.json` 200.
@@ -481,11 +479,10 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - F2 `e3d349c`: Compose reads the issuer and key date only from the env file.
 - F4 `e9aa06f`, `fedaa6c`, `c34839f`: clean shutdown on SIGTERM, 8 s deadline, db closes only
   when no nightly run is in flight.
-- TestNet outage: the rootless network helper stopped when the login session that ran `up` ended.
-  The nightly run failed at the first chain call; no ledger or chain state changed.
 - F3 dropped: ADR 0009 already returns 503 when the last success is older than 26 h.
-- TestNet now runs on rootful Docker Compose, the same runtime as MainNet.
 - MainNet steps move to the next session.
 - V1 `9de186e`: the verify e2e proxy takes a free port; a live stack on 4873 no longer answers it.
 - `VERIFY: PASS` with the TestNet stack on 4873; `prek run --all-files` passes.
 - Next session: MainNet runbook §2 (payTo opt-in, deploy, rekey) → §3 stack → first credit.
+- TestNet on Docker Compose: `audit.db` restored; health 200, `ms@2.1.3` `COMMUNITY_REVIEWED`,
+  nightly backup written, credit skipped (nothing to credit).

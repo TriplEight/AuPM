@@ -442,7 +442,7 @@ Compose interpolation lets a shell export override `.env`. `compose.yaml` no lon
 `SPM_ISSUER_URL` or `SPM_KEY_VALID_FROM`; they come only from `env_file`. The server still refuses
 to boot without valid values (Q13). `SPM_BACKUP_HOST_DIR` and `PORT` stay interpolated.
 
-Acceptance: with a shell export of `SPM_ISSUER_URL`, `podman-compose config` has no
+Acceptance: with a shell export of `SPM_ISSUER_URL`, `docker compose config` has no
 `environment:` entry for it. Owner: `x402-proxy-engineer`.
 
 ### F4. Clean shutdown on SIGTERM — DONE e9aa06f..c34839f
