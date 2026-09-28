@@ -651,12 +651,42 @@ Owner: docs subagent after P2, P3 and P4. `bash scripts/guard.sh` must pass (spl
 - Local deploy guide: Compose prefixes the volume name with the project (`spm_aupm-db`), and the
   backup directory is owned by uid 1000.
 
-### P7. Production review pass
+### P7. Production review pass — DONE (findings, 2026-09-28)
 
 A read-only review of `proxy/`, `cli/`, `mcp/` and the Action for launch risks: secrets in logs,
 error text that leaks internals, request size limits, timeouts on upstream fetches,
 `pnpm audit --audit-level=moderate`, the image user and pinned versions. Output: a ranked
 finding list. Each accepted finding becomes one item. Owner: `code-reviewer`.
+
+**Result (2026-09-28).** The review found no secret in logs, exact pins everywhere, a non-root
+image, and body and entry caps on the lockfile route. The user accepted three findings as items
+P7a, P7b and P7c. Not accepted: timeouts on algod and indexer calls in the nightly job (low),
+Action stderr in `::warning::` (low, no secret on that path), the Compose image tag (human
+release), and the `elliptic` dev advisory (no patch).
+
+### P7a. Rate limit before the lockfile parse
+
+`POST /v1/attest/lockfile` reads up to 5 MB and parses up to 10,000 entries before any rate
+limit. The per-IP limiter guards only the free branch (`proxy/src/routes/attest.ts`). A caller
+can post lockfiles with one reviewed entry and use server CPU at no cost.
+Result: a second per-IP limiter runs on every lockfile request before `analyzeLockfile`,
+120 requests per hour per IP (a compiled-in constant next to the free-path limit), 429 beyond.
+The free-path limiter (20 per hour) stays. SPEC §12.3 states both limits. Tests: the 121st
+request in the window gets 429 before the body is parsed; the free-path limit still applies.
+Owner: `x402-proxy-engineer`.
+
+### P7b. Generic text for an unhandled error
+
+`app.onError` in `proxy/src/app.ts` returns `err.message` to the client. A SQLite error can
+show the database path. Result: the handler logs the error on the server and returns
+`{ "error": "internal error" }` with status 500. Test: a thrown error with a path in its message
+does not reach the response body. Owner: `x402-proxy-engineer`.
+
+### P7c. Timeout on the npm upstream fetch
+
+`proxyToNpm` in `proxy/src/proxy.ts` calls `fetch` with no timeout. Result: the fetch has an
+`AbortSignal.timeout` (30 s, a compiled-in constant); a timeout returns 504 with a short JSON
+error. Test: a stalled upstream returns 504. Owner: `x402-proxy-engineer`.
 
 ## Order
 
