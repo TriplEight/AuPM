@@ -10,7 +10,6 @@
 export type { Attribution, AttributionEntry, Role } from '../attest/attribution.js'
 
 import type { Attribution, AttributionEntry, Role } from '../attest/attribution.js'
-import { NETWORK } from '../config.js'
 
 /** Identity used whenever a role cannot be mapped to a real contributor. */
 export const UNASSIGNED = 'unassigned'
@@ -18,57 +17,22 @@ export const UNASSIGNED = 'unassigned'
 /** Identity recorded for the ops role — never `UNASSIGNED` (SPEC.md §13.2). */
 export const OPS_IDENTITY = 'ops'
 
-/** The two networks this proxy ever runs the split table against (see NETWORK, ../config.js). */
-export type SplitNetwork = 'mainnet' | 'testnet'
-
 /**
  * All six target roles' share of every 1,000 micro-USDC paid for one
- * reviewed package, one row per network (docs/TASK.md P8a). MainNet is the
- * target split (ADR 0011); TestNet keeps the older split (ADR 0003) because
- * the TestNet app (772553842) is not redeployed and still enforces it
- * on-chain. The ledger records all six roles for every payment, so Phase 2
+ * reviewed package (ADR 0011, docs/TASK.md P8d) — one split on every
+ * network. The ledger records all six roles for every payment, so Phase 2
  * can add attributed identities for contributor, treasury, and ops with no
  * data loss, even though the MVP resolves all three (plus maintainer and
  * the adversarial reviewer) to `unassigned` today.
  */
-export const ROLE_SHARE_PER_1000_BY_NETWORK: Readonly<
-  Record<SplitNetwork, Readonly<Record<Role, number>>>
-> = {
-  mainnet: {
-    auditor: 300,
-    contributor: 100,
-    maintainer: 200,
-    reviewer: 250,
-    treasury: 100,
-    ops: 50,
-  },
-  testnet: {
-    auditor: 400,
-    contributor: 100,
-    maintainer: 200,
-    reviewer: 150,
-    treasury: 100,
-    ops: 50,
-  },
+export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
+  auditor: 300,
+  contributor: 100,
+  maintainer: 200,
+  reviewer: 250,
+  treasury: 100,
+  ops: 50,
 }
-
-/**
- * Looks up the role-share row for `network`. Throws on an unrecognized
- * network rather than guessing a split — a wrong guess here is a wrong
- * money computation (CLAUDE.md invariant 7).
- */
-export function roleShareTableFor(network: string): Readonly<Record<Role, number>> {
-  const table = ROLE_SHARE_PER_1000_BY_NETWORK[network as SplitNetwork]
-  if (!table) {
-    throw new Error(
-      `roleShareTableFor: unknown network ${JSON.stringify(network)}; expected "mainnet" or "testnet"`,
-    )
-  }
-  return table
-}
-
-/** The role-share row for the network this process is configured for (NETWORK, ../config.js). */
-export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = roleShareTableFor(NETWORK)
 
 /**
  * Every role's share as a whole percent, in `ROLES` order, for the public
@@ -76,21 +40,20 @@ export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = roleShareTabl
  * from the same table above, so the disclosed target split can never drift
  * from the split the ledger actually uses.
  */
-export function targetSplitRow(network: string = NETWORK): string {
-  const table = roleShareTableFor(network)
-  return ROLES.map((role) => String(table[role] / 10)).join('/')
+export function targetSplitRow(): string {
+  return ROLES.map((role) => String(ROLE_SHARE_PER_1000[role] / 10)).join('/')
 }
 
 /**
  * The MVP split (CLAUDE.md invariant 8): the auditor gets the same percent
  * as the target split, and everything else — every role not yet onboarded
- * — is unclaimed ops income (ADR 0011, ADR 0003) until those roles launch.
+ * — is unclaimed ops income (ADR 0011) until those roles launch.
  */
-export function mvpSplit(network: string = NETWORK): {
+export function mvpSplit(): {
   auditorPercent: number
   opsPercent: number
 } {
-  const auditorPercent = roleShareTableFor(network).auditor / 10
+  const auditorPercent = ROLE_SHARE_PER_1000.auditor / 10
   return { auditorPercent, opsPercent: 100 - auditorPercent }
 }
 
@@ -102,8 +65,8 @@ export function mvpSplit(network: string = NETWORK): {
  * defence-in-depth check (proxy/src/claims/credit.ts) must reject the same
  * way the contract would, not merely when the division happens to be exact.
  */
-export function auditorShareMicro(attributedMicro: number, network: string = NETWORK): number {
-  return Math.floor((attributedMicro * roleShareTableFor(network).auditor) / 1000)
+export function auditorShareMicro(attributedMicro: number): number {
+  return Math.floor((attributedMicro * ROLE_SHARE_PER_1000.auditor) / 1000)
 }
 
 export const ROLES: readonly Role[] = [
@@ -116,18 +79,13 @@ export const ROLES: readonly Role[] = [
 ]
 
 /**
- * Integer micro-USDC owed to `role` out of the whole payment, for `network`
- * (defaults to the network this process is configured for).
+ * Integer micro-USDC owed to `role` out of the whole payment.
  *
  * CAUTION: money is always integer micro-units (CLAUDE.md). This relies on
  * the invariant that every price is a multiple of 1,000 microUSDC, so the
  * division below is always exact — no floating point, no remainder lost.
  */
-export function computeRoleShareMicro(
-  priceMicro: number,
-  role: Role,
-  network: string = NETWORK,
-): number {
+export function computeRoleShareMicro(priceMicro: number, role: Role): number {
   if (!Number.isInteger(priceMicro) || priceMicro < 0) {
     throw new Error(
       `computeRoleShareMicro: priceMicro must be a non-negative integer, got ${priceMicro}`,
@@ -138,7 +96,7 @@ export function computeRoleShareMicro(
       `computeRoleShareMicro: priceMicro ${priceMicro} is not a multiple of 1,000 microUSDC`,
     )
   }
-  return (priceMicro / 1000) * roleShareTableFor(network)[role]
+  return (priceMicro / 1000) * ROLE_SHARE_PER_1000[role]
 }
 
 /**
@@ -246,10 +204,7 @@ export interface AccrualInput {
  * from ever disagreeing. A caller with a mismatched price has a bug
  * upstream; this never silently reconciles it.
  */
-export function buildAccrualInputs(
-  attribution: Attribution,
-  network: string = NETWORK,
-): AccrualInput[] {
+export function buildAccrualInputs(attribution: Attribution): AccrualInput[] {
   if (attribution.priceMicro === 0) return []
   const packages = sortPackages(attribution.packages)
   if (packages.length === 0) return []
@@ -263,7 +218,6 @@ export function buildAccrualInputs(
     )
   }
 
-  const shareTable = roleShareTableFor(network)
   const rows: AccrualInput[] = []
   for (const entry of packages) {
     for (const role of ROLES) {
@@ -273,7 +227,7 @@ export function buildAccrualInputs(
         version: entry.version,
         role,
         identity: resolveIdentity(role, entry),
-        amountMicro: shareTable[role],
+        amountMicro: ROLE_SHARE_PER_1000[role],
       })
     }
   }

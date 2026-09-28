@@ -70,8 +70,8 @@ A passing test in `contracts/smart_contracts/payment_router/contract.algo.spec.t
 logic in `contract.algo.ts`. It never moves value and never touches Puya or the AVM. Check
 each of these on TestNet before any MainNet deploy (`SPEC.md` §17, item R0):
 
-- A tarball payment of 1,000 microUSDC credits the auditor 300 and ops 700 (MainNet build,
-  30/70 split). The TestNet app is not redeployed and still runs 40/60.
+- A tarball payment of 1,000 microUSDC credits the auditor 300 and ops 700 (30/70 split, one
+  split on every network).
 - A lockfile payment of 3,000 microUSDC across 3 reviewed packages credits the auditor 3 × 300
   and ops the remainder. The entries sum exactly to `attributedTotal × 300 / 1000`.
 - Two payments for the same `(repo, identity)` collapse into one entry in the same batch.

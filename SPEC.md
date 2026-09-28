@@ -228,8 +228,8 @@ submission form) shows both splits: "Target split 30/10/20/25/10/5. In the MVP: 
 auditor, 70% to the operator until the other roles launch." Never write "20% goes to
 maintainers" while that share is ops income.
 
-The TestNet app (772553842) still runs the earlier 40/60 split (ADR 0003) and is not
-redeployed; docs that describe that app state the 40/60 figure as a TestNet-only fact.
+TestNet runs the same 30/70 split (docs/TASK.md P8d). The earlier TestNet app (772553842,
+40/60, ADR 0003) is retired; TestNet now runs a new app from the rebuilt 300/700 contract.
 
 Payments are USDC on Algorand MainNet. No other chains or rails in the MVP.
 
@@ -419,8 +419,8 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   It credits each auditor `identity`'s balance directly, and credits `attributedTotal −
   sum(entries) + unattributedTotal` to the `"ops"` identity's balance. `unattributedTotal` is
   USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 30/70 split
-  is enforced on-chain per batch (the TestNet app, not redeployed, still enforces 40/60). There
-  is no rounding: each reviewed package in each payment credits exactly 300 µUSDC on MainNet.
+  is enforced on-chain per batch, on every network (docs/TASK.md P8d). There is no rounding:
+  each reviewed package in each payment credits exactly 300 µUSDC.
   Balances are keyed by identity, not by address and not by
   `(repo, identity)`: the per-repo breakdown lives in the off-chain ledger only (§13.2). An
   identity credit()s before the admin maps it to an address; it just cannot claim() yet.
@@ -1045,8 +1045,8 @@ Use the `scope-sentinel` subagent before anything sizable.
   1,000 × reviewed entries, no cap, no discount; free at zero.
 - `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
 - Target split **30/10/20/25/10/5** → per 1,000 µUSDC: 300/100/200/250/100/50.
-- MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. The TestNet app (772553842,
-  not redeployed) still runs the earlier 40/60 split.
+- MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. One split on every network
+  (docs/TASK.md P8d); the earlier TestNet app (772553842, 40/60) is retired.
 - `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per nightly batch.
 - `MIN_CLAIM` = 100,000 µUSDC. A claim's fee (2,000 µALGO) is pooled by the claimant.
 - Facilitator `https://facilitator.goplausible.xyz`, mandatory. It pays network fees for
@@ -1098,8 +1098,7 @@ TestNet: `payTo` opt-in → pay through GoPlausible → rekey → nightly job cr
 rekey `payTo`, and let the nightly job credit the backlog. *Check:* credit and claim txids in
 `NOTES.md`.
 
-These are PaymentRouter test vectors for the MainNet build (30/70 split). The TestNet app is
-not redeployed and still runs 40/60:
+These are PaymentRouter test vectors for the 30/70 split, on every network:
 - One batch of one tarball payment (1,000 µUSDC, one reviewed package) → auditor 300, ops 700.
 - One batch of one lockfile payment with 3 reviewed packages (3,000 µUSDC) → auditor entries
   300 / 300 / 300, ops 2,100. Sums equal 3,000 exactly.

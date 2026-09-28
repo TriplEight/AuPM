@@ -609,7 +609,7 @@ Decided by the user, 2026-09-28:
 - Target: auditor 30, contributor 10, maintainer 20, adversarial reviewer 25, treasury 10,
   ops 5 (per 1,000: 300 / 100 / 200 / 250 / 100 / 50).
 - MVP: auditor 30, ops 70 (per 1,000: 300 / 700).
-- TestNet keeps app 772553842 with the 40 / 60 split. No TestNet redeploy. The docs say so.
+- TestNet moves to a new app from the rebuilt contract (P8d); app 772553842 (40 / 60) retires.
 
 Result:
 1. `contract.algo.ts`: `AUDITOR_SHARE_NUM` 300. Contract tests for the new amounts, including
@@ -625,8 +625,8 @@ Result:
 2. SPEC §6.1, §6.2 and every place that states the split; a new ADR that supersedes ADR 0003;
    `CLAUDE.md` (overview and the canonical facts table); README; public texts; `guard.sh` rules
    that check split text. Invariant 8 still holds.
-3. Because TestNet is not redeployed, rehearse the new build on LocalNet: deploy, rekey a
-   `payTo`, credit one batch, claim. Record the result.
+3. Rehearse the new build on LocalNet first: deploy, rekey a `payTo`, credit one batch, claim.
+   Record the result, then deploy the new TestNet app (P8d).
 4. A human runs `algokit project run build` and commits the artifacts.
 Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subagent (texts).
 
