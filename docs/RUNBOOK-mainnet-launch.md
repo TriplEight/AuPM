@@ -35,30 +35,91 @@ and `CREDITER_MNEMONIC` out of the server's `.env` (CLAUDE.md canonical facts ta
    Check: `curl -s "https://mainnet-api.algonode.cloud/v2/accounts/<PAY_TO_ADDRESS>" | jq
    '.assets[] | select(."asset-id"==31566704)'` returns a non-empty result.
 
-2. Set `DEPLOYER_MNEMONIC`, `CREDITER_MNEMONIC`, `PAY_TO_ADDRESS`, `OPS_ADDRESS` and `AUDITORS`
-   in the root `.env`, plus `NETWORK=mainnet` and `CONFIRM_MAINNET=1` for this one run. Deploy:
+2. **TestNet/LocalNet rehearsal only.** Set `DEPLOYER_MNEMONIC`, `CREDITER_MNEMONIC`,
+   `PAY_TO_ADDRESS`, `OPS_ADDRESS` and `AUDITORS` in the root `.env`, plus `NETWORK` for the
+   target and `CONFIRM_MAINNET=1` if that target is MainNet. Deploy:
    ```bash
    ( set -a; . ./.env; set +a; cd contracts && pnpm run deploy:ci )
    ```
-   This creates PaymentRouter, funds the app account for box storage, calls `setCrediter`, and
-   calls `setIdentity` for every `AUDITORS` entry plus `ops`.
-   Check: the command prints `PaymentRouter app id: <id>.`. Set `PAYMENT_ROUTER_APP_ID` to that
-   id in `.env`. Clear `CONFIRM_MAINNET` afterward.
+   This creates PaymentRouter from a single `DEPLOYER_MNEMONIC`, funds the app account for box
+   storage, calls `setCrediter`, and calls `setIdentity` for every `AUDITORS` entry plus `ops`.
+   **On MainNet, `Global.creatorAddress` must be the 2-of-3 admin multisig (ADR 0010), never one
+   key** — use §2a instead of this step. Check: the command prints `PaymentRouter app id: <id>.`.
+   Set `PAYMENT_ROUTER_APP_ID` to that id in `.env`. Clear `CONFIRM_MAINNET` afterward.
 
 3. Rekey `payTo` to the app.
    ```bash
    node scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network mainnet --confirm-mainnet
    ```
    Check: `curl -s "https://mainnet-api.algonode.cloud/v2/accounts/<PAY_TO_ADDRESS>" | jq
-   '."auth-addr"'` equals the app address printed in step 2.
+   '."auth-addr"'` equals the app address printed in step 2 (rehearsal) or §2a (MainNet).
 
 Clear `PAY_TO_MNEMONIC` from `.env` once step 3 succeeds. The key has no further signing power
 over `payTo` (CLAUDE.md: cold keys never touch the server).
 
-To map another auditor later, add the entry to `AUDITORS` and rerun step 2. `deployPaymentRouter`
-is idempotent for the same deployer and app name: it reuses the existing app and calls
-`setIdentity` again for the updated map, and refuses if the reused app's stored `payTo` or asset
-id disagrees with the current configuration.
+On a rehearsal network, to map another auditor later, add the entry to `AUDITORS` and rerun step
+2. `deployPaymentRouter` is idempotent for the same deployer and app name: it reuses the existing
+app and calls `setIdentity` again for the updated map, and refuses if the reused app's stored
+`payTo` or asset id disagrees with the current configuration. On MainNet, map another auditor
+with §2a's `setIdentity` procedure instead.
+
+---
+
+## 2a. Admin calls: multisig signing (ADR 0010, SPEC §10.2a, docs/TASK.md P8b)
+
+On MainNet, `Global.creatorAddress` is the 2-of-3 admin multisig built from
+`AUPM_ADMIN_MSIG_ADDRS` (three holder addresses, threshold 2, fixed in code — never read from the
+environment). No single admin key can call `setCrediter`, `setIdentity`, `announceRelease` or
+`executeRelease` alone.
+`contracts/smart_contracts/payment_router/deploy-config.ts` builds each call as an unsigned
+transaction file. The holders sign it offline with `goal`, never through one shared workstation
+key.
+
+**Each call follows the same three steps.** `<function>` and its own env vars are in the table
+below.
+
+1. Set the common env vars (`NETWORK=mainnet`, `CONFIRM_MAINNET=1`, `AUPM_ADMIN_MSIG_ADDRS`,
+   `PAYMENT_ROUTER_APP_ID`) plus the call's own vars, then build the unsigned file:
+   ```bash
+   ( set -a; . ./.env; set +a; cd contracts && \
+     pnpm exec tsx -e "require('./smart_contracts/payment_router/deploy-config').<function>()" )
+   ```
+   Check: the command prints the multisig address and the output file path.
+2. Two of the three holders import the addresses once (`goal account multisig new <addr1>
+   <addr2> <addr3> -T 2`), then each signs the same file in turn:
+   ```bash
+   goal clerk multisig sign -t <output-file>
+   ```
+3. Whoever holds the twice-signed file submits it:
+   ```bash
+   goal clerk rawsend -f <output-file>
+   ```
+   Check: `https://mainnet-api.algonode.cloud` lists the transaction with a round number.
+
+| Call | `<function>` | Extra env vars | Output path (default) |
+|---|---|---|---|
+| `createApplication` | `deployMultisigCreate` | `PAY_TO_ADDRESS` | `./payment-router-create.txn` |
+| `setCrediter(addr)` | `deployMultisigSetCrediter` | `CREDITER_ADDRESS` | `./payment-router-set-crediter.txn` |
+| `setIdentity(identity, addr)` | `deployMultisigSetIdentity` | `IDENTITY`, `IDENTITY_ADDRESS` | `./payment-router-set-identity-<identity>.txn` |
+| `announceRelease(to)` | `deployMultisigAnnounceRelease` | `RELEASE_TO_ADDRESS` | `./payment-router-announce-release.txn` |
+| `executeRelease()` | `deployMultisigExecuteRelease` | `PAY_TO_ADDRESS`, `TREASURY_ADDRESS` | `./payment-router-execute-release.txn` |
+
+After `createApplication` submits, set `PAYMENT_ROUTER_APP_ID` to the app id it returns before
+building any of the other four files. Fund the app account for box storage before the first
+`credit()` (any funder, no admin authority needed: `goal clerk send -a 1000000 -f <any-funder> -t
+<APP_ADDRESS>`). Run `setIdentity` once per `AUDITORS` entry plus `ops`. Map `treasury` before the
+first `executeRelease`: invariant 8 (CLAUDE.md) treats a role as onboarded only after an admin
+maps it with `setIdentity`.
+
+**`executeRelease()`'s outer fee.** `deployMultisigExecuteRelease` sets a flat outer fee of at
+least 3,000 microALGO. `executeRelease()` submits up to two inner transactions: the treasury
+sweep axfer, then the `payTo` rekey payment. The outer fee must pool both inner minimum fees,
+plus the outer call's own fee (ADR 0010).
+
+**The announce-to-execute delay.** `announceRelease` records the current round.
+`executeRelease` refuses on-chain until 216,000 rounds pass (about 7 days at ~2.9s/round). Run
+the migration procedure in §10 before `announceRelease`. Building the `executeRelease` file early
+is harmless. The chain rejects a submission before the delay passes.
 
 ---
 
@@ -268,7 +329,8 @@ SPEC.md §10.2a). Run this procedure before `announceRelease`, every time.
 3. Announce the migration to every payee (auditors, ops, and any onboarded role): the new app id,
    the claim window, and the round `announceRelease` was called at.
 4. Call `announceRelease(to)` on the old app, with `to` set to `payTo`'s current address (the
-   rekey target stays `payTo` itself; only the authorizer changes).
+   rekey target stays `payTo` itself; only the authorizer changes). Follow §2a's three-step
+   multisig procedure with `deployMultisigAnnounceRelease` and `RELEASE_TO_ADDRESS`.
 5. Tell payees to `claim()` their balance on the old app before the delay window ends (about
    7 days, 216,000 rounds).
    ```bash
@@ -283,7 +345,10 @@ SPEC.md §10.2a). Run this procedure before `announceRelease`, every time.
 7. Call `executeRelease()` on the old app. It sweeps `creditedUnclaimed` to the address mapped to
    identity `"treasury"`, sets `creditedUnclaimed` to 0, marks the old app retired, and rekeys
    `payTo` to the new app. This fails if `"treasury"` is not mapped with `setIdentity` — map it
-   first.
+   first (§2a). It also fails on-chain if the 216,000-round delay since `announceRelease` has not
+   passed. Follow §2a's three-step multisig procedure with `deployMultisigExecuteRelease`,
+   `PAY_TO_ADDRESS` and `TREASURY_ADDRESS`. Its outer fee is a flat 3,000 microALGO or more,
+   pooling the two inner transactions this call submits.
    Check: `payTo`'s `auth-addr` equals the new app's address. `credit()` and `claim()` on the old
    app now fail.
 8. Pay each payee who missed the claim window their swept balance off-chain, on request. The old
