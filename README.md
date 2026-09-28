@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="docs/assets/aupm-logo.png" alt="AuPM logo" width="160">
-</p>
+https://github.com/user-attachments/assets/f7fec474-bfa1-4453-812c-a7dfe773142a
 
 <h1 align="center">AuPM — audited package manager</h1>
 
