@@ -498,22 +498,63 @@ Result:
 
 Owner: `algorand-contract-engineer` (analysis and tests). Decision: human.
 
-### P2. Donor UX from zero
+### P2. `spm` as a drop-in for npm
 
-Walk the donor path as a new user on TestNet, from the README only: npm pointed at the proxy,
-`spm attest --donate`, the MCP `attest_lockfile` with `allowDonation`, and the GitHub Action with
-`donate: 'true'`. Record every step that needs a repo clone, a hidden env var, or a guess.
+Main use case (user, 2026-09-28): a regular user runs SPM in place of npm, with as little
+friction as possible. Today `spm install <pkg> <version>` takes a fixed argument shape and is
+not npm-compatible. Donation needs a separate `spm attest --donate`.
 
-Known blocker: the npm names `spm-cli` and `spm-mcp` belong to unrelated authors. A donor who
-runs `npx spm-cli` gets a stranger's package. Result: the CLI and the MCP server get names
-that the team controls (for example an npm scope). They are published, or the README installs
-them from a pinned git tag. No doc or config names the foreign packages.
+Facts (check each against the code first):
+- A user who only sets `npm config set registry https://<domain>/` never gets a 402 and never
+  sees a donation prompt. A reviewed tarball returns 200 free without `X-SPM-Donate: 1`
+  (invariant 4, ADR 0006). The proxy sets a hint header, but npm does not show response
+  headers. A 402 to plain npm would break `npm install`, so this stays.
+- npm fetches tarballs itself and cannot pay a 402. So a donation from an npm install goes
+  through the lockfile route: one payment, 1,000 microUSDC per reviewed entry (ADR 0008).
 
-Target: each client has one line of config.
-- npm: `npm config set registry https://<domain>/` (free, no wallet).
-- Donation: one opt-in flag or setting per client, and the donor key from a secret manager.
+Result:
+1. `spm <npm args>` runs `npm <npm args>` with the SPM registry, and passes every argument and
+   the exit code through unchanged. Output and behavior are npm's. SPM adds only its own flags
+   (`--donate`, and a flag to write the attestation file). SPM flags never reach npm.
+2. After a successful install, `spm` prints one summary line: how many lockfile entries are
+   `COMMUNITY_REVIEWED`, and the donation amount in dollars. Without `--donate` it signs
+   nothing and adds one hint line: how to donate.
+3. With `--donate` (or a persistent opt-in in the SPM config), `spm` runs the lockfile
+   attestation with donation after the install. A failed donation never fails the install:
+   it logs one line and keeps npm's exit code.
+4. `spm attest` and `spm verify` stay, for CI and offline checks. A regular user does not need
+   them.
+5. pnpm: check if `POST /v1/attest/lockfile` parses `pnpm-lock.yaml`. If yes, `spm pnpm <args>`
+   behaves the same way. If no, write down the gap as a later item. npx: out of scope for
+   wave 7; write it down as planned.
+6. Walk the path as a new user on TestNet, from the README only. Cover: the one-line registry
+   config, `spm install --donate`, the MCP `attest_lockfile` with `allowDonation`, and the
+   Action with `donate: 'true'`. Record every step that needs a repo clone, a hidden env var, or
+   a guess, and fix it or list it.
+7. Examples in every doc use `ms@2.1.3`. It is the package with a real anchored review.
 
-Owner: `mcp-payer-engineer`. Decision: human (the npm scope and who publishes).
+Tests: argument pass-through (flags, `--`, positional args), exit code pass-through, SPM flags
+removed, donation failure keeps npm's exit code, summary line with 0 and with N reviewed
+entries. Owner: `mcp-payer-engineer`.
+
+### P2a. Package names (decision first)
+
+The npm names `spm-cli` and `spm-mcp` belong to unrelated authors (`spm-cli`: "the awesome
+style project manager"; `spm-mcp`: a product-document tool). A user who runs `npx spm-cli`
+gets a stranger's code. For a security product this blocks the launch.
+
+Candidates for the human to pick from, after a registry check at the start of the session
+(`curl -s -o /dev/null -w '%{http_code}' https://registry.npmjs.org/<name>`, 404 = free):
+- Unscoped: `spm` (probably taken; "SPM" also names the Swift Package Manager), `snpm`,
+  `spm-proxy`.
+- Scoped under an npm org that the team owns, for example `@<org>/spm` and `@<org>/spm-mcp`.
+  A scope cannot be squatted per package and makes the publisher visible. Recommended.
+- The command name (`bin`) is separate from the package name. `spm` as the command works with
+  any package name. Check for a clash with a common global command.
+
+Result: the chosen names in `cli/package.json`, `mcp/package.json`, the Action and all docs. No
+doc or config names the foreign packages. Publish is a human step (npm login, 2FA,
+provenance).
 
 ### P3. Amounts in dollars
 
@@ -525,15 +566,30 @@ integer micro-units (invariant 7). One helper formats micro-units as dollars; te
 
 Owner: `x402-proxy-engineer` (proxy text) and `mcp-payer-engineer` (CLI, MCP, Action).
 
-### P4. Tier filter (decision first)
+### P4. Tier filter — planned (decided 2026-09-28)
 
-The README draft says that users filter dependencies by security status. Today the MVP has two
-tiers (`UNREVIEWED`, `COMMUNITY_REVIEWED`, SPEC §4.1) and no filter in any client. Donations
-already go only to reviewed versions. The human picks one:
-- (a) Build a report or a filter: for example `spm attest` prints the tier of each lockfile
-  entry, and a flag fails when an entry is below a tier.
-- (b) The README describes the filter as planned (SPEC §8 phases), not as built.
-No phantom features: the README never describes (a) before it exists.
+The MVP has two tiers (`UNREVIEWED`, `COMMUNITY_REVIEWED`, SPEC §4.1) and no filter in any
+client. The README describes filtering by tier as planned (SPEC §8), not as built. Donations
+already go only to reviewed versions; the README states that as built.
+
+### P8. New split: 30 / 10 / 20 / 25 / 10 / 5 (MainNet contract only)
+
+Decided by the user, 2026-09-28:
+- Target: auditor 30, contributor 10, maintainer 20, adversarial reviewer 25, treasury 10,
+  ops 5 (per 1,000: 300 / 100 / 200 / 250 / 100 / 50).
+- MVP: auditor 30, ops 70 (per 1,000: 300 / 700).
+- TestNet keeps app 772553842 with the 40 / 60 split. No TestNet redeploy. The docs say so.
+
+Result:
+1. `contract.algo.ts`: `AUDITOR_SHARE_NUM` 300. Contract tests for the new amounts, including
+   the rounding of odd totals. Bundle any P1 contract change into the same build.
+2. SPEC §6.1, §6.2 and every place that states the split; a new ADR that supersedes ADR 0003;
+   `CLAUDE.md` (overview and the canonical facts table); README; public texts; `guard.sh` rules
+   that check split text. Invariant 8 still holds.
+3. Because TestNet is not redeployed, rehearse the new build on LocalNet: deploy, rekey a
+   `payTo`, credit one batch, claim. Record the result.
+4. A human runs `algokit project run build` and commits the artifacts.
+Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subagent (texts).
 
 ### P5. README as a product page
 
@@ -544,9 +600,10 @@ The README describes the product, not the repo. Source text (the user's draft, 2
 > supporters and repository maintainers to improve security and get paid for their labour.
 > Users and their agents donate to the products and dependencies they use, as they go.
 
-Sections: the problem and the product; the review tiers (and P4 as decided); what a donation
-pays for, in dollars, with the target split and the MVP split (invariant 8); "For users and
-donors" (one-line config from P2); "For auditors" (next paragraph); verify offline; links.
+Sections: the problem and the product; the review tiers (filtering is planned, P4); what a
+donation pays for, in dollars, with the P8 target split and MVP split (invariant 8); "For users
+and donors" (`spm` as a drop-in for npm, P2); "For auditors" (next paragraph); verify offline;
+links. All examples use `ms@2.1.3`.
 - Auditor path: an Algorand account opted in to USDC; the admin maps the identity
   (`setIdentity`); the auditor reads the exact tarball; the review anchor (a 0-ALGO
   self-payment with an ARC-2 `spm:j{...}` note, ADR 0007); the operator runs `record-review`;
@@ -579,8 +636,9 @@ finding list. Each accepted finding becomes one item. Owner: `code-reviewer`.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
 - **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1.
-- **Wave 7:** P1 (decision) → P2 ‖ P7 → P3 → P4 (decision) → P5 → P6 → MainNet launch (human
-  steps, checked by the orchestrator).
+- **Wave 7:** P1 (decision) and P2a (names, decision) first → P8 (with P1's contract change)
+  ‖ P7 → P2 → P3 → P5 → P6 → MainNet launch (human steps, checked by the orchestrator). P4 is
+  decided (planned).
 
 ### S1. Dependency advisories — DONE 349de5c
 
@@ -618,8 +676,8 @@ patched version.
 - Real package reviews and their anchors.
 - The first real payment; the form and the Electric Capital submission.
 - `algokit project run build` after a contract change.
-- Wave 7 decisions: the contract change policy (P1), the npm scope and publisher (P2), the tier
-  filter (P4).
+- Wave 7 decisions: the contract change policy (P1), the package names and publisher (P2a).
+- Wave 7 human steps: `algokit project run build` for P8, the npm publish.
 - Legal read before any payout to a third party (SPEC §13.4).
 
 ## Definition of done
