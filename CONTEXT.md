@@ -93,3 +93,20 @@ _Avoid_: wallet (when it means the donor's main holdings)
 **Contributor**:
 The author of a merged fix PR that references an audit.
 _Avoid_: developer, committer
+
+### Migration
+
+**Announce release**:
+The admin step that records a migration target address and the current round, and starts the
+delay window before `executeRelease` can run.
+_Avoid_: propose release, queue release
+
+**Execute release**:
+The admin step, runnable only after the delay window, that sweeps the old app's unclaimed
+balance to treasury, retires the old app, and rekeys `payTo` to the new address.
+_Avoid_: finalize release, migrate
+
+**Treasury sweep**:
+The one-time inner transfer of `creditedUnclaimed` from `payTo` to the address mapped to
+identity `"treasury"`, run by `executeRelease`.
+_Avoid_: bailout, rescue

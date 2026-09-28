@@ -430,8 +430,10 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   future claims to the new address; it never touches a balance already claimed.
 - The contract keeps a running total of credited, unclaimed balances, so it can compute the
   unallocated balance as the USDC balance of `payTo` minus that total.
-- Admin-gated `releaseAuthority(to)` carries over from SplitRouter. `attest()` and
-  `setAttestationKey()` do not: reviews are anchored by the auditor (§14, ADR 0007).
+- Admin-gated `releaseAuthority(to)` carries over from SplitRouter. Planned for the MainNet
+  build (P8): it is replaced by `announceRelease(to)` and `executeRelease()`, a two-step flow
+  with a compiled-in delay (§10.2a, ADR 0010). `attest()` and `setAttestationKey()` do not:
+  reviews are anchored by the auditor (§14, ADR 0007).
 - Amount-agnostic: no assertion on a fixed payment amount.
 - Every price is a multiple of 1,000 µUSDC, so every attributed credit splits exactly.
 
@@ -446,7 +448,8 @@ a 1,000 µALGO fee (about 11% of a $0.001 payment) plus a replay record (ADR 000
 ### 10.2 payTo is a plain account rekeyed to PaymentRouter (Variant B, ADR 0004)
 
 `payTo` is a plain account. PaymentRouter issues the inner axfers with `sender = payTo`. A later
-contract takes over with `releaseAuthority(newApp)`, and `payTo` stays the same.
+contract takes over with `releaseAuthority(newApp)` (§10.2a, ADR 0010), and `payTo` stays the
+same.
 
 **Order is not reversible: opt into USDC 31566704 *before* rekeying.** A rekeyed account cannot
 sign anything with its own key, including its own asset opt-in, and the app cannot opt it in
@@ -458,6 +461,29 @@ sender) on TestNet (§17 R0) before the MainNet rekey.
 **Before the rekey,** `payTo` is a plain account that holds real USDC, and its key can move
 it. Keep that key cold and offline, and use it for exactly two actions: the USDC opt-in and the
 rekey. After the rekey the key has no signing power over `payTo`.
+
+### 10.2a Contract admin policy and migration (ADR 0010)
+
+`Global.creatorAddress` is a 2-of-3 Algorand multisig address, not one key. No single lost or
+leaked key can call `setCrediter`, `setIdentity`, `announceRelease`, or `executeRelease`.
+
+Planned for the MainNet build (P8): `releaseAuthority(to)` is replaced by two admin methods.
+- `announceRelease(to)` records `to` and the current round in global state.
+- `executeRelease()` runs only after a compiled-in delay of about 7 days (216,000 rounds) from
+  the announced round. In order, it: (1) issues one inner USDC transfer of `creditedUnclaimed`
+  from `payTo` to the address mapped to identity `"treasury"` — it fails if `"treasury"` is not
+  mapped; (2) sets `creditedUnclaimed` to 0; (3) marks the app retired, so `credit()` and
+  `claim()` both fail on it from then on; (4) rekeys `payTo` to `to`. `payTo`'s address does not
+  change; the rekey changes the authorizer, not the address (invariant 1 holds).
+
+Before `announceRelease`, run the migration runbook procedure (`docs/RUNBOOK-mainnet-launch.md`):
+a final credit batch, an announcement to payees, a claim window, and stopping the nightly job
+against the old app id before `executeRelease` runs. After `executeRelease`, the treasury pays
+each swept balance to its payee off-chain, on request. The old app's balance boxes stay in place
+as proof of the amount owed.
+
+Public texts say the treasury role is onboarded only once `"treasury"` is mapped with
+`setIdentity` (invariant 8, CLAUDE.md). Before that, `executeRelease` cannot run.
 
 ### 10.3 SQLite is the store (ADR 0001)
 

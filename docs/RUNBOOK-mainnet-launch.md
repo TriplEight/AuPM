@@ -253,7 +253,45 @@ removed from their repository the first time it does, and the donation volume go
 
 ---
 
-## 10. Known open items
+## 10. Migrate PaymentRouter to a new app (planned for the MainNet build, P8)
+
+`releaseAuthority(to)` becomes `announceRelease(to)` and `executeRelease()` under P8 (ADR 0010,
+SPEC.md §10.2a). Run this procedure before `announceRelease`, every time.
+
+1. Deploy and build the new PaymentRouter app (`docs/RUNBOOK-contract-build.md`). Do not rekey
+   `payTo` to it yet.
+2. Run one final `credit()` batch against the old app.
+   ```bash
+   docker compose run --rm aupm node --import tsx/esm src/claims/nightly-main.ts
+   ```
+   Check: the log line names the credited batch and a credit txid.
+3. Announce the migration to every payee (auditors, ops, and any onboarded role): the new app id,
+   the claim window, and the round `announceRelease` was called at.
+4. Call `announceRelease(to)` on the old app, with `to` set to `payTo`'s current address (the
+   rekey target stays `payTo` itself; only the authorizer changes).
+5. Tell payees to `claim()` their balance on the old app before the delay window ends (about
+   7 days, 216,000 rounds).
+   ```bash
+   node scripts/claim.mjs <identity> <CLAIMANT_MNEMONIC_ENV_VAR> --network mainnet --confirm-mainnet
+   ```
+   Check: each payee who claims in time shows a claim txid and a balance of 0 on the old app.
+6. Before `executeRelease`, stop the nightly job against the old app id.
+   ```bash
+   AUPM_NIGHTLY=off  # set on the old app's deployment, then redeploy
+   ```
+   Check: `GET /api/v1/health` on the old app's deployment shows no further scheduled run.
+7. Call `executeRelease()` on the old app. It sweeps `creditedUnclaimed` to the address mapped to
+   identity `"treasury"`, sets `creditedUnclaimed` to 0, marks the old app retired, and rekeys
+   `payTo` to the new app. This fails if `"treasury"` is not mapped with `setIdentity` — map it
+   first.
+   Check: `payTo`'s `auth-addr` equals the new app's address. `credit()` and `claim()` on the old
+   app now fail.
+8. Pay each payee who missed the claim window their swept balance off-chain, on request. The old
+   app's balance boxes stay in place as proof of the amount owed; nothing deletes them.
+
+---
+
+## 11. Known open items
 
 **Legal.** AuPM holds funds owed to third parties. For a German operator this may touch
 payment-services regulation. Get advice before paying anyone outside the team. It carries no
