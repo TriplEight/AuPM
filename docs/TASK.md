@@ -724,7 +724,7 @@ does not reach the response body. Owner: `x402-proxy-engineer`.
 `AbortSignal.timeout` (30 s, a compiled-in constant); a timeout returns 504 with a short JSON
 error. Test: a stalled upstream returns 504. Owner: `x402-proxy-engineer`.
 
-### P8d. One split on every network (decided 2026-09-28)
+### P8d. One split on every network (decided 2026-09-28) — DONE b918abf
 
 The contract is rebuilt with 300/700, and TestNet moves to a new app from that build after the
 merge. The TestNet app 772553842 (400/600) is retired. Result: every doc states one split
