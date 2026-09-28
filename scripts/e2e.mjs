@@ -227,7 +227,7 @@ export async function waitForIndexerTransaction(indexerClient, txid, opts = {}) 
 /**
  * Refuses unless `transaction` is a plain USDC asset transfer to `payToAddress`
  * with no inner transactions — the exact shape the x402 exact scheme settles
- * (CLAUDE.md invariant 3: `asset` always explicit; spm-x402-flow: "the
+ * (CLAUDE.md invariant 3: `asset` always explicit; aupm-x402-flow: "the
  * payment is a plain USDC asset transfer to payTo"). Pure: no network access.
  *
  * @param {object} transaction - an indexer transaction record (camelCase, algosdk v3 shape)
@@ -451,7 +451,7 @@ export function assertDonorFundedForRehearsal(
 /**
  * Refuses when any two of the deployer, crediter, and donor resolve to the
  * same address — the crediter key must never double as a cold key
- * (spm-payment-router skill), and a self-funding donor would make the
+ * (aupm-payment-router skill), and a self-funding donor would make the
  * "donor holds enough USDC" precondition meaningless. Pure: no network
  * access. Names the two colliding public addresses in the message (Defect
  * 3, R3b) — never a mnemonic or any other secret.

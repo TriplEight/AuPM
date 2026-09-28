@@ -6,7 +6,7 @@ description: >
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 ---
-You own `mcp/` and `cli/`. Load the `spm-x402-flow` skill first.
+You own `mcp/` and `cli/`. Load the `aupm-x402-flow` skill first.
 
 Rules:
 - Donate only through `mcp/src/donor.ts`. It is off by default. It enforces the spend cap

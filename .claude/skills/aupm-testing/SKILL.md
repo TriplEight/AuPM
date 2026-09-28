@@ -1,11 +1,11 @@
 ---
-name: spm-testing
+name: aupm-testing
 description: >
-  SPM test stack, the verification harness (scripts/verify.sh), and the sandbox
+  AUPM test stack, the verification harness (scripts/verify.sh), and the sandbox
   limits on running it. Use whenever you write or run tests, e2e scripts, or
   acceptance checks.
 ---
-# Testing SPM
+# Testing AUPM
 
 ## Principle
 "Done" means a command exits 0 and prints PASS. Run the check and show the result.
@@ -18,7 +18,7 @@ Never weaken an assertion to make a check pass. Fix the code.
 | Everything | `bash scripts/verify.sh` — prints `VERIFY: PASS` or `VERIFY: FAIL` |
 | Types | `pnpm typecheck` |
 | Per package | `pnpm -C proxy test`, `pnpm -C contracts test`, `pnpm -C mcp test`, `pnpm -C cli test` |
-| CI Action | `node --test .github/actions/spm-attest/attest.test.mjs` |
+| CI Action | `node --test .github/actions/aupm-attest/attest.test.mjs` |
 | Invariants | `bash scripts/guard.sh` |
 | Lint | `pnpm exec biome ci .` — zero warnings |
 
@@ -35,7 +35,7 @@ must reach registry.npmjs.org through the sandbox proxy.
 ## Stack
 - proxy: vitest plus Hono `app.request()`. SQLite in a temp file. External clients
   (GitHub, indexer, facilitator) are injected; tests pass stubs.
-- contracts: vitest on `algorand-typescript-testing`. See `spm-payment-router` for its limits.
+- contracts: vitest on `algorand-typescript-testing`. See `aupm-payment-router` for its limits.
 - mcp, cli: vitest.
 
 Redirect test output to a log file. Read the exit code and the last 30 lines.

@@ -1,7 +1,7 @@
 # AuPM — Specification
 
 **Audience:** a fresh Claude session with no prior context on this project.
-**Repo:** `github.com/TriplEight/SPM` (public, `master`)
+**Repo:** `github.com/TriplEight/AuPM` (public, `master`)
 
 Part I is the product: the problem, the model, the roles and the phases. Part II is Phase 1,
 the MVP for the Global x402 Challenge on Algorand MainNet. Read the whole document before you

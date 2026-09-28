@@ -1,11 +1,11 @@
 ---
-name: spm-x402-flow
+name: aupm-x402-flow
 description: >
-  How SPM does the x402 402->pay->retry round-trip on Algorand with the
+  How AUPM does the x402 402->pay->retry round-trip on Algorand with the
   @x402-avm packages. Use for the proxy routes, the MCP/CLI payer, payment
   requirements, headers, Bazaar discovery, and facilitator settlement.
 ---
-# x402 on Algorand for SPM
+# x402 on Algorand for AUPM
 
 ## Packages (scoped — exact names)
 `@x402-avm/core`, `@x402-avm/avm`, `@x402-avm/hono` (server middleware),
@@ -38,9 +38,9 @@ adapter implements `getBody()`. A lockfile with zero reviewed packages is free.
 
 Gate logic (SPEC §10.4, ADR 0006):
 - Status below `COMMUNITY_REVIEWED` means passthrough, free, on every route.
-- Reviewed tarball: free unless the request sends `X-SPM-Donate: 1`. npm cannot pay a 402.
+- Reviewed tarball: free unless the request sends `X-AUPM-Donate: 1`. npm cannot pay a 402.
 - Attestation routes: standard x402 for reviewed content, so Bazaar agents can pay.
-  `X-SPM-Donate: 0` gets a free partial attestation (pre-middleware).
+  `X-AUPM-Donate: 0` gets a free partial attestation (pre-middleware).
 
 The free tier must never require a wallet. Grant it with the `onProtectedRequest` hook,
 which returns `{ grantAccess: true }`. A static route config alone always demands payment.
@@ -53,7 +53,7 @@ the catalog row never appears. Assert `validateDiscoveryExtension(decl.bazaar).v
 in a unit test.
 
 ## Client (agent / CLI)
-SPM clients send `X-SPM-Donate: 1` with the donation opt-in and `X-SPM-Donate: 0`
+AUPM clients send `X-AUPM-Donate: 1` with the donation opt-in and `X-AUPM-Donate: 0`
 without it. Spend cap: 1,000 microUSDC × the lockfile entries sent (1,000 for one package),
 USDC only.
 

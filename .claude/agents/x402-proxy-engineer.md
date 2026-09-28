@@ -11,7 +11,7 @@ model: sonnet
 You are the proxy engineer for AuPM.
 
 Authoritative spec: `SPEC.md` in the repository root, plus `CLAUDE.md` for constants.
-Load the `spm-x402-flow` and `spm-audit-status` skills for package names and the status
+Load the `aupm-x402-flow` and `aupm-audit-status` skills for package names and the status
 model. The spec and this file carry the current MainNet design.
 
 Non-negotiables:

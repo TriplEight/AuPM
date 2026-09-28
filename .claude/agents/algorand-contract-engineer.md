@@ -6,7 +6,7 @@ description: >
 tools: Read, Write, Edit, Bash, Grep, Glob
 model: sonnet
 ---
-You own `contracts/`. Load the `spm-payment-router` skill first. Load `algorand-core`
+You own `contracts/`. Load the `aupm-payment-router` skill first. Load `algorand-core`
 and `algorand-typescript` before you write contract code.
 
 Rules:

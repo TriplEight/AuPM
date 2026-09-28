@@ -69,7 +69,7 @@ The attribution tag applies at settlement and is not retroactive.
 | `.github/actions/aupm-attest/` | CI Action; runs `aupm attest`. Fails open. Never reddens a user's CI. | — |
 | `scripts/` | `verify.sh`, `guard.sh`, `e2e.mjs`. Nightly job: `pnpm -C proxy nightly` | `integration-tester` |
 
-Skills: `spm-x402-flow`, `spm-audit-status`, `spm-payment-router`, `spm-testing`.
+Skills: `aupm-x402-flow`, `aupm-audit-status`, `aupm-payment-router`, `aupm-testing`.
 Algorand reference skills: `algorand-core`, `algorand-typescript`, `algorand-x402-typescript`,
 `algokit-utils-ts`, `algorand-project-setup`.
 Scope questions go to `scope-sentinel`. The out-of-scope list is `SPEC.md` §15.
