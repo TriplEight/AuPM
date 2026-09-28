@@ -33,6 +33,9 @@ importers:
       algosdk:
         specifier: 3.5.2
         version: 3.5.2
+      aupm-mcp:
+        specifier: workspace:*
+        version: link:../mcp
     devDependencies:
       '@types/node':
         specifier: 22.15.21
@@ -156,6 +159,9 @@ importers:
       algosdk:
         specifier: 3.5.2
         version: 3.5.2
+      aupm-mcp:
+        specifier: workspace:*
+        version: link:../mcp
       better-sqlite3:
         specifier: 12.10.0
         version: 12.10.0

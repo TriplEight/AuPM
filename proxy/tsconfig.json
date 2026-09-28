@@ -7,10 +7,7 @@
     "noUncheckedIndexedAccess": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "paths": {
-      "../../../mcp/src/money.js": ["../../mcp/src/money.ts"]
-    }
+    "outDir": "dist"
   },
   "include": ["src/**/*.ts"]
 }

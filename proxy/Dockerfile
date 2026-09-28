@@ -6,16 +6,19 @@
 # "aupm" service.
 #
 # Two stages: "build" compiles the native better-sqlite3 module and installs
-# only the proxy workspace project's dependencies (pnpm --filter ./proxy...
-# keeps the contracts/mcp/cli dependency trees out of this image). "runtime"
-# copies the installed node_modules and proxy source into a slim image with
-# no compiler toolchain, and runs as a non-root user.
+# the proxy workspace project's dependencies plus its workspace dependency
+# aupm-mcp (pnpm --filter ./proxy... resolves both — "..." on a filter means
+# "this package and everything it depends on" — and keeps the contracts/cli
+# dependency trees out of this image). "runtime" copies the installed
+# node_modules and proxy source into a slim image with no compiler
+# toolchain, and runs as a non-root user.
 #
 # proxy/src/x402/routes.ts imports the dollar-formatting helper from
-# mcp/src/money.ts (docs/TASK.md P3: one helper, no duplicate). That one
-# dependency-free file — not the rest of the mcp workspace project or its
-# dependencies — is copied in below, at the same relative path the import
-# expects (repo-root-sibling of proxy/).
+# aupm-mcp's `./money` export (docs/TASK.md P3: one helper, no duplicate;
+# P9: package import through the workspace, not a relative path). Declaring
+# the dependency pulls in aupm-mcp's own dependencies too (pnpm installs a
+# package's full dependency graph, not just the files a consumer imports),
+# even though money.ts itself has none.
 #
 # No build step (`tsc`) exists for the proxy package (see proxy/package.json
 # "start"): it runs TypeScript directly through tsx at runtime, so tsx (a
@@ -47,7 +50,9 @@ COPY cli/package.json cli/package.json
 RUN pnpm install --frozen-lockfile --filter ./proxy...
 COPY proxy/src proxy/src
 COPY proxy/tsconfig.json proxy/tsconfig.json
-COPY mcp/src/money.ts mcp/src/money.ts
+# mcp/src, minus its tests (excluded via .dockerignore): the runtime image
+# needs aupm-mcp's source since it ships without a build step, same as proxy.
+COPY mcp/src mcp/src
 # scripts/record-review.mjs (SPEC §14) is the operator's `docker compose run`
 # entry point. It imports ./network.mjs and ./review-anchor.mjs by relative
 # path, and dynamically imports ../proxy/src/status.js, so scripts/ must sit

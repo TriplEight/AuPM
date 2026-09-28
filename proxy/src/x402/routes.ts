@@ -6,7 +6,7 @@
 import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/http'
 import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
-import { formatMicroUsd } from '../../../mcp/src/money.js'
+import { formatMicroUsd } from 'aupm-mcp/money'
 import { mvpSplit, targetSplitRow } from '../claims/attribution-rules.js'
 import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
 import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'

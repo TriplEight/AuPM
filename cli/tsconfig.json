@@ -5,12 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "esModuleInterop": true,
-    "skipLibCheck": true,
-    "paths": {
-      "../../mcp/src/tools/attest.js": ["../../mcp/src/tools/attest.ts"],
-      "../../mcp/src/donor.js": ["../../mcp/src/donor.ts"],
-      "../../mcp/src/money.js": ["../../mcp/src/money.ts"]
-    }
+    "skipLibCheck": true
   },
   "include": ["src/**/*.ts"]
 }
