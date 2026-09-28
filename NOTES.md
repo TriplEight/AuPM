@@ -486,3 +486,6 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - F3 dropped: ADR 0009 already returns 503 when the last success is older than 26 h.
 - TestNet now runs on rootful Docker Compose, the same runtime as MainNet.
 - MainNet steps move to the next session.
+- V1 `9de186e`: the verify e2e proxy takes a free port; a live stack on 4873 no longer answers it.
+- `VERIFY: PASS` with the TestNet stack on 4873; `prek run --all-files` passes.
+- Next session: MainNet runbook §2 (payTo opt-in, deploy, rekey) → §3 stack → first credit.
