@@ -33,6 +33,7 @@ import { analyzeLockfile, LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
 import {
   createRateLimiter,
   DEFAULT_FREE_LOCKFILE_RATE_LIMIT,
+  DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT,
   type RateLimiter,
 } from '../attest/ratelimit.js'
 import {
@@ -453,6 +454,12 @@ export interface AttestRoutesOptions {
   getSigningKey: () => Promise<SigningKeyLike>
   /** Rate limiter for the free (zero-coverage) lockfile path. */
   rateLimiter?: RateLimiter
+  /**
+   * Rate limiter for every `POST /v1/attest/lockfile` request, paid or
+   * free, checked before the body is read. Guards the priced branch, which
+   * `rateLimiter` above never sees.
+   */
+  lockfileRequestRateLimiter?: RateLimiter
   /** Known-good tarball integrity lookup for reviewed packages. */
   integrityLookup?: IntegrityLookup
 }
@@ -472,8 +479,17 @@ export interface AttestRoutes {
  */
 export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
   const rateLimiter = options.rateLimiter ?? createRateLimiter(DEFAULT_FREE_LOCKFILE_RATE_LIMIT)
+  const lockfileRequestRateLimiter =
+    options.lockfileRequestRateLimiter ?? createRateLimiter(DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT)
 
   const lockfilePreMiddleware: MiddlewareHandler<{ Variables: AppVariables }> = async (c, next) => {
+    // Runs before the body is read at all, paid or free path alike: a
+    // caller with one reviewed entry must never spend server CPU (a parse,
+    // roughly 500 status lookups, and a signature) at no cost just because
+    // the request is priced (SPEC.md §12.3).
+    if (!lockfileRequestRateLimiter.attempt(clientIp(c))) {
+      return c.json({ error: 'rate limit exceeded for the lockfile attestation route' }, 429)
+    }
     const limited = await readLimitedBody(c, LOCKFILE_MAX_BYTES)
     if (!limited.ok) {
       return limited.response

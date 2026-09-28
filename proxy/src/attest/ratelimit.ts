@@ -22,6 +22,19 @@ export const DEFAULT_FREE_LOCKFILE_RATE_LIMIT: RateLimiterConfig = {
   max: 20,
 }
 
+/**
+ * Default cap on every `POST /v1/attest/lockfile` request, paid or free:
+ * 120 requests per IP per hour. Applied before the body is even read, so a
+ * caller cannot spend server CPU (a parse, roughly 500 status lookups, and
+ * a signature) on a priced lockfile just because it has at least one
+ * reviewed entry — the free-path limiter above only guards the zero-
+ * coverage and partial branches, not this one (SPEC.md §12.3).
+ */
+export const DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT: RateLimiterConfig = {
+  windowMs: 60 * 60 * 1000,
+  max: 120,
+}
+
 // A key is pruned from the map once every PRUNE_INTERVAL calls, not on
 // every call — a full-map sweep on every request would cost O(distinct
 // keys) each time. This still bounds growth to at most PRUNE_INTERVAL

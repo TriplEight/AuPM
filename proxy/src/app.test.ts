@@ -18,6 +18,7 @@ import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402
 import type { FacilitatorClient } from '@x402-avm/core/server'
 import { beforeEach, describe, expect, test } from 'vitest'
 import { signEnvelope, type VerificationKey, verifyEnvelope } from './attest/dsse.js'
+import { createRateLimiter } from './attest/ratelimit.js'
 
 // A real 64-byte sha512 digest, base64 encoded.
 //
@@ -497,6 +498,69 @@ describe('x402 gate', () => {
       accepts: Array<{ amount?: string }>
     }
     expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+  })
+
+  // Defect this pins: the free-path limiter only guarded the zero-coverage
+  // and partial branches, never the priced one — a caller with one reviewed
+  // entry could spend server CPU (a parse, roughly 500 status lookups, and
+  // a signature) on every request at no cost (SPEC.md §12.3). A second,
+  // per-IP limiter now runs before the body is even read, on every lockfile
+  // request, paid or free.
+  test('POST /v1/attest/lockfile: a priced request under the per-request cap still reaches the 402 gate', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const { httpServer: cappedHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const cappedApp = createApp(cappedHttpServer, {
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+
+    const res = await cappedApp.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+
+    expect(res.status).toBe(402)
+  })
+
+  test('POST /v1/attest/lockfile: over the per-request cap, 429 before the payment gate runs', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const { httpServer: cappedHttpServer } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const cappedApp = createApp(cappedHttpServer, {
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+    const lockfileBody = JSON.stringify({
+      lockfileVersion: 3,
+      packages: {
+        'node_modules/ms': {
+          version: '2.1.3',
+          resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+          integrity: REVIEWED_INTEGRITY,
+        },
+      },
+    })
+    const init = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: lockfileBody,
+    }
+
+    const first = await cappedApp.request('/v1/attest/lockfile', init)
+    expect(first.status).toBe(402)
+
+    const second = await cappedApp.request('/v1/attest/lockfile', init)
+    expect(second.status).toBe(429)
+    // The payment gate never ran on the rejected request: no
+    // PAYMENT-REQUIRED header, the tell-tale sign of the 402 path.
+    expect(second.headers.get('PAYMENT-REQUIRED')).toBeNull()
   })
 
   test('GET /v1/attest: 402 before the real handler runs (reviewed, with stored integrity)', async () => {
