@@ -1,10 +1,10 @@
-# SPM
+# AuPM
 
-SPM is an npm-compatible registry overlay for the Global x402 Challenge on Algorand MainNet.
+AuPM is an npm-compatible registry overlay for the Global x402 Challenge on Algorand MainNet.
 - Unreviewed packages pass through to npm for free.
 - A human-reviewed package costs 1,000 µUSDC, paid by a donor through the GoPlausible
   facilitator. Clients donate only on opt-in (`--donate`, `allowDonation`, `donate: 'true'`),
-  key `SPM_DONOR_MNEMONIC`. Plain `npm install` stays free (ADR 0006).
+  key `AUPM_DONOR_MNEMONIC`. Plain `npm install` stays free (ADR 0006).
 - USDC accrues at one fixed `payTo`. It takes payments before it is rekeyed to `PaymentRouter`.
   A nightly job credits balances in numbered batches. The auditor and ops claim.
   Target split 40/10/20/15/10/5; MVP 40 auditor / 60 ops.
@@ -27,7 +27,7 @@ WARNING: every change preserves these. A violation costs money or a false securi
 3. `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
    `asset` is always explicit. An omitted asset can resolve to ALGO.
 4. Unreviewed content never returns 402. A reviewed tarball returns 402 only with
-   `X-SPM-Donate: 1`. `X-SPM-Donate: 0` on an attestation route gets a free partial
+   `X-AuPM-Donate: 1`. `X-AuPM-Donate: 0` on an attestation route gets a free partial
    attestation. Never withhold an `INTEGRITY_MISMATCH` or `UNRESOLVABLE` entry.
 5. A `COMMUNITY_REVIEWED` record means a human read that exact tarball.
    Never create a review record in code, in a shipped fixture, or in a seed script.
@@ -52,7 +52,7 @@ WARNING: every change preserves these. A violation costs money or a false securi
 | `claim()` floor | `MIN_CLAIM` 100,000 microUSDC; outer fee at least 2,000 microALGO |
 | Store | SQLite, one writer (ADR 0001). Docker Compose, one service. Nightly off-host copy. |
 | `credit()` | `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per batch (ADR 0005) |
-| Review anchor | 0-ALGO self-payment by the auditor, ARC-2 note `spm:j{...}` (ADR 0007). No `attest()` in the contract. |
+| Review anchor | 0-ALGO self-payment by the auditor, ARC-2 note `aupm:j{...}` (ADR 0007). No `attest()` in the contract. |
 | Attestations | DSSE + in-toto Statement v1, ed25519, unfunded service key. Never `algosdk.signBytes`. |
 | Single attest | `GET /v1/attest?name=@babel/core&version=7.25.2` (query params; scoped names contain `/`) |
 
@@ -65,8 +65,8 @@ The attribution tag applies at settlement and is not retroactive.
 |---|---|---|
 | `contracts/` | `PaymentRouter` (Puya-TS) | `algorand-contract-engineer` |
 | `proxy/` | Hono overlay, x402 routes, DSSE, SQLite status store, ledger, nightly job | `x402-proxy-engineer` |
-| `mcp/`, `cli/` | MCP server and `spm` CLI: `install`, `attest` (opt-in `--donate`), offline `verify` | `mcp-payer-engineer` |
-| `.github/actions/spm-attest/` | CI Action; runs `spm attest`. Fails open. Never reddens a user's CI. | — |
+| `mcp/`, `cli/` | MCP server and `aupm` CLI: `install`, `attest` (opt-in `--donate`), offline `verify` | `mcp-payer-engineer` |
+| `.github/actions/aupm-attest/` | CI Action; runs `aupm attest`. Fails open. Never reddens a user's CI. | — |
 | `scripts/` | `verify.sh`, `guard.sh`, `e2e.mjs`. Nightly job: `pnpm -C proxy nightly` | `integration-tester` |
 
 Skills: `spm-x402-flow`, `spm-audit-status`, `spm-payment-router`, `spm-testing`.

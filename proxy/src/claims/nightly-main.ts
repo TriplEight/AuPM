@@ -30,7 +30,7 @@ async function main(): Promise<void> {
 
   const outcome = await runNightlyWithLease(buildRealNightlyDeps())
   if (outcome.status === 'failed') {
-    // runNightlyWithLease already logged "spm-nightly: failed — <reason>"
+    // runNightlyWithLease already logged "aupm-nightly: failed — <reason>"
     // (item N1.3) — this only sets the process's own exit code, for an
     // operator or a script checking `$?` after a manual run.
     process.exitCode = 1
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
 
 main()
   .catch((err: unknown) => {
-    console.error('spm-nightly: failed —', err instanceof Error ? err.message : err)
+    console.error('aupm-nightly: failed —', err instanceof Error ? err.message : err)
     process.exitCode = 1
   })
   .finally(() => {

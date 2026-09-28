@@ -5,7 +5,7 @@ work (`/handoff`).
 
 ## Role
 
-You are the orchestrator for the SPM project. You plan, delegate and verify.
+You are the orchestrator for the AuPM project. You plan, delegate and verify.
 You never write production code yourself. Sonnet subagents do all
 implementation (`model: "sonnet"`). Follow `CLAUDE.md` § Orchestration.
 
@@ -529,42 +529,42 @@ Result:
 
 Owner: `algorand-contract-engineer` (analysis and tests). Decision: human.
 
-### P2. `spm` as a drop-in for npm
+### P2. `aupm` as a drop-in for npm
 
-Main use case (user, 2026-09-28): a regular user runs SPM in place of npm, with as little
-friction as possible. Today `spm install <pkg> <version>` takes a fixed argument shape and is
-not npm-compatible. Donation needs a separate `spm attest --donate`.
+Main use case (user, 2026-09-28): a regular user runs AuPM in place of npm, with as little
+friction as possible. Today `aupm install <pkg> <version>` takes a fixed argument shape and is
+not npm-compatible. Donation needs a separate `aupm attest --donate`.
 
 Facts (check each against the code first):
 - A user who only sets `npm config set registry https://<domain>/` never gets a 402 and never
-  sees a donation prompt. A reviewed tarball returns 200 free without `X-SPM-Donate: 1`
+  sees a donation prompt. A reviewed tarball returns 200 free without `X-AuPM-Donate: 1`
   (invariant 4, ADR 0006). The proxy sets a hint header, but npm does not show response
   headers. A 402 to plain npm would break `npm install`, so this stays.
 - npm fetches tarballs itself and cannot pay a 402. So a donation from an npm install goes
   through the lockfile route: one payment, 1,000 microUSDC per reviewed entry (ADR 0008).
 
 Result:
-1. `spm <npm args>` runs `npm <npm args>` with the SPM registry, and passes every argument and
-   the exit code through unchanged. Output and behavior are npm's. SPM adds only its own flags
-   (`--donate`, and a flag to write the attestation file). SPM flags never reach npm.
-2. After a successful install, `spm` prints one summary line: how many lockfile entries are
+1. `aupm <npm args>` runs `npm <npm args>` with the AuPM registry, and passes every argument and
+   the exit code through unchanged. Output and behavior are npm's. AuPM adds only its own flags
+   (`--donate`, and a flag to write the attestation file). AuPM flags never reach npm.
+2. After a successful install, `aupm` prints one summary line: how many lockfile entries are
    `COMMUNITY_REVIEWED`, and the donation amount in dollars. Without `--donate` it signs
    nothing and adds one hint line: how to donate.
-3. With `--donate` (or a persistent opt-in in the SPM config), `spm` runs the lockfile
+3. With `--donate` (or a persistent opt-in in the AuPM config), `aupm` runs the lockfile
    attestation with donation after the install. A failed donation never fails the install:
    it logs one line and keeps npm's exit code.
-4. `spm attest` and `spm verify` stay, for CI and offline checks. A regular user does not need
+4. `aupm attest` and `aupm verify` stay, for CI and offline checks. A regular user does not need
    them.
-5. pnpm: check if `POST /v1/attest/lockfile` parses `pnpm-lock.yaml`. If yes, `spm pnpm <args>`
+5. pnpm: check if `POST /v1/attest/lockfile` parses `pnpm-lock.yaml`. If yes, `aupm pnpm <args>`
    behaves the same way. If no, write down the gap as a later item. npx: out of scope for
    wave 7; write it down as planned.
 6. Walk the path as a new user on TestNet, from the README only. Cover: the one-line registry
-   config, `spm install --donate`, the MCP `attest_lockfile` with `allowDonation`, and the
+   config, `aupm install --donate`, the MCP `attest_lockfile` with `allowDonation`, and the
    Action with `donate: 'true'`. Record every step that needs a repo clone, a hidden env var, or
    a guess, and fix it or list it.
 7. Examples in every doc use `ms@2.1.3`. It is the package with a real anchored review.
 
-Tests: argument pass-through (flags, `--`, positional args), exit code pass-through, SPM flags
+Tests: argument pass-through (flags, `--`, positional args), exit code pass-through, AuPM flags
 removed, donation failure keeps npm's exit code, summary line with 0 and with N reviewed
 entries. Owner: `mcp-payer-engineer`.
 
@@ -627,17 +627,17 @@ Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subag
 The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
 
 > Many companies use open source and audit their dependencies internally. These findings
-> never get back to open source. SPM creates an opportunity for security auditors, open-source
+> never get back to open source. AuPM creates an opportunity for security auditors, open-source
 > supporters and repository maintainers to improve security and get paid for their labour.
 > Users and their agents donate to the products and dependencies they use, as they go.
 
 Sections: the problem and the product; the review tiers (filtering is planned, P4); what a
 donation pays for, in dollars, with the P8 target split and MVP split (invariant 8); "For users
-and donors" (`spm` as a drop-in for npm, P2); "For auditors" (next paragraph); verify offline;
+and donors" (`aupm` as a drop-in for npm, P2); "For auditors" (next paragraph); verify offline;
 links. All examples use `ms@2.1.3`.
 - Auditor path: an Algorand account opted in to USDC; the admin maps the identity
   (`setIdentity`); the auditor reads the exact tarball; the review anchor (a 0-ALGO
-  self-payment with an ARC-2 `spm:j{...}` note, ADR 0007); the operator runs `record-review`;
+  self-payment with an ARC-2 `aupm:j{...}` note, ADR 0007); the operator runs `record-review`;
   the nightly batch credits; the auditor claims at `MIN_CLAIM` or more. State that onboarding
   is manual in the MVP (item A1).
 - Move development setup, the repository layout and all deploy text to `docs/DEVELOPMENT.md`
@@ -647,8 +647,8 @@ Owner: docs subagent after P2, P3 and P4. `bash scripts/guard.sh` must pass (spl
 
 ### P6. Operator doc fixes carried from wave 6
 
-- M0 text: a new attestation key gets a new `SPM_KEY_VALID_FROM`; a reused key keeps its date.
-- Local deploy guide: Compose prefixes the volume name with the project (`spm_spm-db`), and the
+- M0 text: a new attestation key gets a new `AUPM_KEY_VALID_FROM`; a reused key keeps its date.
+- Local deploy guide: Compose prefixes the volume name with the project (`spm_aupm-db`), and the
   backup directory is owned by uid 1000.
 
 ### P7. Production review pass

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// SPM operator preflight — confirms a live proxy's 402 response is safe to
+// AuPM operator preflight — confirms a live proxy's 402 response is safe to
 // donate against, before anyone runs `--donate` (CLAUDE.md invariants 3
 // and 6; SPEC.md §11.3; docs/HANDOFF-next-session.md step 3). Read-only:
 // this script never signs or sends a transaction, so it needs no

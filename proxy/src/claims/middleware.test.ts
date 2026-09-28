@@ -17,7 +17,7 @@ import { encodePaymentResponseHeader } from '@x402-avm/core/http'
 import { Hono } from 'hono'
 import { beforeEach, describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-middleware-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-middleware-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
 const { getAccrualsForTxid } = await import('./ledger.js')

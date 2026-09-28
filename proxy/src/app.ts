@@ -31,11 +31,11 @@ export type AppVariables = {
   // Internal: the lockfile pre-middleware's parsed classification, handed
   // to the paid handler once payment clears, so the request body — already
   // consumed while computing this — is never re-read or re-parsed.
-  spmLockfileAnalysis?: LockfileAnalysis
+  aupmLockfileAnalysis?: LockfileAnalysis
 }
 
 export interface CreateAppOptions {
-  /** Loads the SPM attestation signing key. Defaults to config.ts's env-backed loader. */
+  /** Loads the AuPM attestation signing key. Defaults to config.ts's env-backed loader. */
   getSigningKey?: () => Promise<SigningKeyLike>
   /** Rate limiter for the free (zero-coverage) lockfile path. Injectable for tests. */
   rateLimiter?: RateLimiter
@@ -81,7 +81,7 @@ export function createApp(
   // already holds the key out of band. WARNING: this route must never
   // return 402 — a verifier fetching a public key must never pay
   // (CLAUDE.md). Registered before the payment gate for that reason.
-  app.get('/.well-known/spm-keys.json', async (c) => {
+  app.get('/.well-known/aupm-keys.json', async (c) => {
     const getSigningKey = options.getSigningKey ?? getAttestationSigningKey
     // Throws when no signing key is configured; app.onError above turns
     // that into a clear { error } response, never a placeholder key.
@@ -136,7 +136,7 @@ export function createApp(
   // clears. A tarball path reaching here is either the free-tier grant (an
   // unreviewed version, or a reviewed version the request did not opt in to
   // pay for, via proxy/src/x402/tarball.ts's onProtectedRequest hook) or a
-  // cleared payment (a reviewed version requested with X-SPM-Donate: 1) —
+  // cleared payment (a reviewed version requested with X-AuPM-Donate: 1) —
   // never an unpaid request that opted in; the x402 gate above never calls
   // next() for that case. Set attribution here so claimsLedgerMiddleware,
   // which wraps the gate's next() call, can write the tarball route's
@@ -150,12 +150,12 @@ export function createApp(
     const status = getStatusOrUnreviewed(name, version)
 
     // A reviewed tarball reaches this handler two ways: the free-tier grant
-    // (the request did not opt in with X-SPM-Donate: 1) or a cleared
+    // (the request did not opt in with X-AuPM-Donate: 1) or a cleared
     // payment (it did, and the gate above already settled it). The
     // request's own donate header says which happened — the
     // tarballFreeTierHook in proxy/src/x402/tarball.ts reads the identical
     // header the same way.
-    const donatedForPaidTier = !isFree(status.status) && c.req.header('X-SPM-Donate') === '1'
+    const donatedForPaidTier = !isFree(status.status) && c.req.header('X-AuPM-Donate') === '1'
 
     c.set(
       'attribution',
@@ -173,12 +173,12 @@ export function createApp(
     // and donate-hint headers are added here, to the actual returned
     // Response, not via c.header() — a call before this point would be
     // silently discarded once this handler returns a different Response
-    // object (SPEC §10.4: every tarball response carries X-SPM-Tier).
+    // object (SPEC §10.4: every tarball response carries X-AuPM-Tier).
     const upstream = await proxyToNpm(c)
     const headers = new Headers(upstream.headers)
-    headers.set('X-SPM-Tier', status.status)
+    headers.set('X-AuPM-Tier', status.status)
     if (!isFree(status.status) && !donatedForPaidTier) {
-      headers.set('X-SPM-Donate-Hint', String(TARBALL_PRICE_MICRO))
+      headers.set('X-AuPM-Donate-Hint', String(TARBALL_PRICE_MICRO))
     }
     return new Response(upstream.body, { status: upstream.status, headers })
   })

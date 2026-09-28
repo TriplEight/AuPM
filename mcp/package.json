@@ -1,10 +1,10 @@
 {
-  "name": "spm-mcp",
+  "name": "aupm-mcp",
   "version": "1.0.0",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "bin": {
-    "spm-mcp": "dist/index.js"
+    "aupm-mcp": "dist/index.js"
   },
   "scripts": {
     "dev": "tsx src/index.ts",

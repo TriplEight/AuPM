@@ -49,7 +49,7 @@ test("importing e2e.mjs's own module chain never touches .env or mutates process
 const ALL_VARS_SET = {
   DEPLOYER_MNEMONIC: 'word '.repeat(25).trim(),
   CREDITER_MNEMONIC: 'word '.repeat(25).trim(),
-  SPM_DONOR_MNEMONIC: 'word '.repeat(25).trim(),
+  AUPM_DONOR_MNEMONIC: 'word '.repeat(25).trim(),
 }
 
 test('MainNet always SKIPs with the TestNet-only reason, even with every var set', () => {
@@ -65,7 +65,7 @@ test('TestNet with no vars set SKIPs naming every missing variable', () => {
   const reason = onChainRehearsalSkipReason('testnet', {})
   assert.match(reason, /DEPLOYER_MNEMONIC/)
   assert.match(reason, /CREDITER_MNEMONIC/)
-  assert.match(reason, /SPM_DONOR_MNEMONIC/)
+  assert.match(reason, /AUPM_DONOR_MNEMONIC/)
 })
 
 test('TestNet with one missing var SKIPs naming only that variable', () => {
@@ -274,7 +274,7 @@ test('assertRehearsalKeysDistinct refuses when the deployer equals the donor', (
         crediterAddress: 'ADDR_B',
         donorAddress: 'ADDR_A',
       }),
-    /DEPLOYER_MNEMONIC.*SPM_DONOR_MNEMONIC/,
+    /DEPLOYER_MNEMONIC.*AUPM_DONOR_MNEMONIC/,
   )
 })
 
@@ -286,7 +286,7 @@ test('assertRehearsalKeysDistinct refuses when the crediter equals the donor', (
         crediterAddress: 'ADDR_B',
         donorAddress: 'ADDR_B',
       }),
-    /CREDITER_MNEMONIC.*SPM_DONOR_MNEMONIC/,
+    /CREDITER_MNEMONIC.*AUPM_DONOR_MNEMONIC/,
   )
 })
 
@@ -494,7 +494,7 @@ console.log(JSON.stringify({
   directPub: Buffer.from(direct.publicKey).toString('base64'),
 }))
 `
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-e2e-keys-test-'))
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-e2e-keys-test-'))
   const scriptPath = path.join(tmpDir, 'derive-attest-signing-key.mjs')
   fs.writeFileSync(scriptPath, body)
 

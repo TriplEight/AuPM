@@ -1,6 +1,6 @@
-# SPM
+# AuPM
 
-SPM is an npm-compatible registry overlay. Unreviewed packages pass through for free.
+AuPM is an npm-compatible registry overlay. Unreviewed packages pass through for free.
 Human-reviewed packages cost a USDC micropayment, and the revenue funds the people who review
 and maintain them.
 
@@ -61,7 +61,7 @@ A person who reviews one exact package version and signs the review.
 _Avoid_: reviewer (when it means the primary auditor), security researcher
 
 **Ops**:
-The operator of the SPM service. Ops receives the ops role share. In the MVP, ops also receives,
+The operator of the AuPM service. Ops receives the ops role share. In the MVP, ops also receives,
 as income, the shares of roles that are not yet onboarded.
 _Avoid_: admin (when it means the revenue role)
 
@@ -86,7 +86,7 @@ settled payment belongs to exactly one credit batch.
 _Avoid_: per-payment credit, distribution
 
 **Donor account**:
-A dedicated, low-balance Algorand account that a donor uses only to pay SPM. Its balance is the
+A dedicated, low-balance Algorand account that a donor uses only to pay AuPM. Its balance is the
 donor's real spending limit.
 _Avoid_: wallet (when it means the donor's main holdings)
 

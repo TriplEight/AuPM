@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-status-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-status-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./db.js')
 const { getStatusOrUnreviewed, isFree, isReviewedWithIntegrity, reviewerIdentity, setStatus } =

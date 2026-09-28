@@ -101,7 +101,7 @@ Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
    Check: the account's `auth-addr` equals the app address.
 5. The nightly job credits a batch.
    ```bash
-   docker compose run --rm spm node --import tsx/esm src/claims/nightly-main.ts
+   docker compose run --rm aupm node --import tsx/esm src/claims/nightly-main.ts
    ```
    Check: the log line names the credited batch and a credit txid.
 6. The mapped identity claims its balance.

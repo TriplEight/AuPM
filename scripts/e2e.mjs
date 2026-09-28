@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
-// SPM end-to-end check — drives the real flow against a running proxy.
+// AuPM end-to-end check — drives the real flow against a running proxy.
 // Usage: node scripts/e2e.mjs (tsx required — several checks import .ts
 // source files directly; see the imports below).
 //
-// Reads NETWORK, SPM_PROXY_URL, SQLITE_PATH, and ATTEST_SIGNING_KEY from the
+// Reads NETWORK, AUPM_PROXY_URL, SQLITE_PATH, and ATTEST_SIGNING_KEY from the
 // environment — the same variables the proxy process reads (proxy/src/config.ts).
 // Set them once, in the same shell, before starting both the proxy and this
 // script (scripts/verify.sh and scripts/demo.sh both do this).
@@ -43,9 +43,9 @@ const algosdk = requireFromProxy('algosdk')
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url))
 
-const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
+const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-e2e-'))
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-e2e-'))
 
 let passed = 0
 let failed = 0
@@ -170,7 +170,7 @@ async function assertNetworkGenesisMatchesEverywhere(network) {
 const HEX_SEED_RE = /^[0-9a-fA-F]{64}$/
 
 /**
- * Derives the SPM attestation signing key from ATTEST_SIGNING_KEY's raw
+ * Derives the AuPM attestation signing key from ATTEST_SIGNING_KEY's raw
  * value, the same way the running proxy does, so this check can never
  * disagree with what the proxy actually signed with (Defect 1, R3b). The
  * former version always ran `Buffer.from(source, 'hex')`, which silently
@@ -273,8 +273,8 @@ export function assertPlainUsdcTransferNoInner(transaction, { payToAddress, asse
 // onChainRehearsalSkipReason, unit-tested in scripts/e2e.test.mjs.
 
 const ONCHAIN_ENTRY_COUNT = 250
-const ONCHAIN_REPO = 'npm:spm-e2e-rehearsal'
-const ONCHAIN_REVIEWER_LOGIN = 'spm-e2e-auditor'
+const ONCHAIN_REPO = 'npm:aupm-e2e-rehearsal'
+const ONCHAIN_REVIEWER_LOGIN = 'aupm-e2e-auditor'
 const ONCHAIN_IDENTITY = `github:${ONCHAIN_REVIEWER_LOGIN}`
 const ONCHAIN_OPS_IDENTITY = 'ops'
 // SPEC §13.2 MVP split: 400 auditor / 600 ops per 1,000 microUSDC paid.
@@ -282,7 +282,7 @@ const ONCHAIN_TOTAL_MICRO = ONCHAIN_ENTRY_COUNT * 1_000
 const ONCHAIN_AUDITOR_SHARE_MICRO = (ONCHAIN_TOTAL_MICRO * 400) / 1_000
 const ONCHAIN_OPS_SHARE_MICRO = ONCHAIN_TOTAL_MICRO - ONCHAIN_AUDITOR_SHARE_MICRO
 
-const ONCHAIN_REQUIRED_ENV_VARS = ['DEPLOYER_MNEMONIC', 'CREDITER_MNEMONIC', 'SPM_DONOR_MNEMONIC']
+const ONCHAIN_REQUIRED_ENV_VARS = ['DEPLOYER_MNEMONIC', 'CREDITER_MNEMONIC', 'AUPM_DONOR_MNEMONIC']
 
 /**
  * Why the 250-package on-chain rehearsal does not run, or null when it
@@ -466,12 +466,12 @@ export function assertRehearsalKeysDistinct({ deployerAddress, crediterAddress, 
   }
   if (deployerAddress === donorAddress) {
     throw new Error(
-      `DEPLOYER_MNEMONIC must not resolve to the same address as SPM_DONOR_MNEMONIC (both ${deployerAddress})`,
+      `DEPLOYER_MNEMONIC must not resolve to the same address as AUPM_DONOR_MNEMONIC (both ${deployerAddress})`,
     )
   }
   if (crediterAddress === donorAddress) {
     throw new Error(
-      `CREDITER_MNEMONIC must not resolve to the same address as SPM_DONOR_MNEMONIC (both ${crediterAddress})`,
+      `CREDITER_MNEMONIC must not resolve to the same address as AUPM_DONOR_MNEMONIC (both ${crediterAddress})`,
     )
   }
 }
@@ -652,8 +652,8 @@ function stopRehearsalProxy(child) {
 
 /**
  * The dedicated rehearsal proxy's own env — explicit keys only, so it can
- * never see DEPLOYER_MNEMONIC, CREDITER_MNEMONIC, SPM_DONOR_MNEMONIC, or
- * the root .env (R3a Result 2). SPM_ISSUER_URL uses an RFC 2606 reserved
+ * never see DEPLOYER_MNEMONIC, CREDITER_MNEMONIC, AUPM_DONOR_MNEMONIC, or
+ * the root .env (R3a Result 2). AUPM_ISSUER_URL uses an RFC 2606 reserved
  * domain (Q13 — the server refuses to boot without one on every network),
  * mirroring scripts/verify.sh's own rehearsal config.
  */
@@ -666,8 +666,8 @@ function buildRehearsalProxyEnv({ port, sqlitePath, payToAddress, attestSigningK
     SQLITE_PATH: sqlitePath,
     PAY_TO_ADDRESS: payToAddress,
     ATTEST_SIGNING_KEY: attestSigningKey,
-    SPM_ISSUER_URL: 'https://spm-e2e-rehearsal.invalid',
-    SPM_KEY_VALID_FROM: '2026-01-01T00:00:00Z',
+    AUPM_ISSUER_URL: 'https://aupm-e2e-rehearsal.invalid',
+    AUPM_KEY_VALID_FROM: '2026-01-01T00:00:00Z',
     FACILITATOR_URL: process.env.FACILITATOR_URL ?? 'https://facilitator.goplausible.xyz',
     ALGOD_SERVER: process.env.ALGOD_SERVER ?? 'https://testnet-api.algonode.cloud',
     ALGOD_PORT: process.env.ALGOD_PORT ?? '443',
@@ -678,7 +678,7 @@ function buildRehearsalProxyEnv({ port, sqlitePath, payToAddress, attestSigningK
     // testnet here) — a live network call this rehearsal does not expect.
     // runOnChainRehearsal runs the nightly job itself, explicitly, as its
     // own subprocess (runNightlySubprocess, buildRehearsalNightlyEnv).
-    SPM_NIGHTLY: 'off',
+    AUPM_NIGHTLY: 'off',
   }
 }
 
@@ -690,7 +690,7 @@ function buildRehearsalSeedEnv({ sqlitePath }) {
 /**
  * The nightly-job subprocess's own env. Carries CREDITER_MNEMONIC (the one
  * secret this step needs) but never DEPLOYER_MNEMONIC or
- * SPM_DONOR_MNEMONIC — and never the root .env (R3a Result 2: this
+ * AUPM_DONOR_MNEMONIC — and never the root .env (R3a Result 2: this
  * replaces `pnpm -C proxy nightly`, whose own npm script runs
  * `node --env-file=../.env`).
  */
@@ -778,7 +778,7 @@ async function runOnChainRehearsal(loraUrl) {
 
   const deployerAccount = algosdk.mnemonicToSecretKey(process.env.DEPLOYER_MNEMONIC)
   const crediterAccount = algosdk.mnemonicToSecretKey(process.env.CREDITER_MNEMONIC)
-  const donorAccount = algosdk.mnemonicToSecretKey(process.env.SPM_DONOR_MNEMONIC)
+  const donorAccount = algosdk.mnemonicToSecretKey(process.env.AUPM_DONOR_MNEMONIC)
 
   // Fresh, in-memory-only accounts — never written to disk or logged; only
   // their addresses are printed.
@@ -914,12 +914,12 @@ async function runOnChainRehearsal(loraUrl) {
     fs.writeFileSync(lockfilePath, buildOnChainLockfileBytes(fixtureEntries))
 
     // mcp/src/tools/attest.js's own PROXY_URL constant bakes in at its
-    // first-ever import in this process — set SPM_PROXY_URL to the
+    // first-ever import in this process — set AUPM_PROXY_URL to the
     // rehearsal proxy before that import ever runs, so it targets the
     // dedicated rehearsal proxy, never the main e2e proxy from earlier in
     // this file (a different module, mcp/src/tools/install.js, already
     // baked in that one in §8 above).
-    process.env.SPM_PROXY_URL = rehearsalProxyUrl
+    process.env.AUPM_PROXY_URL = rehearsalProxyUrl
     const { attestLockfileTool } = await import('../mcp/src/tools/attest.js')
 
     const paymentOk = await check(
@@ -1047,7 +1047,7 @@ async function main() {
   const netSegment = NETWORK === 'testnet' ? 'testnet' : 'mainnet'
   const loraUrl = (txid) => `https://lora.algokit.io/${netSegment}/transaction/${txid}`
 
-  console.log(`== SPM E2E (network=${NETWORK}, proxy=${PROXY_URL}) ==`)
+  console.log(`== AuPM E2E (network=${NETWORK}, proxy=${PROXY_URL}) ==`)
 
   // ── 1. Free path: install an UNREVIEWED package — zero payment, no wallet ──
   await check('free install (UNREVIEWED): 200, no payment, no wallet', async () => {
@@ -1061,9 +1061,9 @@ async function main() {
 
   // An unreviewed tarball never returns 402, even with the donate header —
   // the free tier is sacred (CLAUDE.md invariant 4).
-  await check('unreviewed tarball, X-SPM-Donate: 1: still 200, never 402', async () => {
+  await check('unreviewed tarball, X-AuPM-Donate: 1: still 200, never 402', async () => {
     const res = await fetch(`${PROXY_URL}/chalk/-/chalk-5.3.0.tgz`, {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     if (res.status === 402) throw new Error('unreviewed tarball must never return 402')
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -1086,19 +1086,19 @@ async function main() {
   setStatus(PAID_PKG, PAID_VER, 'COMMUNITY_REVIEWED', 'E2E_AUDITOR', 'E2E_TXID') // guard-allow: RULE9 — e2e.mjs's own throwaway-SQLITE_PATH fixture write, gated by assertSqliteWriteAllowed() above
 
   // A reviewed tarball is free by default (ADR 0006) — it returns 402 only
-  // when the request opts in with X-SPM-Donate: 1.
+  // when the request opts in with X-AuPM-Donate: 1.
   await check(`reviewed tarball, no donate header: ${PAID_PKG}@${PAID_VER} -> 200`, async () => {
     const res = await fetch(`${PROXY_URL}/${PAID_PKG}/-/${PAID_PKG}-${PAID_VER}.tgz`)
     if (res.status !== 200) throw new Error(`expected 200, got ${res.status}`)
-    if (!res.headers.get('X-SPM-Tier')) throw new Error('missing X-SPM-Tier response header')
-    if (res.headers.get('X-SPM-Donate-Hint') !== '1000') {
-      throw new Error(`bad X-SPM-Donate-Hint: ${res.headers.get('X-SPM-Donate-Hint')}`)
+    if (!res.headers.get('X-AuPM-Tier')) throw new Error('missing X-AuPM-Tier response header')
+    if (res.headers.get('X-AuPM-Donate-Hint') !== '1000') {
+      throw new Error(`bad X-AuPM-Donate-Hint: ${res.headers.get('X-AuPM-Donate-Hint')}`)
     }
   })
 
-  await check(`paid gate: ${PAID_PKG}@${PAID_VER} tarball, X-SPM-Donate: 1 -> 402`, async () => {
+  await check(`paid gate: ${PAID_PKG}@${PAID_VER} tarball, X-AuPM-Donate: 1 -> 402`, async () => {
     const res = await fetch(`${PROXY_URL}/${PAID_PKG}/-/${PAID_PKG}-${PAID_VER}.tgz`, {
-      headers: { 'X-SPM-Donate': '1' },
+      headers: { 'X-AuPM-Donate': '1' },
     })
     if (res.status !== 402) throw new Error(`expected 402, got ${res.status}`)
 
@@ -1171,7 +1171,7 @@ async function main() {
   })
 
   // ── 4. Offline verification — reuse the CLI verifier, never reimplement ──
-  await check('attestation verifies offline (spm verify)', async () => {
+  await check('attestation verifies offline (aupm verify)', async () => {
     if (!attestation) throw new Error('no attestation captured from check 3')
     const signingKeySource = process.env.ATTEST_SIGNING_KEY
     if (!signingKeySource) throw new Error('ATTEST_SIGNING_KEY not set in this process')
@@ -1185,7 +1185,7 @@ async function main() {
 
     const { runVerify } = await import('../cli/src/verify.js')
     const code = await runVerify([envelopePath, '--lockfile', lockfilePath, '--key', keyArg])
-    if (code !== 0) throw new Error('spm verify exited non-zero — see output above')
+    if (code !== 0) throw new Error('aupm verify exited non-zero — see output above')
   })
 
   // ── 5. Status API: row shape, and unknown version -> UNREVIEWED ──────────
@@ -1233,12 +1233,12 @@ async function main() {
   // WARNING: never print PASS here for a step that did not run. A missing
   // credential is a SKIP with the exact reason — never a FAIL, never a
   // silent PASS.
-  const payerMnemonic = process.env.SPM_DONOR_MNEMONIC
+  const payerMnemonic = process.env.AUPM_DONOR_MNEMONIC
 
   if (!payerMnemonic) {
     skip(
       'on-chain: paid install',
-      'SPM_DONOR_MNEMONIC not set — no funded wallet in this environment',
+      'AUPM_DONOR_MNEMONIC not set — no funded wallet in this environment',
     )
   } else {
     let paymentTxid

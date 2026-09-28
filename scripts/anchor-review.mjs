@@ -3,7 +3,7 @@
 // auditor, on their own machine — the auditor's key never touches the
 // server. Fetches the current npm dist.integrity for name@version, prints
 // every field, requires an interactive "yes", then sends a confirmed
-// 0-ALGO self-payment carrying the ARC-2 note `spm:j{...}` and prints its
+// 0-ALGO self-payment carrying the ARC-2 note `aupm:j{...}` and prints its
 // txid. The operator later runs scripts/record-review.mjs <txid> on the
 // server to record the review.
 //

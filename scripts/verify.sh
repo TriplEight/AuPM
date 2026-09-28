@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPM verification harness — the G4 gate.
+# AuPM verification harness — the G4 gate.
 #
 # Prints PASS, FAIL, or SKIP for every check. Exits 0 only when nothing
 # FAILs. A SKIP always carries a reason and never counts as a failure —
@@ -8,7 +8,7 @@
 # CAUTION: this workstation has no funded wallet and no deployed contract.
 # Every check that needs one degrades to SKIP here. On a machine with real
 # credentials and network reach to the facilitator, the same checks run for
-# real — nothing here is LocalNet-specific; LocalNet does not exist for SPM.
+# real — nothing here is LocalNet-specific; LocalNet does not exist for AuPM.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -18,7 +18,7 @@ fail=0
 declare -a SUMMARY
 
 log_for() {
-  echo "${TMPDIR:-/tmp}/spm_verify_$(echo "$1" | tr -c 'A-Za-z0-9' '_').log"
+  echo "${TMPDIR:-/tmp}/aupm_verify_$(echo "$1" | tr -c 'A-Za-z0-9' '_').log"
 }
 
 # run <name> <command> — PASS/FAIL only. Use for checks with no legitimate
@@ -43,14 +43,14 @@ skip_line() {
   SUMMARY+=("SKIP  $name -- $reason")
 }
 
-echo "== SPM verify =="
+echo "== AuPM verify =="
 
 run "prek"              "prek run --all-files"
 run "unit:proxy"        "pnpm --dir proxy test"
 run "unit:cli"          "pnpm --dir cli test"
 run "unit:contracts"    "pnpm --dir contracts test"
 run "unit:mcp"          "pnpm --dir mcp test"
-run "action:spm-attest" "node --test .github/actions/spm-attest/attest.test.mjs"
+run "action:aupm-attest" "node --test .github/actions/aupm-attest/attest.test.mjs"
 run "unit:scripts"      "node --test scripts/*.test.mjs"
 
 # ---------------------------------------------------------------------------
@@ -75,7 +75,7 @@ if [ -z "$TSX" ]; then
   fail=1
 else
   export NETWORK="${NETWORK:-testnet}"
-  sqlite_path="${TMPDIR:-/tmp}/spm_verify_$(date +%s).db"
+  sqlite_path="${TMPDIR:-/tmp}/aupm_verify_$(date +%s).db"
   export SQLITE_PATH="$sqlite_path"
   # Ask the OS for a free TCP port instead of a fixed one. A fixed port can
   # already be bound by an unrelated process (for example a live Docker
@@ -92,7 +92,7 @@ else
     })
   ')"
   export PORT="$free_port"
-  export SPM_PROXY_URL="http://localhost:${free_port}"
+  export AUPM_PROXY_URL="http://localhost:${free_port}"
   # Ephemeral, throwaway values — never a real key or a real deployed
   # contract. Good enough to exercise the 402 gate and the signing path;
   # never good enough to move real funds. Generated fresh every run.
@@ -103,14 +103,14 @@ else
   # Reserved for documentation examples (RFC 2606); never a real, owned
   # domain (Q13 — the server refuses to boot without this set, on every
   # network).
-  export SPM_ISSUER_URL="https://spm-verify.invalid"
-  export SPM_KEY_VALID_FROM="2026-01-01T00:00:00Z"
+  export AUPM_ISSUER_URL="https://aupm-verify.invalid"
+  export AUPM_KEY_VALID_FROM="2026-01-01T00:00:00Z"
 
   # Clear any proxy left running by an earlier, interrupted run — `tsx
   # watch` never exits on its own (see the cleanup comment below).
   pkill -f "watch src/index.ts" 2>/dev/null || true
 
-  PROXY_LOG="${TMPDIR:-/tmp}/spm_verify_proxy.log"
+  PROXY_LOG="${TMPDIR:-/tmp}/aupm_verify_proxy.log"
   rm -f "$PROXY_LOG"
   pnpm --dir proxy dev >"$PROXY_LOG" 2>&1 &
   PROXY_PID=$!
@@ -124,7 +124,7 @@ else
     if ! kill -0 "$PROXY_PID" 2>/dev/null; then
       break
     fi
-    if curl -sf "$SPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1 \
+    if curl -sf "$AUPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1 \
       && kill -0 "$PROXY_PID" 2>/dev/null; then
       ready=1
       break
@@ -133,7 +133,7 @@ else
   done
 
   if [ "$ready" -eq 1 ]; then
-    echo "-- $E2E_NAME (proxy ready at $SPM_PROXY_URL) --"
+    echo "-- $E2E_NAME (proxy ready at $AUPM_PROXY_URL) --"
     if "$TSX" scripts/e2e.mjs; then
       SUMMARY+=("PASS  $E2E_NAME")
     else

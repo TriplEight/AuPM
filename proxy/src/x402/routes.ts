@@ -28,10 +28,10 @@ const SPLIT_DISCLOSURE =
 // that text is authored, so the disclosure rule and the price stay in sync
 // with the Bazaar route descriptions below.
 export const OG_DESCRIPTION =
-  'SPM turns human code review into a paid, verifiable, on-chain-anchored ' +
+  'AuPM turns human code review into a paid, verifiable, on-chain-anchored ' +
   `public good on Algorand. $0.001 per reviewed package. ${SPLIT_DISCLOSURE}`
 
-export type SpmRouteKey =
+export type AupmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
   | typeof SINGLE_ATTEST_ROUTE_KEY
   | typeof TARBALL_ROUTE_KEY
@@ -56,7 +56,7 @@ function accepts(price: Price | DynamicPrice, feePayer: string): PaymentOption {
  * from the boot guard (proxy/src/config.ts#resolveFeePayer) — never
  * hardcoded.
  */
-export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> {
+export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig> {
   return {
     [LOCKFILE_ROUTE_KEY]: {
       accepts: accepts(lockfileDynamicPrice, feePayer),

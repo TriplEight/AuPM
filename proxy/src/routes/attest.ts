@@ -58,13 +58,13 @@ const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 
 // The parsed, classified lockfile the pre-middleware hands to the paid
 // handler once payment clears, so the body is parsed and hashed exactly
-// once. The context variable key ('spmLockfileAnalysis') is declared on
+// once. The context variable key ('aupmLockfileAnalysis') is declared on
 // AppVariables in app.ts. Exported so lockfileDynamicPrice (below) — and,
 // through it, proxy/src/x402/routes.ts, which wires it into the route's
 // `accepts.price` — can read the same value off the request context the
 // x402 payment gate resolves the price against, never a second parse of
 // the request body (see lockfileDynamicPrice's docstring).
-export const ANALYSIS_KEY = 'spmLockfileAnalysis' as const
+export const ANALYSIS_KEY = 'aupmLockfileAnalysis' as const
 
 /**
  * True only when TRUST_PROXY says this server runs behind a known reverse
@@ -105,7 +105,7 @@ function socketAddress(c: AttestContext): string | null {
  * WARNING: both `X-Forwarded-For` and `X-Real-IP` are attacker-controlled
  * input unless a known reverse proxy sits in front of this server. Trusting
  * either unconditionally lets a caller defeat the free-path rate limit —
- * the stated control against using SPM as an unpriced signing oracle
+ * the stated control against using AuPM as an unpriced signing oracle
  * (SPEC.md §12.3) — by sending a different value on every request. Only
  * trust either header when TRUST_PROXY says so; otherwise ignore both and
  * fall back to the unspoofable socket address.
@@ -148,11 +148,11 @@ function clientIp(c: AttestContext): string {
 /**
  * True only when the caller explicitly asked for the free partial
  * attestation on a paid-tier package (SPEC.md §11.2, §12.3, ADR 0006).
- * `X-SPM-Donate: 0` — and only that exact value — triggers it; a missing
+ * `X-AuPM-Donate: 0` — and only that exact value — triggers it; a missing
  * header or any other value falls through to standard x402 pricing.
  */
 function requestedPartial(c: AttestContext): boolean {
-  return c.req.header('X-SPM-Donate') === '0'
+  return c.req.header('X-AuPM-Donate') === '0'
 }
 
 /**
@@ -239,11 +239,11 @@ async function readLimitedBody(
 
 /**
  * Builds `predicate` for the lockfile statement. `partial` is true only for
- * the free `X-SPM-Donate: 0` path (SPEC.md §11.2, §12.3): every reviewed
+ * the free `X-AuPM-Donate: 0` path (SPEC.md §11.2, §12.3): every reviewed
  * entry whose integrity matches (`integrityMatch === true`) is left out of
  * `packages[]` and counted in `withheld`. An `INTEGRITY_MISMATCH`
  * (`integrityMatch === false`) or `UNRESOLVABLE` (`integrityMatch === null`)
- * entry is never filtered — SPM never charges for a security warning
+ * entry is never filtered — AuPM never charges for a security warning
  * (CLAUDE.md invariant 4).
  *
  * A full (paid, or genuinely zero-coverage) attestation always has
@@ -317,7 +317,7 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
  *
  * The x402 payment gate only ever calls this once the pre-middleware has
  * already called `next()`, which only happens for a lockfile with at least
- * one reviewed entry and no `X-SPM-Donate: 0` — the zero-coverage and
+ * one reviewed entry and no `X-AuPM-Donate: 0` — the zero-coverage and
  * partial-attestation free paths answer the request themselves, earlier in
  * the chain, and are never priced at all. `ANALYSIS_KEY` is therefore
  * always set by the time this runs; a missing value means the wiring
@@ -423,7 +423,7 @@ function buildFreeSingleStatement(name: string, version: string): Statement {
 
 /**
  * Builds the free partial statement for a paid-tier package requested with
- * `X-SPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR 0006). SPEC.md §12.3: a
+ * `X-AuPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR 0006). SPEC.md §12.3: a
  * partial attestation is "the same statement, with every reviewed entry
  * whose integrity matches left out of predicate.packages" — the subject is
  * not withheld. Only the one entry this route could otherwise sell (the
@@ -449,7 +449,7 @@ function buildWithheldSingleStatement(name: string, version: string, sha512: str
 }
 
 export interface AttestRoutesOptions {
-  /** Loads the SPM attestation signing key. Called lazily, per request. */
+  /** Loads the AuPM attestation signing key. Called lazily, per request. */
   getSigningKey: () => Promise<SigningKeyLike>
   /** Rate limiter for the free (zero-coverage) lockfile path. */
   rateLimiter?: RateLimiter
@@ -491,7 +491,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
 
     if (analysis.summary.reviewed === 0 || partial) {
       // Free path: charging for zero reviewed packages would charge for
-      // nothing (CLAUDE.md free-tier invariant), and `X-SPM-Donate: 0`
+      // nothing (CLAUDE.md free-tier invariant), and `X-AuPM-Donate: 0`
       // opts into the free partial attestation (SPEC.md §11.2, §12.3,
       // ADR 0006). Both share this per-IP rate limiter so neither can be
       // used as an unpriced signing oracle (SPEC.md §12.3).
@@ -571,7 +571,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
 
     if (requestedPartial(c)) {
       // Paid-tier package, but the caller opted into the free partial
-      // attestation with `X-SPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR
+      // attestation with `X-AuPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR
       // 0006). Only `packages[]` (the reviewer, the tier, the anchor txid)
       // is withheld — the subject digest is not (SPEC.md §12.3) — so the
       // same fail-closed guards as the paid handler below apply here too:

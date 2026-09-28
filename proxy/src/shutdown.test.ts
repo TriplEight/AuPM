@@ -165,7 +165,7 @@ describe('runShutdown: the server close rejects', () => {
     await runShutdown(deps)
     await new Promise((resolve) => setImmediate(resolve))
 
-    expect(deps.log).toHaveBeenCalledWith('spm-shutdown: server close failed — ECONNRESET')
+    expect(deps.log).toHaveBeenCalledWith('aupm-shutdown: server close failed — ECONNRESET')
     expect(deps.exit).toHaveBeenCalledTimes(1)
     expect(deps.exit).toHaveBeenCalledWith(0)
   })

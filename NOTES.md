@@ -486,3 +486,7 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Next session: MainNet runbook §2 (payTo opt-in, deploy, rekey) → §3 stack → first credit.
 - TestNet on Docker Compose: `audit.db` restored; health 200, `ms@2.1.3` `COMMUNITY_REVIEWED`,
   nightly backup written, credit skipped (nothing to credit).
+
+## 2026-09-28 — N0: rename SPM to AuPM
+- Renamed the product, packages, headers, env vars, and wire paths from SPM to AuPM
+  everywhere except history, `.claude/skills/spm-*`, and the GitHub repo path. `VERIFY: PASS`.

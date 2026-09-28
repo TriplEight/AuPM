@@ -6,7 +6,7 @@
 // catch-up run is due. Pure orchestration: every clock and timer call is
 // injectable (SchedulerClock), so no test here waits on a real clock or
 // opens a real timer. proxy/src/index.ts is the only caller that wires the
-// real clock and real setTimeout/clearTimeout, and only when SPM_NIGHTLY
+// real clock and real setTimeout/clearTimeout, and only when AUPM_NIGHTLY
 // is not "off" — this module performs no environment reads and no network
 // I/O of its own.
 

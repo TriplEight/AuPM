@@ -1,7 +1,7 @@
 // proxy/src/attest/dsse.ts
 //
 // DSSE (Dead Simple Signing Envelope) plus in-toto Statement v1, signed
-// with the SPM attestation key (see keys.ts).
+// with the AuPM attestation key (see keys.ts).
 //
 // DSSE signs the exact payload bytes via the Pre-Authentication Encoding
 // (PAE), so no JSON canonicalisation is needed.
@@ -9,7 +9,7 @@
 // WARNING: do not sign with algosdk's MX-prefixing byte-signer. It
 // prepends the bytes `MX` for domain separation and breaks standard DSSE
 // verifiers. Sign the PAE with raw ed25519 (`@noble/ed25519`) using the
-// 32-byte seed from the SPM attestation key.
+// 32-byte seed from the AuPM attestation key.
 
 import * as ed from '@noble/ed25519'
 import algosdk from 'algosdk'
@@ -71,7 +71,7 @@ export function pae(payloadType: string, payload: Uint8Array): Uint8Array {
 }
 
 /**
- * Signs `payload` under `payloadType` with the SPM attestation key and
+ * Signs `payload` under `payloadType` with the AuPM attestation key and
  * returns the DSSE envelope. `sig = ed25519_sign(PAE)` using the raw
  * 32-byte seed — never algosdk's MX-prefixing byte-signer.
  */

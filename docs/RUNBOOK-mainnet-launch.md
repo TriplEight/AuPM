@@ -70,16 +70,16 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
 
 1. Set the server's `.env` or Portainer `stack.env` to hold only: `NETWORK=mainnet`,
    `ALGOD_SERVER`, `INDEXER_URL`, `PAY_TO_ADDRESS`, `PAYMENT_ROUTER_APP_ID`,
-   `CREDITER_MNEMONIC`, `ATTEST_SIGNING_KEY`, `SPM_ISSUER_URL`, `SPM_KEY_VALID_FROM`,
-   `AUDITORS`, `SPM_BACKUP_HOST_DIR`, `PORT`, `TRUST_PROXY`, `FACILITATOR_URL`, `OPS_ADDRESS`.
+   `CREDITER_MNEMONIC`, `ATTEST_SIGNING_KEY`, `AUPM_ISSUER_URL`, `AUPM_KEY_VALID_FROM`,
+   `AUDITORS`, `AUPM_BACKUP_HOST_DIR`, `PORT`, `TRUST_PROXY`, `FACILITATOR_URL`, `OPS_ADDRESS`.
    Never `PAY_TO_MNEMONIC`, `DEPLOYER_MNEMONIC`, or an auditor's or donor's mnemonic.
    Check: `grep -E 'MNEMONIC' .env` on the server prints only `CREDITER_MNEMONIC`.
 
-2. `SPM_ISSUER_URL` and `SPM_KEY_VALID_FROM` come only from `.env` or `stack.env`. A shell
+2. `AUPM_ISSUER_URL` and `AUPM_KEY_VALID_FROM` come only from `.env` or `stack.env`. A shell
    export does not change them. The server refuses to boot without valid values (Q13).
-   `compose.yaml` refuses to start without `SPM_BACKUP_HOST_DIR`. `SPM_BACKUP_HOST_DIR` and
+   `compose.yaml` refuses to start without `AUPM_BACKUP_HOST_DIR`. `AUPM_BACKUP_HOST_DIR` and
    `PORT` are interpolated, so a shell export of either overrides the file; unset both in the
-   shell before `up`. `SPM_BACKUP_HOST_DIR` is a host directory, owned by uid 1000, bind-
+   shell before `up`. `AUPM_BACKUP_HOST_DIR` is a host directory, owned by uid 1000, bind-
    mounted at `/backup`.
    ```bash
    sudo mkdir -p <path> && sudo chown 1000:1000 <path>
@@ -87,17 +87,17 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    Check: `docker compose config` prints the resolved service with no missing-variable error.
 
 3. Publish the image. Push a `v*` tag (the first published release is `v0.1.1`, the version that
-   `compose.yaml` pins). `.github/workflows/image.yml` pushes `ghcr.io/tripleight/spm:<tag>`.
+   `compose.yaml` pins). `.github/workflows/image.yml` pushes `ghcr.io/tripleight/aupm:<tag>`.
    After the first push, set the GHCR package to public once, in the GitHub package settings.
    For a later release: push the new tag, then bump the `image:` line in `compose.yaml` in a
    commit.
-   Check: `docker pull ghcr.io/tripleight/spm:<tag>` succeeds with no login.
+   Check: `docker pull ghcr.io/tripleight/aupm:<tag>` succeeds with no login.
 
 4. Point Portainer's stack at this repository and set the stack's environment variables in the
    Portainer UI. Portainer writes them to `stack.env` next to `compose.yaml`. A push that bumps
    the `image:` line, or a manual redeploy in Portainer, pulls the new commit and restarts the
    container — no separate install step.
-   Check: the Portainer stack shows the `spm` container as running, with the pinned image tag.
+   Check: the Portainer stack shows the `aupm` container as running, with the pinned image tag.
 
 5. Route the MainNet domain to this container through cloudflared, on this host. No cloudflared
    configuration file is tracked in this repository. Set the ingress rule on the host to
@@ -111,7 +111,7 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    Check: the server logs the `feePayer` resolved from the facilitator's `getSupported()` at
    boot and does not exit. At start, the nightly job runs once (no successful run exists yet).
    After that run, `curl -s https://<mainnet-domain>/api/v1/health` returns 200. A 503 with
-   `"lastSuccess": null` means the run failed: read the log line `spm-nightly: failed — …`.
+   `"lastSuccess": null` means the run failed: read the log line `aupm-nightly: failed — …`.
 
 7. Add `og:site_name`, `og:title`, `og:description` and `og:image` at the domain root for the
    Bazaar merchant card. No route in this repository serves them. They belong to the front page
@@ -123,18 +123,18 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
 ## 4. Back up the database
 
 The nightly job (§6 below) writes a dated `audit-<timestamp>.db` copy into `/backup` (the
-`SPM_BACKUP_HOST_DIR` bind mount) before it credits a batch. A failed backup stops the job
+`AUPM_BACKUP_HOST_DIR` bind mount) before it credits a batch. A failed backup stops the job
 before it credits — nothing after a backup failure runs.
 
 Set up a Backrest plan on the host, outside this repository:
 
-1. Add `SPM_BACKUP_HOST_DIR` to the plan.
+1. Add `AUPM_BACKUP_HOST_DIR` to the plan.
 2. Schedule it daily, after 03:17 UTC — after the nightly job's own backup step.
 3. Exclude `.audit-*.db.tmp` (the nightly job's in-progress temp file).
 4. Set an alert to the operator on a snapshot error. This proxy runs no status check of its own
    against the plan.
 
-Check: after one night, the newest `audit-*.db` file in `SPM_BACKUP_HOST_DIR` appears in the
+Check: after one night, the newest `audit-*.db` file in `AUPM_BACKUP_HOST_DIR` appears in the
 latest Backrest snapshot.
 
 ---
@@ -156,7 +156,7 @@ invariant 5). No route or script in this repository writes a review row except
 
 2. **Operator, on the server.**
    ```bash
-   docker compose run --rm spm node --import tsx/esm ../scripts/record-review.mjs <anchorTxid> \
+   docker compose run --rm aupm node --import tsx/esm ../scripts/record-review.mjs <anchorTxid> \
      --network mainnet
    ```
    This needs a TTY. Never run it with `-T` or from a non-interactive job. Type `yes` at the
@@ -176,16 +176,16 @@ then credit (ADR 0009, SPEC.md §13.2), daily at 03:17 UTC, plus a catch-up run 
 last successful run is more than 24 hours old or none exists. A Portainer redeploy carries the
 schedule with it — nothing to install separately.
 
-`SPM_NIGHTLY=off` disables the schedule (`.env.example`). Any other value refuses to boot.
+`AUPM_NIGHTLY=off` disables the schedule (`.env.example`). Any other value refuses to boot.
 
 Check `GET /api/v1/health` for the last run and the last success. It answers 200 when the last
 success is at most 26 hours old, else 503. Point an uptime monitor at it.
 
 Run one pass by hand, for example right after a deploy:
 ```bash
-docker compose run --rm spm node --import tsx/esm src/claims/nightly-main.ts
+docker compose run --rm aupm node --import tsx/esm src/claims/nightly-main.ts
 ```
-A successful run logs `spm-nightly: credited batch N, txid ...`, or, with no
+A successful run logs `aupm-nightly: credited batch N, txid ...`, or, with no
 `PAYMENT_ROUTER_APP_ID` set yet, a line naming why the credit step was skipped, and exits 0.
 This manual entry point takes the same SQLite lease as the in-process scheduler, so the two
 never run at once.
@@ -240,7 +240,7 @@ adopting team, and no retry beyond the protocol's single retry.
 
 ## 9. Third-party donors
 
-Each donor needs the `spm-attest` Action merged into their repository, a MainNet address, a
+Each donor needs the `aupm-attest` Action merged into their repository, a MainNet address, a
 USDC opt-in, and a few dollars of Algorand-native USDC. Acquiring that USDC is the slow step:
 most people hold none on Algorand, and an exchange withdrawal takes days.
 
@@ -255,6 +255,6 @@ removed from their repository the first time it does, and the donation volume go
 
 ## 10. Known open items
 
-**Legal.** SPM holds funds owed to third parties. For a German operator this may touch
+**Legal.** AuPM holds funds owed to third parties. For a German operator this may touch
 payment-services regulation. Get advice before paying anyone outside the team. It carries no
 weight in the competition. It is personal exposure.

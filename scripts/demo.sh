@@ -4,7 +4,7 @@
 # The G5 demo gate. NETWORK defaults to testnet — the live rehearsal
 # network (CLAUDE.md: "TestNet is for pre-flight rehearsal only").
 #
-# WARNING: this script needs a real, funded SPM_DONOR_MNEMONIC and a real
+# WARNING: this script needs a real, funded AUPM_DONOR_MNEMONIC and a real
 # payTo (PAY_TO_ADDRESS) in .env. It never invents throwaway credentials the
 # way scripts/verify.sh does for its rehearsal run — a demo with a fake
 # wallet proves nothing on stage.
@@ -30,7 +30,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # Capture any operator-supplied NETWORK before .env can overwrite it.
 NETWORK_FROM_SHELL="${NETWORK:-}"
 
-# Load root .env so SPM_DONOR_MNEMONIC, PAY_TO_ADDRESS, ATTEST_SIGNING_KEY
+# Load root .env so AUPM_DONOR_MNEMONIC, PAY_TO_ADDRESS, ATTEST_SIGNING_KEY
 # etc. are in scope.
 if [ -f "$ROOT/.env" ]; then
   set -o allexport
@@ -48,11 +48,11 @@ else
   NETWORK="${NETWORK:-testnet}"
 fi
 export NETWORK
-echo "== SPM demo ($NETWORK) =="
+echo "== AuPM demo ($NETWORK) =="
 
 if [ "$NETWORK" = "mainnet" ]; then
   echo "WARNING: NETWORK=mainnet. Step 8 makes a real USDC payment on Algorand MainNet."
-  if [ "${SPM_DEMO_CONFIRM_MAINNET:-}" != "yes" ]; then
+  if [ "${AUPM_DEMO_CONFIRM_MAINNET:-}" != "yes" ]; then
     read -r -p "Type 'yes' to confirm and spend real funds on MainNet: " confirm_mainnet
     if [ "$confirm_mainnet" != "yes" ]; then
       echo "Aborted: MainNet confirmation not given."
@@ -61,14 +61,14 @@ if [ "$NETWORK" = "mainnet" ]; then
   fi
 fi
 
-# Required for every check below to run for real, not SKIP. SPM_ISSUER_URL
-# and SPM_KEY_VALID_FROM (Q13) are public config, not secrets, but the
+# Required for every check below to run for real, not SKIP. AUPM_ISSUER_URL
+# and AUPM_KEY_VALID_FROM (Q13) are public config, not secrets, but the
 # server refuses to boot without them on every network — this script never
 # invents throwaway values for them the way scripts/verify.sh does, so a
 # missing one here is a real .env gap, not something to paper over.
 missing=""
-for var in PAY_TO_ADDRESS SPM_DONOR_MNEMONIC ATTEST_SIGNING_KEY \
-  SPM_ISSUER_URL SPM_KEY_VALID_FROM; do
+for var in PAY_TO_ADDRESS AUPM_DONOR_MNEMONIC ATTEST_SIGNING_KEY \
+  AUPM_ISSUER_URL AUPM_KEY_VALID_FROM; do
   if [ -z "${!var:-}" ]; then
     missing="$missing $var"
   fi
@@ -78,8 +78,8 @@ if [ -n "$missing" ]; then
   echo "       Set a funded payTo (PAY_TO_ADDRESS) and ATTEST_SIGNING_KEY."
   exit 1
 fi
-export PAY_TO_ADDRESS SPM_DONOR_MNEMONIC ATTEST_SIGNING_KEY \
-  SPM_ISSUER_URL SPM_KEY_VALID_FROM
+export PAY_TO_ADDRESS AUPM_DONOR_MNEMONIC ATTEST_SIGNING_KEY \
+  AUPM_ISSUER_URL AUPM_KEY_VALID_FROM
 
 # Kill any stale proxy on the configured port before starting ours.
 PORT="${PORT:-4873}"
@@ -87,9 +87,9 @@ fuser -k "${PORT}/tcp" 2>/dev/null || true
 sleep 1
 
 # Start proxy in background with a demo-specific DB.
-SQLITE_PATH="/tmp/spm_demo_$(date +%s).db"
+SQLITE_PATH="/tmp/aupm_demo_$(date +%s).db"
 export SQLITE_PATH
-export SPM_PROXY_URL="${SPM_PROXY_URL:-http://localhost:$PORT}"
+export AUPM_PROXY_URL="${AUPM_PROXY_URL:-http://localhost:$PORT}"
 pnpm --dir "$ROOT/proxy" start >"$ROOT/proxy/demo.log" 2>&1 &
 PROXY_PID=$!
 trap 'pkill -P "$PROXY_PID" 2>/dev/null; kill "$PROXY_PID" 2>/dev/null; fuser -k "${PORT}/tcp" 2>/dev/null; echo "Proxy stopped."' EXIT
@@ -103,7 +103,7 @@ for _ in $(seq 1 30); do
     cat "$ROOT/proxy/demo.log" >&2
     exit 1
   fi
-  if curl -sf "$SPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1; then
+  if curl -sf "$AUPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1; then
     ready=1
     echo "Proxy ready."
     break

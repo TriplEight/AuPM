@@ -237,7 +237,7 @@ export function analyzeLockfile(
     const knownIntegrity = integrityLookup(name, version)
     if (knownIntegrity === null) {
       // A reviewed row with no stored integrity is an incomplete review —
-      // SPM cannot say which tarball was read, so it must not claim one.
+      // AuPM cannot say which tarball was read, so it must not claim one.
       // Bucket it with the unreviewed majority: absent from packages[],
       // counted in summary.unreviewed, never a fabricated match.
       summary.unreviewed += 1

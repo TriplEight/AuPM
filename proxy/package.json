@@ -1,5 +1,5 @@
 {
-  "name": "spm-proxy",
+  "name": "aupm-proxy",
   "version": "1.0.0",
   "type": "module",
   "packageManager": "pnpm@12.5.1",

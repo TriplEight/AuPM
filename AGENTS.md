@@ -146,7 +146,7 @@ Before adding a dep:
 
 Peer deps: pin them at the exact version required by the library pulling them in. Use `pnpm why <pkg>` to trace transitive pulls. Mismatched peers cause subtle runtime failures.
 
-Secrets: mnemonics and private keys live in `.env` only (gitignored). Never log, commit, or hard-code them. `SPM_DONOR_MNEMONIC` signs x402 donations from the CLI, the MCP server, and the CI Action.
+Secrets: mnemonics and private keys live in `.env` only (gitignored). Never log, commit, or hard-code them. `AUPM_DONOR_MNEMONIC` signs x402 donations from the CLI, the MCP server, and the CI Action.
 
 ## Plan Mode
 

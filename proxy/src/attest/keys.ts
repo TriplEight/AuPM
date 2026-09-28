@@ -1,8 +1,8 @@
 // proxy/src/attest/keys.ts
 //
-// SPM attestation key management.
+// AuPM attestation key management.
 //
-// The SPM attestation key is a dedicated ed25519 key, generated as an
+// The AuPM attestation key is a dedicated ed25519 key, generated as an
 // Algorand account so its address doubles as a familiar 58-character
 // `keyid`. The key is never funded and never used on-chain — it only
 // signs DSSE envelopes (see dsse.ts).
@@ -19,7 +19,7 @@ import algosdk from 'algosdk'
 export type MnemonicOrSeed = string | Uint8Array
 
 /**
- * The SPM attestation signing key, held only on the server.
+ * The AuPM attestation signing key, held only on the server.
  * `seed` is the 32-byte ed25519 secret-key seed. Treat it as a secret:
  * never log it, print it, or include it in an HTTP response.
  */
@@ -29,7 +29,7 @@ export interface SigningKey {
   keyid: string
 }
 
-/** One entry of the `/.well-known/spm-keys.json` published key list. */
+/** One entry of the `/.well-known/aupm-keys.json` published key list. */
 export interface PublishedKeyEntry {
   keyid: string
   publicKey: string
@@ -73,7 +73,7 @@ export async function loadSigningKey(mnemonicOrSeed: MnemonicOrSeed): Promise<Si
 }
 
 /**
- * Formats key records into the `/.well-known/spm-keys.json` array shape.
+ * Formats key records into the `/.well-known/aupm-keys.json` array shape.
  * Only public material is accepted as input, so no secret can leak here.
  */
 export function publishedKeys(keys: PublishedKeyInput[]): PublishedKeyEntry[] {
