@@ -630,6 +630,34 @@ Result:
 4. A human runs `algokit project run build` and commits the artifacts.
 Owner: `algorand-contract-engineer` (contract, tests, LocalNet) and a docs subagent (texts).
 
+### P8a. Split per network in the proxy (decided 2026-09-28)
+
+The off-chain ledger and the 402 text hardcode one split: `proxy/src/claims/credit.ts` checks
+`attributedMicro * 400 / 1000` before `credit()`, `proxy/src/claims/attribution-rules.ts` holds
+the target row 400/100/200/150/100/50, and `SPLIT_DISCLOSURE` in `proxy/src/x402/routes.ts`
+states one split. The MainNet contract asserts 300; the TestNet app 772553842 asserts 400.
+Result: one table in the proxy config, selected by the existing network setting: MainNet
+target 300/100/200/250/100/50 and MVP 300/700; TestNet target 400/100/200/150/100/50 and MVP
+400/600. The ledger check, the attribution rules and the 402 text read the table. Tests: each
+network gives its own auditor share and text; an odd total rounds the same way as the contract.
+Owner: `x402-proxy-engineer`.
+
+### P8b. Multisig signing for admin calls
+
+P8 builds the unsigned create transaction for the 2-of-3 admin multisig. `setCrediter`,
+`setIdentity`, `announceRelease` and `executeRelease` are also admin-only, so each needs the
+same offline multisig flow for MainNet. The outer fee of `executeRelease` covers up to two
+inner transactions (at least 3,000 microALGO). Result: the deploy tooling writes each admin
+call as an unsigned transaction file for the multisig, and the MainNet runbook lists the
+signing steps and the fee. Owner: `algorand-contract-engineer`.
+
+### P8c. After the human build: e2e share and LocalNet rehearsal
+
+After `algokit project run build` regenerates the artifacts (P8 item 4), `scripts/e2e.mjs`
+must use the share 300 (`ONCHAIN_AUDITOR_SHARE_MICRO`, about line 282), because it deploys a
+fresh app from the committed artifacts. Then run P8 item 3 (LocalNet: deploy, rekey a `payTo`,
+credit one batch, claim; also announce and execute a release). Blocked on the human build.
+
 ### P5. README as a product page
 
 The README describes the product, not the repo. Source text (the user's draft, 2026-09-28):
