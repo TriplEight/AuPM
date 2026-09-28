@@ -568,7 +568,7 @@ Tests: argument pass-through (flags, `--`, positional args), exit code pass-thro
 removed, donation failure keeps npm's exit code, summary line with 0 and with N reviewed
 entries. Owner: `mcp-payer-engineer`.
 
-### P2a. Package names (decision first) — decided 2026-09-28: `aupm`, `aupm-mcp` (N0)
+### P2a. Package names (decision first) — decided 2026-09-28: `aupm`, `aupm-mcp` (N0) — DONE c11224c
 
 The npm names `spm-cli` and `spm-mcp` belong to unrelated authors (`spm-cli`: "the awesome
 style project manager"; `spm-mcp`: a product-document tool). A user who runs `npx spm-cli`
