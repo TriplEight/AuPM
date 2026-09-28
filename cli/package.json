@@ -1,6 +1,7 @@
 {
   "name": "aupm",
   "version": "0.2.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "bin": {

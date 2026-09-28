@@ -1,4 +1,17 @@
-# AuPM — audited package manager
+<p align="center">
+  <img src="docs/assets/aupm-logo.png" alt="AuPM logo" width="160">
+</p>
+
+<h1 align="center">AuPM — audited package manager</h1>
+
+<p align="center"><strong>Audited Package Manager.</strong> A package manager that crowdfunds
+supply chain security.</p>
+
+<p align="center">
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-00E58B?style=flat-square&labelColor=0B0F19&logo=gnu&logoColor=00E58B"></a>
+  <a href="https://www.x402.org"><img alt="Built on x402" src="https://img.shields.io/badge/built%20on-x402-22D3EE?style=flat-square&labelColor=0B0F19"></a>
+  <a href="https://github.com/TriplEight/AuPM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TriplEight/AuPM/ci.yml?branch=master&style=flat-square&labelColor=0B0F19&label=CI&color=00E58B"></a>
+</p>
 
 Many companies audit their open-source dependencies internally. That review work never
 reaches the open-source project. AuPM gives security auditors, open-source supporters and
@@ -128,3 +141,7 @@ aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 - [docs/TASK.md](docs/TASK.md) — next steps and work items.
 - [docs/adr/](docs/adr/) — design decisions.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
+
+## License
+
+Licensed under AGPL-3.0-only. See [LICENSE](LICENSE).
