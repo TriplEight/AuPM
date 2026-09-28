@@ -733,7 +733,7 @@ again: the per-network table from P8a goes (replace, don't deprecate), and the l
 the attribution rules and the 402 text read the single 300/700 split. Tests: the auditor share
 and the 402 text; odd totals round like the contract. Owner: `x402-proxy-engineer` and docs.
 
-### P9. Cross-package imports through the workspace (decided 2026-09-28)
+### P9. Cross-package imports through the workspace (decided 2026-09-28) — DONE f7304bb
 
 `cli/` and `proxy/` import `mcp/src/money.ts` and other `mcp/` files by relative `../../`
 paths, with tsconfig `paths` entries and a single-file `COPY` in `proxy/Dockerfile`. Result: the
