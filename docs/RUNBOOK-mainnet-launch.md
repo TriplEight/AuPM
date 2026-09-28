@@ -172,10 +172,30 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
 
 1. Set the server's `.env` or Portainer `stack.env` to hold only: `NETWORK=mainnet`,
    `ALGOD_SERVER`, `INDEXER_URL`, `PAY_TO_ADDRESS`, `PAYMENT_ROUTER_APP_ID`,
-   `CREDITER_MNEMONIC`, `ATTEST_SIGNING_KEY`, `AUPM_ISSUER_URL`, `AUPM_KEY_VALID_FROM`,
-   `AUDITORS`, `AUPM_BACKUP_HOST_DIR`, `PORT`, `TRUST_PROXY`, `FACILITATOR_URL`, `OPS_ADDRESS`.
+   `AUPM_CREDITER_MNEMONIC_HOST_FILE`, `AUPM_ATTEST_SIGNING_KEY_HOST_FILE`, `AUPM_ISSUER_URL`,
+   `AUPM_KEY_VALID_FROM`, `AUDITORS`, `AUPM_BACKUP_HOST_DIR`, `PORT`, `TRUST_PROXY`,
+   `FACILITATOR_URL`, `OPS_ADDRESS`.
    Never `PAY_TO_MNEMONIC`, `DEPLOYER_MNEMONIC`, or an auditor's or donor's mnemonic.
-   Check: `grep -E 'MNEMONIC' .env` on the server prints only `CREDITER_MNEMONIC`.
+   The server env file holds no secret value. The two host-file variables hold paths only.
+   Check: `grep -E 'MNEMONIC=|SIGNING_KEY=' .env` on the server prints no value.
+
+   The server deployment reads `CREDITER_MNEMONIC` and `ATTEST_SIGNING_KEY` from files.
+   `compose.yaml` mounts each host file as a Docker secret and sets `CREDITER_MNEMONIC_FILE`
+   and `ATTEST_SIGNING_KEY_FILE`. The plain `CREDITER_MNEMONIC` and `ATTEST_SIGNING_KEY`
+   variables stay valid for non-Docker dev use only. The server refuses to boot when a
+   variable and its `_FILE` form are both set, when the file is missing or empty, or when the
+   file is readable by group or other.
+   Create each host file with mode 0400, owned by uid 1000 (the container's `node` user).
+   Never put the value on a command line: shell history keeps it.
+   ```bash
+   sudo install -m 0400 -o 1000 /dev/null <path>
+   sudo -e <path>      # type the value in the editor, save, quit
+   ```
+   Or write the value from a prompt in a subshell with `umask 077`, then set owner and mode:
+   `( umask 077; read -rs V; printf '%s' "$V" > <path> )`, then
+   `sudo chown 1000 <path> && sudo chmod 0400 <path>`.
+   Then set `AUPM_CREDITER_MNEMONIC_HOST_FILE` and `AUPM_ATTEST_SIGNING_KEY_HOST_FILE` to the
+   two paths.
 
 2. `AUPM_ISSUER_URL` and `AUPM_KEY_VALID_FROM` come only from `.env` or `stack.env`. A shell
    export does not change them. The server refuses to boot without valid values (Q13).
