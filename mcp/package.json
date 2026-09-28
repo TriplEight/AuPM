@@ -10,6 +10,7 @@
   "exports": {
     "./money": "./src/money.ts",
     "./donor": "./src/donor.ts",
+    "./proxy-url": "./src/proxy-url.ts",
     "./tools/attest": "./src/tools/attest.ts"
   },
   "scripts": {
