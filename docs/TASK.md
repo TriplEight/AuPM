@@ -737,6 +737,11 @@ patched version.
   Result: one admin command maps the identity on-chain (`setIdentity`), checks the USDC
   opt-in, and records the auditor where `record-review` reads it.
 
+- **A2. pnpm and npx support for `aupm` (from P2).** `POST /v1/attest/lockfile` parses only
+  `package-lock.json`. Add `pnpm-lock.yaml` parsing to the attestation server, then
+  `aupm pnpm <args>` can behave the same way as `aupm <npm args>`. `aupm npx <args>` needs its
+  own design: npx does not produce a lockfile to attest.
+
 ## Human-only items
 
 - P0 donor recruitment (SPEC §17 P0).

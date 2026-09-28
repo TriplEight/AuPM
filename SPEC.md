@@ -790,6 +790,11 @@ withdrawal.
 
 Reason: a lockfile that pins a reviewed version must work the same way on every surface.
 
+**Planned — pnpm and npx (docs/TASK.md P2).** `aupm pnpm <args>` and `aupm npx <args>` are not
+built. `POST /v1/attest/lockfile` parses only `package-lock.json` (lockfileVersion 2 or 3); it
+does not parse `pnpm-lock.yaml`. `aupm <npm args>` covers `npm install`, `i`, `ci`, and `add`
+only.
+
 ## 12. Attestations
 
 ### 12.1 Is a signature needed at all?
