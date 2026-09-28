@@ -1,6 +1,7 @@
 {
   "name": "smart_contracts",
-  "version": "1.0.0",
+  "version": "0.2.0",
+  "license": "AGPL-3.0-only",
   "packageManager": "pnpm@12.5.1",
   "description": "Smart contract deployer",
   "main": "smart_contracts/index.ts",
