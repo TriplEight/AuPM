@@ -683,7 +683,7 @@ The free-path limiter (20 per hour) stays. SPEC §12.3 states both limits. Tests
 request in the window gets 429 before the body is parsed; the free-path limit still applies.
 Owner: `x402-proxy-engineer`.
 
-### P7b. Generic text for an unhandled error
+### P7b. Generic text for an unhandled error — DONE 5a5e613
 
 `app.onError` in `proxy/src/app.ts` returns `err.message` to the client. A SQLite error can
 show the database path. Result: the handler logs the error on the server and returns
