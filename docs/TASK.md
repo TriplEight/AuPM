@@ -471,7 +471,7 @@ start from the README alone, and the contract's trust model is written down. The
 deploy is final: PaymentRouter cannot be updated after it is created, and `payTo` is the
 leaderboard key (invariant 1). So P1 comes first.
 
-### N0. Rename SPM to AuPM (first)
+### N0. Rename SPM to AuPM (first) — DONE c11224c
 
 Decided by the user, 2026-09-28: "SPM" is an occupied name. The new name is AuPM (audited
 package manager). The rename covers every name, the wire names included. Only TestNet runs
@@ -502,7 +502,7 @@ Check: `git grep -il 'spm'` lists only history files, `.claude/skills/`, the Com
 and `.gitleaks.toml` entries that match old fixtures. `bash scripts/verify.sh` prints
 `VERIFY: PASS`.
 
-### P1. Contract change policy (analysis, first)
+### P1. Contract change policy (analysis, first) — DONE 7c1f182
 
 Question: after the MainNet deploy, which changes force a new PaymentRouter? A contract that
 its operator replaces at will undermines trust.
@@ -614,6 +614,14 @@ Decided by the user, 2026-09-28:
 Result:
 1. `contract.algo.ts`: `AUDITOR_SHARE_NUM` 300. Contract tests for the new amounts, including
    the rounding of odd totals. Bundle any P1 contract change into the same build.
+1a. P1 contract change (ADR 0010, SPEC §10.2a): `announceRelease(to)` and `executeRelease()`
+   replace `releaseAuthority(to)`. The delay is 216,000 rounds, compiled in. `executeRelease`
+   sends `creditedUnclaimed` USDC from `payTo` to the address mapped to `treasury` (it fails if
+   `treasury` is not mapped), sets `creditedUnclaimed` to 0, marks the app retired (`credit()`
+   and `claim()` fail after that), then rekeys `payTo`. The deploy tooling creates the app from
+   a 2-of-3 multisig creator. Tests: an early execute fails; execute without an announcement
+   fails; execute without `treasury` fails; the sweep amount; credit and claim fail when
+   retired; a non-admin caller fails on both methods.
 2. SPEC §6.1, §6.2 and every place that states the split; a new ADR that supersedes ADR 0003;
    `CLAUDE.md` (overview and the canonical facts table); README; public texts; `guard.sh` rules
    that check split text. Invariant 8 still holds.
