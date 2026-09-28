@@ -471,6 +471,37 @@ start from the README alone, and the contract's trust model is written down. The
 deploy is final: PaymentRouter cannot be updated after it is created, and `payTo` is the
 leaderboard key (invariant 1). So P1 comes first.
 
+### N0. Rename SPM to AuPM (first)
+
+Decided by the user, 2026-09-28: "SPM" is an occupied name. The new name is AuPM (audited
+package manager). The rename covers every name, the wire names included. Only TestNet runs
+today, so no dual-read shim: the old names stop working.
+
+Result:
+1. Product text: `SPM` becomes `AuPM` in code, comments, docs, `SPEC.md`, ADRs, `CONTEXT.md`,
+   `CLAUDE.md`, `AGENTS.md`, the Action, the agents in `.claude/agents/`.
+2. Packages: `cli/` is npm package `aupm`, `mcp/` is `aupm-mcp`. The CLI command (`bin`) is
+   `aupm`. The root and proxy package names use `aupm`. No doc or config names `spm-cli` or
+   `spm-mcp`.
+3. Wire names: headers `X-AuPM-Donate`, `X-AuPM-Donate-Hint`, `X-AuPM-Tier`; env vars `AUPM_*`
+   (for example `AUPM_DONOR_MNEMONIC`, `AUPM_ISSUER_URL`, `AUPM_KEY_VALID_FROM`); key list
+   `/.well-known/aupm-keys.json`; default output `aupm-attestation.json`; ARC-2 note prefixes
+   `aupm:j` (review anchor) and `aupm:credit:` (credit batch); the Action directory
+   `.github/actions/aupm-attest/` and workflow `aupm-attest.yml`; the Compose service and volume
+   `aupm-db`; the image `ghcr.io/tripleight/aupm`. The Compose `image:` tag stays at the
+   published tag until a human releases a new image.
+4. History stays: past `NOTES.md` entries, past `.claude/HARNESS-CHANGELOG.md` entries and the
+   text of items marked DONE keep "SPM". One `NOTES.md` line records the rename.
+5. `scripts/guard.sh` passes, and its rules match the new names.
+
+Not in scope (human): the GitHub repo name, the local directory, `.claude/skills/spm-*`
+(sandbox-protected; the user renames them), the host `.env` and the volume migration, a new
+image release, a new TestNet anchor for `ms@2.1.3` with the `aupm:j` note, the npm publish.
+
+Check: `git grep -il 'spm'` lists only history files, `.claude/skills/`, the Compose image tag
+and `.gitleaks.toml` entries that match old fixtures. `bash scripts/verify.sh` prints
+`VERIFY: PASS`.
+
 ### P1. Contract change policy (analysis, first)
 
 Question: after the MainNet deploy, which changes force a new PaymentRouter? A contract that
@@ -537,7 +568,7 @@ Tests: argument pass-through (flags, `--`, positional args), exit code pass-thro
 removed, donation failure keeps npm's exit code, summary line with 0 and with N reviewed
 entries. Owner: `mcp-payer-engineer`.
 
-### P2a. Package names (decision first)
+### P2a. Package names (decision first) — decided 2026-09-28: `aupm`, `aupm-mcp` (N0)
 
 The npm names `spm-cli` and `spm-mcp` belong to unrelated authors (`spm-cli`: "the awesome
 style project manager"; `spm-mcp`: a product-document tool). A user who runs `npx spm-cli`
@@ -636,7 +667,7 @@ finding list. Each accepted finding becomes one item. Owner: `code-reviewer`.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
 - **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1.
-- **Wave 7:** P1 (decision) and P2a (names, decision) first → P8 (with P1's contract change)
+- **Wave 7:** N0 ‖ P1 (analysis) first; P2a is settled by N0 → P8 (with P1's contract change)
   ‖ P7 → P2 → P3 → P5 → P6 → MainNet launch (human steps, checked by the orchestrator). P4 is
   decided (planned).
 
