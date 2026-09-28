@@ -455,6 +455,15 @@ expiry reclaims the run. A second signal exits 1 at once. ADR 0009 records this.
 Acceptance: tests for idle, busy, a server close that never ends, a failed server close and a
 second signal. Owner: `x402-proxy-engineer`.
 
+### V1. The verify e2e proxy runs on a free port — DONE 9de186e
+
+`scripts/verify.sh` started its e2e proxy on the fixed port 4873. With a live stack on that port,
+e2e tested the live stack and failed. The e2e proxy now takes a free port from the OS, and the
+readiness check confirms that the started process is still alive.
+
+Acceptance: with another process on 4873, `verify.sh` prints `VERIFY: PASS`. Owner:
+`x402-proxy-engineer`.
+
 ## Order
 
 - **Wave 1 (parallel worktrees):** H1; Q1; Q5; Q9 + Q10; R1.
@@ -463,7 +472,7 @@ second signal. Owner: `x402-proxy-engineer`.
 - **Qualification (human, by Sept 25):** SPEC §17 Q steps 1–6 on MainNet.
 - **Wave 4:** R3 → R3a → Q13 → R3b → R3c → R3d → R3e → R4 → S1 → (N1 ‖ N2) → N3 → D1 → M0
   → MainNet rekey and first credit.
-- **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → MainNet launch (human steps, checked by the
+- **Wave 6:** release `v0.1.1` → F1 → M0 → F2 → F4 → V1 → MainNet launch (human steps, checked by the
   orchestrator).
 
 ### S1. Dependency advisories — DONE 349de5c
