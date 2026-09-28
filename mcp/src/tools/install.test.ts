@@ -70,6 +70,14 @@ function settleResponseHeader(transaction: string, success = true): string {
 }
 
 describe('install_audited_package', () => {
+  // docs/TASK.md P3: user-facing text shows dollars, never a raw microUSDC
+  // count, but keeps naming USDC on Algorand as the settlement asset.
+  it('describes the donation amount in dollars, not microUSDC', () => {
+    expect(installTool.description).toContain('$0.001')
+    expect(installTool.description).toContain('USDC on Algorand')
+    expect(installTool.description).not.toContain('microUSDC')
+  })
+
   beforeEach(() => {
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     process.env.AUPM_PROXY_URL = 'http://localhost:4873'

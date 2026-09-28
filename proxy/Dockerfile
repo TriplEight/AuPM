@@ -11,6 +11,12 @@
 # copies the installed node_modules and proxy source into a slim image with
 # no compiler toolchain, and runs as a non-root user.
 #
+# proxy/src/x402/routes.ts imports the dollar-formatting helper from
+# mcp/src/money.ts (docs/TASK.md P3: one helper, no duplicate). That one
+# dependency-free file — not the rest of the mcp workspace project or its
+# dependencies — is copied in below, at the same relative path the import
+# expects (repo-root-sibling of proxy/).
+#
 # No build step (`tsc`) exists for the proxy package (see proxy/package.json
 # "start"): it runs TypeScript directly through tsx at runtime, so tsx (a
 # devDependency) stays installed in the runtime image.
@@ -41,6 +47,7 @@ COPY cli/package.json cli/package.json
 RUN pnpm install --frozen-lockfile --filter ./proxy...
 COPY proxy/src proxy/src
 COPY proxy/tsconfig.json proxy/tsconfig.json
+COPY mcp/src/money.ts mcp/src/money.ts
 # scripts/record-review.mjs (SPEC §14) is the operator's `docker compose run`
 # entry point. It imports ./network.mjs and ./review-anchor.mjs by relative
 # path, and dynamically imports ../proxy/src/status.js, so scripts/ must sit
@@ -62,6 +69,7 @@ VOLUME /data
 COPY --from=build --chown=node:node /app/node_modules /app/node_modules
 COPY --from=build --chown=node:node /app/proxy /app/proxy
 COPY --from=build --chown=node:node /app/scripts /app/scripts
+COPY --from=build --chown=node:node /app/mcp /app/mcp
 USER node
 EXPOSE 4873
 CMD ["node", "--import", "tsx/esm", "src/index.ts"]

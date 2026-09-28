@@ -6,12 +6,20 @@
 import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/http'
 import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
+import { formatMicroUsd } from '../../../mcp/src/money.js'
 import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
-import { lockfileDynamicPrice } from '../routes/attest.js'
+import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
 export const LOCKFILE_ROUTE_KEY = 'POST /v1/attest/lockfile'
 export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
+
+// Dollar text for the description strings below, derived from the one
+// integer micro-unit price (never a second hand-typed "$0.001" to drift
+// out of sync — CLAUDE.md invariant 7, docs/TASK.md P3). The `accepts`
+// price field stays a literal dollar string: that one is x402 protocol
+// data the facilitator parses, not display text.
+const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 
 // SPEC §6.2 disclosure rule: every public text (README, `og:description`,
 // Bazaar descriptions) shows both the target split and the MVP split, in
@@ -29,7 +37,7 @@ const SPLIT_DISCLOSURE =
 // with the Bazaar route descriptions below.
 export const OG_DESCRIPTION =
   'AuPM turns human code review into a paid, verifiable, on-chain-anchored ' +
-  `public good on Algorand. $0.001 per reviewed package. ${SPLIT_DISCLOSURE}`
+  `public good on Algorand. ${PRICE_TEXT} per reviewed package. ${SPLIT_DISCLOSURE}`
 
 export type AupmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
@@ -63,8 +71,8 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
       description:
         'Signed in-toto attestation for every package in a package-lock.json: human ' +
         'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-        'each review. $0.001 per reviewed package; free when no package in the tree is ' +
-        `reviewed. ${SPLIT_DISCLOSURE}`,
+        `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
+        `is reviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -99,7 +107,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
       accepts: accepts('$0.001', feePayer),
       description:
         'Signed human-review attestation for one npm package version (query: name, ' +
-        `version). $0.001 per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+        `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -115,8 +123,8 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
     [TARBALL_ROUTE_KEY]: {
       accepts: tarballPaymentOption(feePayer),
       description:
-        'npm tarball download, gated for human-reviewed versions only. $0.001 per ' +
-        `reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+        'npm tarball download, gated for human-reviewed versions only. ' +
+        `${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/octet-stream',
       extensions: {
         ...declareDiscoveryExtension({
