@@ -107,9 +107,9 @@ export const TARBALL_PRICE_MICRO = 1_000
  * Request header that opts a tarball download into payment. Read
  * case-insensitively through HTTPAdapter#getHeader (see tarballFreeTierHook
  * below and proxy/src/app.ts, which reads the identical header the same
- * way to decide the X-SPM-Donate-Hint response header).
+ * way to decide the X-AuPM-Donate-Hint response header).
  */
-export const DONATE_HEADER = 'x-spm-donate'
+export const DONATE_HEADER = 'x-aupm-donate'
 
 /**
  * Parse npm's tarball path layout. Handles scoped package names explicitly
@@ -141,7 +141,7 @@ export function parseTarballPath(urlPath: string): { name: string; version: stri
  * onProtectedRequest hook: grant access without payment when the requested
  * tarball is below COMMUNITY_REVIEWED, and also when it is a reviewed
  * tarball the caller did not opt in to pay for. Only a reviewed tarball
- * requested with `X-SPM-Donate: 1` falls through to the normal payment flow
+ * requested with `X-AuPM-Donate: 1` falls through to the normal payment flow
  * (returns undefined). Every other protected route is a no-op (also
  * returns undefined).
  *
@@ -166,7 +166,7 @@ export function parseTarballPath(urlPath: string): { name: string; version: stri
  * ever happens once a resolved row is positively found to be reviewed.
  *
  * A resolved, reviewed row is still granted free access unless the request
- * carries `X-SPM-Donate: 1` exactly (SPEC §10.4, ADR 0006). x402's route
+ * carries `X-AuPM-Donate: 1` exactly (SPEC §10.4, ADR 0006). x402's route
  * config is static — a matching route always demands payment — but `npm
  * install` can never pay a 402, and the seed review list (`ms`, `once`,
  * `inherits`) sits in almost every lockfile. Any other header value,

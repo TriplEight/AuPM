@@ -1,6 +1,6 @@
-# spm-attest GitHub Action
+# aupm-attest GitHub Action
 
-This composite action runs the `spm` CLI's `attest` command against the SPM
+This composite action runs the `aupm` CLI's `attest` command against the AuPM
 attestation server. It writes the signed envelope to disk for upload as a
 build artifact.
 
@@ -9,12 +9,12 @@ build artifact.
 Add this step to a workflow that triggers on `pull_request` or `push`.
 
 ```yaml
-- uses: ./.github/actions/spm-attest
+- uses: ./.github/actions/aupm-attest
   with:
-    endpoint: ${{ vars.SPM_ENDPOINT }}
+    endpoint: ${{ vars.AUPM_ENDPOINT }}
     lockfile: package-lock.json
     fail-on-mismatch: 'false'
-    output: spm-attestation.json
+    output: aupm-attestation.json
 ```
 
 Upload the output file with `actions/upload-artifact` in a later step.
@@ -23,18 +23,18 @@ Upload the output file with `actions/upload-artifact` in a later step.
 
 | Input | Default | Description |
 | --- | --- | --- |
-| `endpoint` | (required) | URL of the SPM attestation server. |
+| `endpoint` | (required) | URL of the AuPM attestation server. |
 | `lockfile` | `package-lock.json` | Path to the lockfile the action posts. |
 | `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
-| `output` | `spm-attestation.json` | Path where the action writes the signed envelope. |
+| `output` | `aupm-attestation.json` | Path where the action writes the signed envelope. |
 | `donate` | `false` | Set to `true` to pay for a reviewed lockfile attestation. |
 | `donor-mnemonic` | (empty) | A funded MainNet donor mnemonic, from a GitHub secret. Read only when `donate` is `true`. |
 
 ## Behavior
 
-The action installs the `spm` CLI's own dependencies (`cli/`, `mcp/`).
+The action installs the `aupm` CLI's own dependencies (`cli/`, `mcp/`).
 It installs them from this action's own repository checkout, not the
-caller's. It then spawns `spm attest <lockfile>`.
+caller's. It then spawns `aupm attest <lockfile>`.
 
 The action never parses or re-serializes the lockfile. The CLI reads it as
 raw bytes. The server signs a digest of the exact request body.
@@ -48,7 +48,7 @@ A lockfile with reviewed packages needs payment. Donation is off by
 default. Set `donate: 'true'` and pass `donor-mnemonic` (a GitHub secret)
 to opt in.
 
-The action maps `donor-mnemonic` to the CLI's `SPM_DONOR_MNEMONIC`
+The action maps `donor-mnemonic` to the CLI's `AUPM_DONOR_MNEMONIC`
 environment variable. It maps `donate: 'true'` to the CLI's `--donate`
 flag.
 
@@ -105,9 +105,9 @@ Run the wrapper directly with Node. Pass flags in place of workflow inputs,
 or set the matching environment variables.
 
 ```bash
-ENDPOINT=https://spm.example.com \
+ENDPOINT=https://aupm.example.com \
 LOCKFILE=package-lock.json \
-OUTPUT=spm-attestation.json \
+OUTPUT=aupm-attestation.json \
   node attest.mjs
 ```
 
@@ -120,7 +120,7 @@ Set `donate: 'true'` locally with `DONATE=true` and
 development.
 
 `attest.mjs` uses only Node built-in modules. It needs no install step of
-its own. It spawns the already-installed `spm` CLI through `pnpm exec`.
+its own. It spawns the already-installed `aupm` CLI through `pnpm exec`.
 
 ## Testing
 
@@ -130,7 +130,7 @@ Run the test suite with Node's built-in test runner.
 node --test attest.test.mjs
 ```
 
-The tests stub the `spm` CLI with a fake `pnpm` executable. They place it
+The tests stub the `aupm` CLI with a fake `pnpm` executable. They place it
 first on `PATH`. Coverage includes:
 
 - A missing endpoint.

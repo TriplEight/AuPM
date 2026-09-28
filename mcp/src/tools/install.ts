@@ -10,8 +10,9 @@ import {
   PRICE_PER_ENTRY_MICRO,
   USDC_ASSET_ID,
 } from '../donor.js'
+import { formatMicroUsd } from '../money.js'
 
-const PROXY_URL = process.env.SPM_PROXY_URL ?? 'http://localhost:4873'
+const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
 
 export type InstallOutcome =
   | {
@@ -76,10 +77,10 @@ function readSettlementTxid(res: Response): string | null {
 export const installTool = {
   name: 'install_audited_package',
   description:
-    'Install an npm package via SPM. If COMMUNITY_REVIEWED or higher, this route returns ' +
-    `402. Pass allowDonation: true to donate up to ${PRICE_PER_ENTRY_MICRO} microUSDC on ` +
-    `Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) as a plain ` +
-    'asset transfer to the merchant payTo address. Without allowDonation, a 402 is reported ' +
+    'Install an npm package via AuPM. If COMMUNITY_REVIEWED or higher, this route returns ' +
+    `402. Pass allowDonation: true to donate up to ${formatMicroUsd(PRICE_PER_ENTRY_MICRO)} ` +
+    `in USDC on Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) as a ` +
+    'plain asset transfer to the merchant payTo address. Without allowDonation, a 402 is reported ' +
     "back as status: 'donation_required' with the price and resource URL, and nothing is " +
     'signed. Returns tarball path and settlement txid on a paid or free install.',
 
@@ -116,7 +117,7 @@ export const installTool = {
 
     const txid = readSettlementTxid(res)
 
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-'))
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-'))
     const tarballPath = path.join(tmpDir, tarballName)
     fs.writeFileSync(tarballPath, Buffer.from(await res.arrayBuffer()))
 

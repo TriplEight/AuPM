@@ -23,7 +23,7 @@ const PORT = Number(process.env.PORT ?? 4873)
 type NightlyMode = 'on' | 'off'
 
 /**
- * Boot guard (pure function, no I/O). SPM_NIGHTLY controls only the
+ * Boot guard (pure function, no I/O). AUPM_NIGHTLY controls only the
  * in-process nightly scheduler (item N1, ADR 0009) — unset or "on" runs
  * it, "off" disables it and logs one line instead. Any other value refuses
  * to boot, the same fail-fast style as assertValidPayTo and the other
@@ -33,7 +33,7 @@ function resolveNightlyMode(value: string | undefined): NightlyMode {
   if (value === undefined || value === 'on') return 'on'
   if (value === 'off') return 'off'
   throw new Error(
-    `x402 boot guard: SPM_NIGHTLY must be "on" or "off" (got ${JSON.stringify(value)}); ` +
+    `x402 boot guard: AUPM_NIGHTLY must be "on" or "off" (got ${JSON.stringify(value)}); ` +
       'unset it or set it to "on" to run the nightly scheduler, or "off" to disable it',
   )
 }
@@ -41,7 +41,7 @@ function resolveNightlyMode(value: string | undefined): NightlyMode {
 async function main(): Promise<void> {
   // Local boot guards: cheap, no I/O — checked before the facilitator boot
   // guard's network call. payTo is the leaderboard key (CLAUDE.md invariant
-  // 1); SPM_ISSUER_URL and SPM_KEY_VALID_FROM are published on every signed
+  // 1); AUPM_ISSUER_URL and AUPM_KEY_VALID_FROM are published on every signed
   // attestation and cannot be corrected after the fact (SPEC.md 12).
   // A missing or malformed value must stop boot here, not surface as an
   // unpayable 402 or a bad attestation to a real caller. A separate
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
     assertValidPayTo()
     assertValidIssuerUrl()
     assertValidKeyValidFrom()
-    nightlyMode = resolveNightlyMode(process.env.SPM_NIGHTLY)
+    nightlyMode = resolveNightlyMode(process.env.AUPM_NIGHTLY)
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
     // WARNING: never call serve() here. An invalid payTo must stop the
@@ -68,7 +68,7 @@ async function main(): Promise<void> {
     const app = createApp(httpServer)
 
     const server = serve({ fetch: app.fetch, port: PORT }, () => {
-      console.log(`SPM proxy listening on http://localhost:${PORT}`)
+      console.log(`AuPM proxy listening on http://localhost:${PORT}`)
     })
 
     // The in-process nightly scheduler (item N1, ADR 0009): daily at 03:17
@@ -78,7 +78,7 @@ async function main(): Promise<void> {
     // runNightlyWithLease itself never throws (item N1.3).
     let scheduler: SchedulerHandle | null = null
     if (nightlyMode === 'off') {
-      console.log('spm-nightly: scheduler off (SPM_NIGHTLY=off)')
+      console.log('aupm-nightly: scheduler off (AUPM_NIGHTLY=off)')
     } else {
       scheduler = startNightlyScheduler(buildRealNightlyDeps())
     }

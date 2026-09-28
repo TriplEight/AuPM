@@ -19,19 +19,54 @@ export const OPS_IDENTITY = 'ops'
 
 /**
  * All six target roles' share of every 1,000 micro-USDC paid for one
- * reviewed package (SPEC.md §13.2, CLAUDE.md "Canonical facts"). The
- * ledger records all six for every payment, so Phase 2 can add attributed
- * identities for contributor, treasury, and ops with no data loss, even
- * though the MVP resolves all three (plus maintainer and the adversarial
- * reviewer) to `unassigned` today.
+ * reviewed package (ADR 0011, docs/TASK.md P8d) — one split on every
+ * network. The ledger records all six roles for every payment, so Phase 2
+ * can add attributed identities for contributor, treasury, and ops with no
+ * data loss, even though the MVP resolves all three (plus maintainer and
+ * the adversarial reviewer) to `unassigned` today.
  */
 export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
-  auditor: 400,
+  auditor: 300,
   contributor: 100,
   maintainer: 200,
-  reviewer: 150,
+  reviewer: 250,
   treasury: 100,
   ops: 50,
+}
+
+/**
+ * Every role's share as a whole percent, in `ROLES` order, for the public
+ * disclosure text (SPEC §6.2, CLAUDE.md invariant 8) — one string built
+ * from the same table above, so the disclosed target split can never drift
+ * from the split the ledger actually uses.
+ */
+export function targetSplitRow(): string {
+  return ROLES.map((role) => String(ROLE_SHARE_PER_1000[role] / 10)).join('/')
+}
+
+/**
+ * The MVP split (CLAUDE.md invariant 8): the auditor gets the same percent
+ * as the target split, and everything else — every role not yet onboarded
+ * — is unclaimed ops income (ADR 0011) until those roles launch.
+ */
+export function mvpSplit(): {
+  auditorPercent: number
+  opsPercent: number
+} {
+  const auditorPercent = ROLE_SHARE_PER_1000.auditor / 10
+  return { auditorPercent, opsPercent: 100 - auditorPercent }
+}
+
+/**
+ * Integer micro-USDC owed to the auditor pool out of `attributedMicro`
+ * (SPEC.md §13.2, ADR 0005). Floors like the contract's own
+ * `(attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN` uint64 division
+ * (contracts/smart_contracts/payment_router/contract.algo.ts) — this
+ * defence-in-depth check (proxy/src/claims/credit.ts) must reject the same
+ * way the contract would, not merely when the division happens to be exact.
+ */
+export function auditorShareMicro(attributedMicro: number): number {
+  return Math.floor((attributedMicro * ROLE_SHARE_PER_1000.auditor) / 1000)
 }
 
 export const ROLES: readonly Role[] = [
@@ -155,10 +190,10 @@ export interface AccrualInput {
  *
  * Every route prices each reviewed package at exactly 1,000 microUSDC
  * (SPEC.md §11.2), so every package in `attribution.packages` gets its own
- * full set of exact role shares (400 / 100 / 200 / 150 / 100 / 50) —
- * tarball and single-attest (one package) the same way lockfile (N
- * packages) does. No division, no remainder, and no cross-package split
- * (SPEC.md §13.2).
+ * full set of exact role shares for `network` (defaults to the network
+ * this process is configured for) — tarball and single-attest (one
+ * package) the same way lockfile (N packages) does. No division, no
+ * remainder, and no cross-package split (SPEC.md §13.2).
  *
  * WARNING: never call this for a free request. Returns `[]` when
  * `priceMicro` is 0 or `packages` is empty, so the ledger writer never

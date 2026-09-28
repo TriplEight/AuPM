@@ -2,19 +2,19 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { attestLockfileTool } from 'aupm-mcp/tools/attest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { attestLockfileTool } from '../../mcp/src/tools/attest.js'
 
-vi.mock('../../mcp/src/tools/attest.js', () => ({
+vi.mock('aupm-mcp/tools/attest', () => ({
   attestLockfileTool: { handler: vi.fn() },
 }))
 
-describe('spm attest', () => {
+describe('aupm attest', () => {
   let lockfilePath: string
   let outDir: string
 
   beforeEach(() => {
-    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-attest-cli-test-'))
+    outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-cli-test-'))
     lockfilePath = path.join(outDir, 'package-lock.json')
     fs.writeFileSync(lockfilePath, '{}')
     vi.mocked(attestLockfileTool.handler).mockReset()
@@ -31,21 +31,26 @@ describe('spm attest', () => {
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
   })
 
-  it('without --donate, a bare donation_required result (no attestation) exits 0 and writes no file', async () => {
+  it('without --donate, a bare donation_required result (no attestation) exits 0, prints the price in dollars, and writes no file', async () => {
     vi.mocked(attestLockfileTool.handler).mockResolvedValue({
       status: 'donation_required',
       priceMicro: 1_000,
       resourceUrl: 'http://localhost:4873/v1/attest/lockfile',
       asset: '31566704',
     })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const { runAttest } = await import('./attest.js')
-    const outPath = path.join(outDir, 'spm-attestation.json')
+    const outPath = path.join(outDir, 'aupm-attestation.json')
     const exitCode = await runAttest([lockfilePath, '--out', outPath])
 
     expect(exitCode).toBe(0)
     expect(attestLockfileTool.handler).toHaveBeenCalledWith({ lockfilePath, allowDonation: false })
     expect(fs.existsSync(outPath)).toBe(false)
+    const printed = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
+    expect(printed).toContain('$0.001')
+    expect(printed).not.toContain('microUSDC')
+    logSpy.mockRestore()
   })
 
   it('without --donate, a partial donation_required result writes the attestation, prints the withheld count, and exits 0', async () => {
@@ -66,13 +71,15 @@ describe('spm attest', () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const { runAttest } = await import('./attest.js')
-    const outPath = path.join(outDir, 'spm-attestation.json')
+    const outPath = path.join(outDir, 'aupm-attestation.json')
     const exitCode = await runAttest([lockfilePath, '--out', outPath])
 
     expect(exitCode).toBe(0)
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
     const printed = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
     expect(printed).toContain('withheld 2 reviewed entries')
+    expect(printed).toContain('$0.002')
+    expect(printed).not.toContain('microUSDC')
     logSpy.mockRestore()
   })
 
@@ -97,7 +104,7 @@ describe('spm attest', () => {
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
   })
 
-  it('writes to the default spm-attestation.json path when --out is omitted', async () => {
+  it('writes to the default aupm-attestation.json path when --out is omitted', async () => {
     const attestation = {
       payloadType: 'application/vnd.in-toto+json',
       payload: 'xyz',
@@ -115,7 +122,7 @@ describe('spm attest', () => {
       const { runAttest } = await import('./attest.js')
       const exitCode = await runAttest([lockfilePath])
       expect(exitCode).toBe(0)
-      expect(fs.existsSync(path.join(outDir, 'spm-attestation.json'))).toBe(true)
+      expect(fs.existsSync(path.join(outDir, 'aupm-attestation.json'))).toBe(true)
     } finally {
       process.chdir(cwd)
     }

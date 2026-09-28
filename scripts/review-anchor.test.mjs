@@ -28,7 +28,7 @@ test('encodeReviewNote / decodeReviewNote round-trip', () => {
   assert.deepEqual(note, { v: 1, ...FIELDS })
 })
 
-test('encodeReviewNote produces the ARC-2 "spm:j" prefix', () => {
+test('encodeReviewNote produces the ARC-2 "aupm:j" prefix', () => {
   const text = new TextDecoder().decode(encodeReviewNote(FIELDS))
   assert.ok(text.startsWith(NOTE_PREFIX))
 })

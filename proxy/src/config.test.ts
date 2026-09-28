@@ -17,80 +17,84 @@ describe.each(['testnet', 'mainnet'])('boot guards (NETWORK=%s)', (network) => {
   describe('assertValidIssuerUrl', () => {
     test('refuses when unset (undefined)', () => {
       expect(() => assertValidIssuerUrl(undefined as unknown as string)).toThrow(
-        /SPM_ISSUER_URL.*is not set/,
+        /AUPM_ISSUER_URL.*is not set/,
       )
     })
 
     test('refuses an empty string', () => {
-      expect(() => assertValidIssuerUrl('')).toThrow(/SPM_ISSUER_URL.*is not set/)
+      expect(() => assertValidIssuerUrl('')).toThrow(/AUPM_ISSUER_URL.*is not set/)
     })
 
     test('refuses a non-URL string', () => {
-      expect(() => assertValidIssuerUrl('not a url')).toThrow(/SPM_ISSUER_URL/)
+      expect(() => assertValidIssuerUrl('not a url')).toThrow(/AUPM_ISSUER_URL/)
     })
 
     test('refuses http:// (not https)', () => {
-      expect(() => assertValidIssuerUrl('http://spm-example.test')).toThrow(/SPM_ISSUER_URL.*https/)
+      expect(() => assertValidIssuerUrl('http://aupm-example.test')).toThrow(
+        /AUPM_ISSUER_URL.*https/,
+      )
     })
 
     test('refuses a trailing slash', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test/')).toThrow(/SPM_ISSUER_URL/)
+      expect(() => assertValidIssuerUrl('https://aupm-example.test/')).toThrow(/AUPM_ISSUER_URL/)
     })
 
     test('refuses a path', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test/attestation')).toThrow(
-        /SPM_ISSUER_URL/,
+      expect(() => assertValidIssuerUrl('https://aupm-example.test/attestation')).toThrow(
+        /AUPM_ISSUER_URL/,
       )
     })
 
     test('refuses a query string', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test?x=1')).toThrow(/SPM_ISSUER_URL/)
+      expect(() => assertValidIssuerUrl('https://aupm-example.test?x=1')).toThrow(/AUPM_ISSUER_URL/)
     })
 
     test('refuses a fragment', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test#frag')).toThrow(/SPM_ISSUER_URL/)
+      expect(() => assertValidIssuerUrl('https://aupm-example.test#frag')).toThrow(
+        /AUPM_ISSUER_URL/,
+      )
     })
 
     test('accepts a bare https origin', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test')).not.toThrow()
+      expect(() => assertValidIssuerUrl('https://aupm-example.test')).not.toThrow()
     })
 
     test('accepts a bare https origin with a port', () => {
-      expect(() => assertValidIssuerUrl('https://spm-example.test:8443')).not.toThrow()
+      expect(() => assertValidIssuerUrl('https://aupm-example.test:8443')).not.toThrow()
     })
   })
 
   describe('assertValidKeyValidFrom', () => {
     test('refuses when unset (undefined)', () => {
       expect(() => assertValidKeyValidFrom(undefined as unknown as string)).toThrow(
-        /SPM_KEY_VALID_FROM.*is not set/,
+        /AUPM_KEY_VALID_FROM.*is not set/,
       )
     })
 
     test('refuses an empty string', () => {
-      expect(() => assertValidKeyValidFrom('')).toThrow(/SPM_KEY_VALID_FROM.*is not set/)
+      expect(() => assertValidKeyValidFrom('')).toThrow(/AUPM_KEY_VALID_FROM.*is not set/)
     })
 
     test('refuses a date without a time component', () => {
-      expect(() => assertValidKeyValidFrom('2026-01-01')).toThrow(/SPM_KEY_VALID_FROM/)
+      expect(() => assertValidKeyValidFrom('2026-01-01')).toThrow(/AUPM_KEY_VALID_FROM/)
     })
 
     test('refuses a timestamp without a UTC "Z" suffix', () => {
-      expect(() => assertValidKeyValidFrom('2026-01-01T00:00:00')).toThrow(/SPM_KEY_VALID_FROM/)
+      expect(() => assertValidKeyValidFrom('2026-01-01T00:00:00')).toThrow(/AUPM_KEY_VALID_FROM/)
     })
 
     test('refuses a timestamp with a non-UTC offset', () => {
       expect(() => assertValidKeyValidFrom('2026-01-01T00:00:00+02:00')).toThrow(
-        /SPM_KEY_VALID_FROM/,
+        /AUPM_KEY_VALID_FROM/,
       )
     })
 
     test('refuses a calendar-invalid date', () => {
-      expect(() => assertValidKeyValidFrom('2026-13-40T00:00:00Z')).toThrow(/SPM_KEY_VALID_FROM/)
+      expect(() => assertValidKeyValidFrom('2026-13-40T00:00:00Z')).toThrow(/AUPM_KEY_VALID_FROM/)
     })
 
     test('refuses free text', () => {
-      expect(() => assertValidKeyValidFrom('not a timestamp')).toThrow(/SPM_KEY_VALID_FROM/)
+      expect(() => assertValidKeyValidFrom('not a timestamp')).toThrow(/AUPM_KEY_VALID_FROM/)
     })
 
     test('accepts a valid ISO-8601 UTC timestamp', () => {

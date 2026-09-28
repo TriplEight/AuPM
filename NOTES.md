@@ -486,3 +486,25 @@ name, port, volume and nightly unit (the unit hardcodes `WorkingDirectory=/opt/s
 - Next session: MainNet runbook §2 (payTo opt-in, deploy, rekey) → §3 stack → first credit.
 - TestNet on Docker Compose: `audit.db` restored; health 200, `ms@2.1.3` `COMMUNITY_REVIEWED`,
   nightly backup written, credit skipped (nothing to credit).
+
+## 2026-09-28 — N0: rename SPM to AuPM
+- Renamed the product, packages, headers, env vars, and wire paths from SPM to AuPM
+  everywhere except history, `.claude/skills/spm-*`, and the GitHub repo path. `VERIFY: PASS`.
+
+## 2026-09-28 — wave 7: N0, P1–P8b
+- Done: N0 `c11224c`, P1 `7c1f182` (ADR 0010), P7a–c `e62666c` `5a5e613` `8cd5b5f`, P8 contract
+  `2416bbc`, P8 docs `3e2a56d` (ADR 0011), P2 `eb7bc37`, P3 `b42cdfa`, P8a `bbe899e`,
+  P8b `4bbffd7`, P5 `5eb4f73`, P6 `ff64c16`. `VERIFY: PASS`; `prek run --all-files` passes.
+- Decisions: 2-of-3 multisig admin; announce, then execute after 216,000 rounds; sweep of
+  unclaimed USDC to `treasury`; MainNet 30/70, TestNet app 772553842 keeps 40/60.
+- Blocked (human): `algokit project run build`, then P8c; npm publish of `aupm`, `aupm-mcp`;
+  image `ghcr.io/tripleight/aupm`; TestNet host volume and env rename; new `aupm:j` anchor.
+- Next action: a human runs `algokit project run build` and commits the artifacts.
+
+## 2026-09-28 — wave 7 follow-ups
+- Merged `master` (#28 license). Skills and repo URL renamed to AuPM.
+- P8d `b918abf`: one split (30/70) on every network; TestNet app 772553842 retired.
+- P9 `f7304bb`: cli and proxy import `aupm-mcp` through the workspace.
+- Contract artifacts rebuilt `7e6291e`; e2e share 300 and app schema 5/3 `45d2e54`. `VERIFY: PASS`.
+- Open (human): LocalNet rehearsal (Docker); new TestNet app; image release; npm publish.
+- Next action: a human runs the LocalNet rehearsal from `docs/TASK.md` P8c.

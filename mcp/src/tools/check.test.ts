@@ -3,12 +3,12 @@ import { checkTool } from './check.js'
 
 describe('check_audit_status', () => {
   beforeEach(() => {
-    process.env.SPM_PROXY_URL = 'http://localhost:4873'
+    process.env.AUPM_PROXY_URL = 'http://localhost:4873'
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.SPM_PROXY_URL
+    delete process.env.AUPM_PROXY_URL
   })
 
   it('returns status without making a payment request', async () => {

@@ -10,7 +10,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-credit-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-credit-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
 const { writeAccruals } = await import('./ledger.js')
@@ -139,9 +139,10 @@ describe('runCreditStep: batch totals and entries', () => {
     expect(attributedMicro).toBe(2000) // 2 packages x 1,000 microUSDC each
     expect(unattributedMicro).toBe(0)
 
+    // 300 per package, ADR 0011's auditor share (docs/TASK.md P8d: one split everywhere).
     const byKey = new Map(entries.map((e) => [`${e.repo}:${e.identity}`, e.amountMicro]))
-    expect(byKey.get('acme/ms:github:alice')).toBe(400)
-    expect(byKey.get('acme/lodash:github:bob')).toBe(400)
+    expect(byKey.get('acme/ms:github:alice')).toBe(300)
+    expect(byKey.get('acme/lodash:github:bob')).toBe(300)
     expect(entries).toHaveLength(2) // never merged across different (repo, identity) pairs
 
     const batchRow = db.prepare('SELECT * FROM batches WHERE batch_seq = 1').get() as {
@@ -181,7 +182,8 @@ describe('runCreditStep: batch totals and entries', () => {
     await runCreditStep(client, envWithApp())
     const [, , , , entries] = firstCallArgs(submit)
     expect(entries).toHaveLength(1)
-    expect(entries[0]).toEqual({ repo: 'acme/ms', identity: 'github:alice', amountMicro: 800 })
+    // 2 x 300 (auditor share, ADR 0011), merged into one (repo, identity) entry.
+    expect(entries[0]).toEqual({ repo: 'acme/ms', identity: 'github:alice', amountMicro: 600 })
   })
 
   test('an unmatched inflow ledgered as unassigned goes into unattributedMicro, not entries', async () => {

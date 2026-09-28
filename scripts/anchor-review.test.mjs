@@ -57,11 +57,14 @@ test('parseAnchorArgs throws when a positional argument is missing', () => {
 })
 
 test('readKeyFile throws when the file does not exist', () => {
-  assert.throws(() => readKeyFile(path.join(os.tmpdir(), 'spm-no-such-key-file')), /does not exist/)
+  assert.throws(
+    () => readKeyFile(path.join(os.tmpdir(), 'aupm-no-such-key-file')),
+    /does not exist/,
+  )
 })
 
 test('readKeyFile throws when the file is group- or world-readable', () => {
-  const p = path.join(os.tmpdir(), `spm-anchor-key-${process.pid}-loose`)
+  const p = path.join(os.tmpdir(), `aupm-anchor-key-${process.pid}-loose`)
   fs.writeFileSync(p, 'word '.repeat(25).trim(), { mode: 0o644 })
   try {
     assert.throws(() => readKeyFile(p), /must not be readable by group or other/)
@@ -71,7 +74,7 @@ test('readKeyFile throws when the file is group- or world-readable', () => {
 })
 
 test('readKeyFile reads and trims a properly-permissioned file', () => {
-  const p = path.join(os.tmpdir(), `spm-anchor-key-${process.pid}-tight`)
+  const p = path.join(os.tmpdir(), `aupm-anchor-key-${process.pid}-tight`)
   const mnemonic = Array.from({ length: 25 }, (_, i) => `word${i}`).join(' ')
   fs.writeFileSync(p, `${mnemonic}\n`, { mode: 0o600 })
   try {

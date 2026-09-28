@@ -70,16 +70,24 @@ function settleResponseHeader(transaction: string, success = true): string {
 }
 
 describe('install_audited_package', () => {
+  // docs/TASK.md P3: user-facing text shows dollars, never a raw microUSDC
+  // count, but keeps naming USDC on Algorand as the settlement asset.
+  it('describes the donation amount in dollars, not microUSDC', () => {
+    expect(installTool.description).toContain('$0.001')
+    expect(installTool.description).toContain('USDC on Algorand')
+    expect(installTool.description).not.toContain('microUSDC')
+  })
+
   beforeEach(() => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
-    process.env.SPM_PROXY_URL = 'http://localhost:4873'
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_PROXY_URL = 'http://localhost:4873'
     delete process.env.NETWORK
   })
 
   afterEach(() => {
     vi.unstubAllGlobals()
-    delete process.env.SPM_DONOR_MNEMONIC
-    delete process.env.SPM_PROXY_URL
+    delete process.env.AUPM_DONOR_MNEMONIC
+    delete process.env.AUPM_PROXY_URL
     delete process.env.NETWORK
   })
 
@@ -102,10 +110,10 @@ describe('install_audited_package', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('without allowDonation, sends X-SPM-Donate: 0', async () => {
+  it('without allowDonation, sends X-AuPM-Donate: 0', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(requestUrl(input), init)
-      expect(request.headers.get('X-SPM-Donate')).toBe('0')
+      expect(request.headers.get('X-AuPM-Donate')).toBe('0')
       return new Response(new Uint8Array([1, 2, 3, 4]), { status: 200 })
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -115,8 +123,8 @@ describe('install_audited_package', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('with allowDonation, sends X-SPM-Donate: 1 on both the initial and the paid retry', async () => {
-    process.env.SPM_DONOR_MNEMONIC = TEST_MNEMONIC
+  it('with allowDonation, sends X-AuPM-Donate: 1 on both the initial and the paid retry', async () => {
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     const seenHeaderValues: (string | null)[] = []
 
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -124,7 +132,7 @@ describe('install_audited_package', () => {
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
 
       const request = input instanceof Request ? input : new Request(url, init)
-      seenHeaderValues.push(request.headers.get('X-SPM-Donate'))
+      seenHeaderValues.push(request.headers.get('X-AuPM-Donate'))
       const paymentSignature = request.headers.get('PAYMENT-SIGNATURE')
       if (!paymentSignature) {
         return new Response(null, {

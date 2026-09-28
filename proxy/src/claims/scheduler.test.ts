@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-scheduler-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-scheduler-test-${randomUUID()}.db`)
 
 const { default: db, recordNightlyRunEnd, recordNightlyRunStart } = await import('./schema.js')
 const { computeNextRunAt, needsCatchUp, startNightlyScheduler } = await import('./scheduler.js')

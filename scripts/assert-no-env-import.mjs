@@ -26,12 +26,12 @@ const PRELOAD_SOURCE = `
 import fs from 'node:fs'
 import path from 'node:path'
 
-globalThis.__spmEnvAccessLog = []
+globalThis.__aupmEnvAccessLog = []
 
 function record(candidate) {
   try {
     if (typeof candidate === 'string' && path.basename(candidate) === '.env') {
-      globalThis.__spmEnvAccessLog.push(candidate)
+      globalThis.__aupmEnvAccessLog.push(candidate)
     }
   } catch {
     // A non-path argument (a file descriptor, a Buffer, a URL) never
@@ -77,7 +77,7 @@ if (typeof process.loadEnvFile === 'function') {
  * }}
  */
 export function importWithoutEnvMutation(moduleHref) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'spm-env-import-guard-'))
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-env-import-guard-'))
   try {
     const preloadPath = path.join(tmpDir, 'preload.mjs')
     fs.writeFileSync(preloadPath, PRELOAD_SOURCE)
@@ -88,7 +88,7 @@ export function importWithoutEnvMutation(moduleHref) {
       `await import(${JSON.stringify(moduleHref)});` +
       'const after = Object.keys(process.env).sort();' +
       'process.stdout.write(JSON.stringify({' +
-      'envPaths: globalThis.__spmEnvAccessLog ?? [],' +
+      'envPaths: globalThis.__aupmEnvAccessLog ?? [],' +
       'envKeysBefore: before,' +
       'envKeysAfter: after,' +
       '}));'

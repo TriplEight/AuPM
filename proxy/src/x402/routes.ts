@@ -6,20 +6,32 @@
 import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/http'
 import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
+import { formatMicroUsd } from 'aupm-mcp/money'
+import { mvpSplit, targetSplitRow } from '../claims/attribution-rules.js'
 import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
-import { lockfileDynamicPrice } from '../routes/attest.js'
+import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
 export const LOCKFILE_ROUTE_KEY = 'POST /v1/attest/lockfile'
 export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 
+// Dollar text for the description strings below, derived from the one
+// integer micro-unit price (never a second hand-typed "$0.001" to drift
+// out of sync — CLAUDE.md invariant 7, docs/TASK.md P3). The `accepts`
+// price field stays a literal dollar string: that one is x402 protocol
+// data the facilitator parses, not display text.
+const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
+
 // SPEC §6.2 disclosure rule: every public text (README, `og:description`,
-// Bazaar descriptions) shows both the target split and the MVP split, in
-// this exact wording. Never claim the maintainer's target share is paid
-// out today: in the MVP it is unclaimed ops income until that role onboards.
+// Bazaar descriptions) shows both the target split and the MVP split — one
+// split on every network (ADR 0011, docs/TASK.md P8d), never a literal, so
+// the disclosed split can never drift from the one the ledger actually uses.
+// Never claim the maintainer's target share is paid out today: in the MVP
+// it is unclaimed ops income until that role onboards (CLAUDE.md invariant 8).
+const { auditorPercent: MVP_AUDITOR_PERCENT, opsPercent: MVP_OPS_PERCENT } = mvpSplit()
 const SPLIT_DISCLOSURE =
-  'Target split 40/10/20/15/10/5. In the MVP: 40% to the auditor, 60% to ' +
-  'the operator until the other roles launch.'
+  `Target split ${targetSplitRow()}. In the MVP: ${MVP_AUDITOR_PERCENT}% to the auditor, ` +
+  `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
 
 // The canonical text for the `og:description` meta tag the operator sets
 // at the domain root for the Bazaar merchant card (SPEC §6.2, §11.2,
@@ -28,10 +40,10 @@ const SPLIT_DISCLOSURE =
 // that text is authored, so the disclosure rule and the price stay in sync
 // with the Bazaar route descriptions below.
 export const OG_DESCRIPTION =
-  'SPM turns human code review into a paid, verifiable, on-chain-anchored ' +
-  `public good on Algorand. $0.001 per reviewed package. ${SPLIT_DISCLOSURE}`
+  'AuPM turns human code review into a paid, verifiable, on-chain-anchored ' +
+  `public good on Algorand. ${PRICE_TEXT} per reviewed package. ${SPLIT_DISCLOSURE}`
 
-export type SpmRouteKey =
+export type AupmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
   | typeof SINGLE_ATTEST_ROUTE_KEY
   | typeof TARBALL_ROUTE_KEY
@@ -56,15 +68,15 @@ function accepts(price: Price | DynamicPrice, feePayer: string): PaymentOption {
  * from the boot guard (proxy/src/config.ts#resolveFeePayer) — never
  * hardcoded.
  */
-export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> {
+export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig> {
   return {
     [LOCKFILE_ROUTE_KEY]: {
       accepts: accepts(lockfileDynamicPrice, feePayer),
       description:
         'Signed in-toto attestation for every package in a package-lock.json: human ' +
         'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-        'each review. $0.001 per reviewed package; free when no package in the tree is ' +
-        `reviewed. ${SPLIT_DISCLOSURE}`,
+        `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
+        `is reviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -99,7 +111,7 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
       accepts: accepts('$0.001', feePayer),
       description:
         'Signed human-review attestation for one npm package version (query: name, ' +
-        `version). $0.001 per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+        `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
         ...declareDiscoveryExtension({
@@ -115,8 +127,8 @@ export function buildRoutes(feePayer: string): Record<SpmRouteKey, RouteConfig> 
     [TARBALL_ROUTE_KEY]: {
       accepts: tarballPaymentOption(feePayer),
       description:
-        'npm tarball download, gated for human-reviewed versions only. $0.001 per ' +
-        `reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+        'npm tarball download, gated for human-reviewed versions only. ' +
+        `${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/octet-stream',
       extensions: {
         ...declareDiscoveryExtension({

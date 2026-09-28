@@ -11,7 +11,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
 
-process.env.SQLITE_PATH = path.join(os.tmpdir(), `spm-claims-ledger-test-${randomUUID()}.db`)
+process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-ledger-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
 const {
@@ -41,17 +41,17 @@ const LOCKFILE_ATTRIBUTION: Attribution = {
 }
 
 describe('writeAccruals', () => {
-  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 1,200 / 300 / 600 / 450 / 300 / 150 across the six roles', () => {
+  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 900 / 300 / 600 / 750 / 300 / 150 across the six roles (MainNet, ADR 0011)', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1')
     const rows = getAccrualsForTxid('TXID-1')
 
     const byRole = new Map<string, number>()
     for (const row of rows) byRole.set(row.role, (byRole.get(row.role) ?? 0) + row.amount_micro)
 
-    expect(byRole.get('auditor')).toBe(1200)
+    expect(byRole.get('auditor')).toBe(900)
     expect(byRole.get('contributor')).toBe(300)
     expect(byRole.get('maintainer')).toBe(600)
-    expect(byRole.get('reviewer')).toBe(450)
+    expect(byRole.get('reviewer')).toBe(750)
     expect(byRole.get('treasury')).toBe(300)
     expect(byRole.get('ops')).toBe(150)
 
@@ -94,7 +94,7 @@ describe('writeAccruals', () => {
     const rows = getAccrualsForTxid('TXID-SINGLE')
     const auditorRow = rows.find((r) => r.role === 'auditor')
     expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(400)
+    expect(auditorRow?.amount_micro).toBe(300)
   })
 })
 
@@ -157,9 +157,9 @@ describe('getEarningsForLogin', () => {
     expect(aliceAuditor).toBeGreaterThan(0)
     expect(bobAuditor).toBeGreaterThan(0)
     expect(aliceAuditor).not.toBe(bobAuditor)
-    // 2 packages x 400 (alice) + 1 package x 400 (bob) = the full 1,200
-    // auditor share of this 3-package, 3,000-microUSDC payment.
-    expect(aliceAuditor + bobAuditor).toBe(1200)
+    // 2 packages x 300 (alice) + 1 package x 300 (bob) = the full 900
+    // auditor share of this 3-package, 3,000-microUSDC payment (MainNet, ADR 0011).
+    expect(aliceAuditor + bobAuditor).toBe(900)
   })
 
   test('claimed totals reflect recorded payouts', () => {
@@ -186,8 +186,8 @@ describe('identity canonicalisation', () => {
     const earnings = getEarningsForLogin('Alice')
     expect(earnings.identity).toBe('github:alice')
     const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorRole?.accruedMicro).toBe(400)
-    expect(earnings.totalAccruedMicro).toBe(400)
+    expect(auditorRole?.accruedMicro).toBe(300)
+    expect(earnings.totalAccruedMicro).toBe(300)
   })
 
   test('getEarningsForLogin is case-insensitive: an accrual for github:Alice is found under both alice and ALICE', () => {
@@ -203,9 +203,9 @@ describe('identity canonicalisation', () => {
 
     expect(lower.identity).toBe('github:alice')
     expect(upper.identity).toBe('github:alice')
-    expect(lower.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
-    expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(400)
-    expect(lower.totalAccruedMicro).toBe(400)
-    expect(upper.totalAccruedMicro).toBe(400)
+    expect(lower.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(300)
+    expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(300)
+    expect(lower.totalAccruedMicro).toBe(300)
+    expect(upper.totalAccruedMicro).toBe(300)
   })
 })

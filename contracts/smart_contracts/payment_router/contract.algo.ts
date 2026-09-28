@@ -14,8 +14,9 @@ import {
 } from '@algorandfoundation/algorand-typescript'
 
 // Auditor share of an attributed batch, per 1,000 micro-units. Ops gets the
-// rest of attributedTotal plus all of unattributedTotal.
-const AUDITOR_SHARE_NUM = Uint64(400)
+// rest of attributedTotal plus all of unattributedTotal. MVP split (P8):
+// auditor 300, ops 700.
+const AUDITOR_SHARE_NUM = Uint64(300)
 const SPLIT_DEN = Uint64(1000)
 
 // A claim below this floor costs more in fees than it pays out.
@@ -28,6 +29,16 @@ const MIN_CLAIM_FEE = Uint64(2_000)
 // Fixed identity for the ops pool. The admin maps it to an address the same
 // way it maps an auditor identity.
 const OPS_IDENTITY = 'ops'
+
+// Fixed identity for the migration sweep target (ADR 0010, SPEC §10.2a).
+// executeRelease() sweeps creditedUnclaimed to whatever address this
+// identity is mapped to; it fails if the identity is unmapped.
+const TREASURY_IDENTITY = 'treasury'
+
+// Delay, in rounds, between announceRelease() and a successful
+// executeRelease() call. About 7 days at ~2.9s/round (ADR 0010). Compiled
+// in: a new value needs a new contract, per docs/adr/0010.
+const RELEASE_DELAY_ROUNDS = Uint64(216_000)
 
 // repo travels with each entry for shape parity with SPEC §10.1, but the
 // contract never stores it. The per-repo breakdown lives in the off-chain
@@ -63,6 +74,13 @@ export class PaymentRouter extends Contract {
   // R2's deploy step must fund the app account before the first credit().
   balances = BoxMap<string, uint64>({ keyPrefix: 'bal:' })
 
+  // Migration state (ADR 0010). announcedTo/announcedRound are set together
+  // by announceRelease() and read by executeRelease(). retired is set once,
+  // by executeRelease(), and gates credit()/claim() from then on.
+  announcedTo = GlobalState<bytes>({ key: 'ato' })
+  announcedRound = GlobalState<uint64>({ key: 'arn' })
+  retired = GlobalState<boolean>({ key: 'ret' })
+
   // Runs once, at creation. payTo and the USDC asset id are fixed here and
   // never change afterwards.
   public createApplication(payTo: Account, usdcAsset: Asset): void {
@@ -92,6 +110,8 @@ export class PaymentRouter extends Contract {
     unattributedTotal: uint64,
     entries: CreditEntry[],
   ): void {
+    const isRetired: boolean = this.retired.hasValue ? this.retired.value : false
+    assert(!isRetired, 'app is retired')
     assert(Txn.sender.bytes === this.crediter.value, 'not crediter')
 
     const last: uint64 = this.lastBatchSeq.hasValue ? this.lastBatchSeq.value : Uint64(0)
@@ -102,7 +122,7 @@ export class PaymentRouter extends Contract {
       entriesTotal = entriesTotal + entries[i].amount
     }
     const auditorShare: uint64 = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN
-    assert(entriesTotal === auditorShare, 'entries must sum to attributedTotal x 400 / 1000')
+    assert(entriesTotal === auditorShare, 'entries must sum to attributedTotal x 300 / 1000')
 
     const asset = Asset(this.assetId.value)
     const payToAcct = Account(this.payTo.value)
@@ -140,6 +160,8 @@ export class PaymentRouter extends Contract {
   // the outer app-call fee. A later admin remap moves future claims to the
   // new address; it does not touch a balance already claimed.
   public claim(identity: string): void {
+    const isRetired: boolean = this.retired.hasValue ? this.retired.value : false
+    assert(!isRetired, 'app is retired')
     assert(this.identityAddress(identity).exists, 'unmapped identity')
     assert(Txn.sender.bytes === this.identityAddress(identity).value, 'not the mapped address')
 
@@ -165,17 +187,61 @@ export class PaymentRouter extends Contract {
       .submit()
   }
 
-  // Admin-gated: rekeys payTo away from this app to a later contract.
-  // Publicly disclose the recipient address once called.
-  public releaseAuthority(to: Account): void {
+  // Admin-only. Records the migration target and the current round.
+  // executeRelease() may run once RELEASE_DELAY_ROUNDS have passed. A
+  // second call before that overwrites the target and restarts the delay
+  // from the new round (ADR 0010): the delay always measures from the
+  // most recent announcement, not the first one.
+  public announceRelease(to: Account): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    this.announcedTo.value = to.bytes
+    this.announcedRound.value = Global.round
+  }
+
+  // Admin-only. Runs only after the announce-to-execute delay has passed.
+  // Sweeps creditedUnclaimed to the "treasury" identity's mapped address,
+  // zeroes creditedUnclaimed, marks the app retired (credit() and claim()
+  // fail on it from then on), then rekeys payTo to the announced address.
+  // payTo's own address never changes; only the authorizer does
+  // (invariant 1, CLAUDE.md).
+  public executeRelease(): void {
+    assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
+    assert(this.announcedTo.hasValue, 'no release announced')
+    assert(
+      Global.round >= this.announcedRound.value + RELEASE_DELAY_ROUNDS,
+      'release delay has not passed',
+    )
+    assert(this.identityAddress(TREASURY_IDENTITY).exists, 'treasury identity not mapped')
+
     const payToAcct = Account(this.payTo.value)
+    const sweepAmount: uint64 = this.creditedUnclaimed.hasValue
+      ? this.creditedUnclaimed.value
+      : Uint64(0)
+
+    if (sweepAmount > Uint64(0)) {
+      const asset = Asset(this.assetId.value)
+      const treasuryAcct = Account(this.identityAddress(TREASURY_IDENTITY).value)
+      itxn
+        .assetTransfer({
+          sender: payToAcct,
+          xferAsset: asset,
+          assetReceiver: treasuryAcct,
+          assetAmount: sweepAmount,
+          fee: Uint64(0),
+        })
+        .submit()
+    }
+
+    this.creditedUnclaimed.value = Uint64(0)
+    this.retired.value = true
+
+    const releaseTo = Account(this.announcedTo.value)
     itxn
       .payment({
         sender: payToAcct,
         receiver: payToAcct,
         amount: Uint64(0),
-        rekeyTo: to,
+        rekeyTo: releaseTo,
         fee: Uint64(0),
       })
       .submit()

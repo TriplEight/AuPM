@@ -28,7 +28,7 @@ export const USDC_ASSET_ID = IS_TESTNET ? USDC_TESTNET_ASA_ID : USDC_MAINNET_ASA
 export const EXPLORER_NETWORK = IS_TESTNET ? 'testnet' : 'mainnet'
 
 /** Env var holding the donor's 25-word Algorand mnemonic. */
-export const SPM_DONOR_MNEMONIC_ENV = 'SPM_DONOR_MNEMONIC'
+export const AUPM_DONOR_MNEMONIC_ENV = 'AUPM_DONOR_MNEMONIC'
 
 /**
  * Price of one reviewed entry, in microUSDC (SPEC.md §11.2, §11.4). The
@@ -52,8 +52,8 @@ export function donationCapMicro(entryCount: number): bigint {
 }
 
 function readDonorMnemonic(): string {
-  const value = process.env[SPM_DONOR_MNEMONIC_ENV]
-  if (!value) throw new Error(`${SPM_DONOR_MNEMONIC_ENV} env var not set`)
+  const value = process.env[AUPM_DONOR_MNEMONIC_ENV]
+  if (!value) throw new Error(`${AUPM_DONOR_MNEMONIC_ENV} env var not set`)
   return value
 }
 
@@ -106,7 +106,7 @@ function donationCapPolicy(capMicro: bigint) {
 
 // Derives the donor signer only when the scheme actually reads address or
 // signTransactions -- that only happens once a real 402 is being paid. A
-// free (200) response never touches SPM_DONOR_MNEMONIC.
+// free (200) response never touches AUPM_DONOR_MNEMONIC.
 function lazyDonorSigner(): ClientAvmSigner {
   let cached: ClientAvmSigner | undefined
   function resolve(): ClientAvmSigner {
@@ -131,10 +131,10 @@ function buildDonationClient(capMicro: bigint): x402Client {
   return client
 }
 
-/** Header name SPM clients send on every request (SPEC.md §11.4, ADR 0006). */
-export const DONATE_HEADER = 'X-SPM-Donate'
+/** Header name AuPM clients send on every request (SPEC.md §11.4, ADR 0006). */
+export const DONATE_HEADER = 'X-AuPM-Donate'
 
-// Attaches X-SPM-Donate: 1 (opt-in) or X-SPM-Donate: 0 (opt-out) to init,
+// Attaches X-AuPM-Donate: 1 (opt-in) or X-AuPM-Donate: 0 (opt-out) to init,
 // preserving any headers the caller already set. wrapFetchWithPayment
 // clones the same Request for its paid retry, so this header carries
 // through to both the initial request and the retry unchanged.
@@ -163,7 +163,7 @@ export type DonationFetchResult =
 
 /**
  * Fetches url, paying a 402 only when allowDonation is true. Sends
- * X-SPM-Donate: 1 with the opt-in and X-SPM-Donate: 0 without it (SPEC.md
+ * X-AuPM-Donate: 1 with the opt-in and X-AuPM-Donate: 0 without it (SPEC.md
  * §11.4). Uses wrapFetchWithPayment for the whole pay-and-retry flow. The
  * spend cap and asset check run as an x402Client policy, so a refused
  * requirement never signs and never retries.
