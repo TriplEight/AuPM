@@ -33,10 +33,9 @@ const SPLIT_DISCLOSURE =
   `Target split ${targetSplitRow()}. In the MVP: ${MVP_AUDITOR_PERCENT}% to the auditor, ` +
   `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
 
-// The canonical text for the `og:description` meta tag the operator sets
-// at the domain root for the Bazaar merchant card (SPEC §6.2, §11.2,
-// docs/RUNBOOK-mainnet-launch.md). Not wired to an HTTP response: hosting
-// sets the meta tag outside this codebase. This constant is the one place
+// The canonical text for the `og:description` meta tag on the front page
+// at `GET /` (SPEC §6.2, §11.2, proxy/src/front-page.ts). The app serves it
+// for the Bazaar merchant card. This constant is the one place
 // that text is authored, so the disclosure rule and the price stay in sync
 // with the Bazaar route descriptions below.
 export const OG_DESCRIPTION =

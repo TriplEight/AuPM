@@ -657,8 +657,8 @@ Confirmed against GoPlausible's troubleshooting guide (algorand.co, 2026-08-13) 
   appears. Validate in a unit test: `validateDiscoveryExtension(decl.bazaar).valid === true`.
 - The catalog row is created **when a client pays**, from the payment payload. The facilitator
   does not crawl the host.
-- Merchant branding comes from `og:site_name`, `og:title`, `og:description`, `og:image` at the
-  domain root (§6.2 disclosure rule applies). Trigger one more payment after changing them.
+- Merchant branding comes from `og:site_name`, `og:title`, `og:description`, `og:image` that the
+  app serves at `GET /` (§6.2 disclosure rule applies). Trigger one more payment after changing them.
 
 ```ts
 import { Hono } from 'hono'
@@ -1082,7 +1082,7 @@ withdrawal or bridge hop takes days; an in-app wallet purchase is faster. Chase 
    Cold keys never touch the server.
 2. MainNet config; the server refuses to boot if `getSupported()` lacks MainNet `exact` with
    `x402Version` 2, and logs the resolved `feePayer`.
-3. Deploy with Docker Compose on the production host; `og:*` metadata at the domain root.
+3. Deploy with Docker Compose on the production host; the app serves `og:*` metadata at `GET /`.
    *Check:* `curl -sI -H 'X-AuPM-Donate: 1' "https://<domain>/v1/attest?name=ms&version=2.1.3"`
    → 402 once `ms@2.1.3` is reviewed.
 4. Auditors anchor 3–5 real reviews; the operator records each with `record-review` (§14).

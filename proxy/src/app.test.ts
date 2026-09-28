@@ -51,6 +51,7 @@ const db = (await import('./db.js')).default
 const { setStatus } = await import('./status.js')
 const { createApp } = await import('./app.js')
 const { buildHttpServer } = await import('./x402/server.js')
+const { OG_DESCRIPTION } = await import('./x402/routes.js')
 const { CAIP2_NETWORK, USDC_ASA_ID, TAG, getAttestationSigningKey } = await import('./config.js')
 
 function stubFacilitatorClient(): FacilitatorClient {
@@ -97,6 +98,60 @@ function stubSuccessFacilitatorClient(transaction = 'INTEGRATION-TX-1'): Facilit
 
 beforeEach(() => {
   db.exec('DELETE FROM audit_status')
+})
+
+describe('front page', () => {
+  const ISSUER_URL = 'https://aupm-verify.invalid'
+
+  test('GET / serves HTML with the og tags', async () => {
+    const res = await app.request('/')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('text/html; charset=UTF-8')
+    const html = await res.text()
+    expect(html).toContain('<title>')
+    expect(html).toContain('<meta property="og:site_name" content="AuPM">')
+    expect(html).toContain('<meta property="og:title" content="')
+    expect(html).toContain(
+      `<meta property="og:image" content="${ISSUER_URL}/.well-known/aupm-og.png">`,
+    )
+    expect(html).toContain(`<meta property="og:url" content="${ISSUER_URL}/">`)
+    expect(html).toContain(`<a href="${ISSUER_URL}/.well-known/aupm-keys.json">`)
+    expect(html).toContain('https://github.com/TriplEight/AuPM#readme')
+  })
+
+  test('og:description equals OG_DESCRIPTION', async () => {
+    const html = await (await app.request('/')).text()
+    const match = html.match(/<meta property="og:description" content="([^"]*)">/)
+    expect(match).not.toBeNull()
+    const unescaped = (match?.[1] ?? '').replaceAll('&amp;', '&').replaceAll('&#39;', "'")
+    expect(unescaped).toBe(OG_DESCRIPTION)
+  })
+
+  test('HEAD / returns 200 text/html', async () => {
+    const res = await app.request('/', { method: 'HEAD' })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toContain('text/html')
+  })
+
+  test('GET /.well-known/aupm-og.png serves PNG bytes', async () => {
+    const res = await app.request('/.well-known/aupm-og.png')
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('image/png')
+    expect(res.headers.get('cache-control')).toBe('public, max-age=86400')
+    const bytes = new Uint8Array(await res.arrayBuffer())
+    expect(Array.from(bytes.slice(0, 8))).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  })
+
+  test.each(['/ms', '/lodash'])('%s still passes through to npm', async (path) => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+    try {
+      const res = await app.request(path)
+      expect(res.status).toBe(200)
+      expect(String(spy.mock.calls[0]?.[0])).toBe(`https://registry.npmjs.org${path}`)
+    } finally {
+      spy.mockRestore()
+    }
+  })
 })
 
 describe('x402 gate', () => {

@@ -82,15 +82,15 @@ aupm install ms@2.1.3               # installs through the AuPM registry, same a
 aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
 ```
 
-`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `http://localhost:4873`.
-After the first npm release, a hosted `https://<domain>` deployment also works. You do not need
-to clone this repository to use `aupm`: after the first npm release, `npm install -g aupm`
-installs it. Until then, run it from a clone. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
+MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm
+release, `npm install -g aupm` installs it. Until then, run it from a clone. See
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 Plain npm also works, and stays free:
 
 ```bash
-npm config set registry https://<domain>/
+npm config set registry https://aupm.fyi/
 ```
 
 For a local proxy, use `http://localhost:4873/`.

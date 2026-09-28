@@ -237,9 +237,9 @@ TestNet host for MainNet, finish the TestNet move in `docs/TASK.md` item M0 — 
    After that run, `curl -s https://<mainnet-domain>/api/v1/health` returns 200. A 503 with
    `"lastSuccess": null` means the run failed: read the log line `aupm-nightly: failed — …`.
 
-8. Add `og:site_name`, `og:title`, `og:description` and `og:image` at the domain root for the
-   Bazaar merchant card. No route in this repository serves them. They belong to the front page
-   deployed alongside the proxy.
+8. The app serves `og:site_name`, `og:title`, `og:description`, `og:image` and `og:url` at
+   `GET /` for the Bazaar merchant card. The URLs use `AUPM_ISSUER_URL`. No separate front page
+   is needed.
    Check: `curl -s https://<mainnet-domain>/ | grep -c 'og:'` prints 4 or more.
 
 ---
