@@ -91,6 +91,7 @@ function buildTestApp(options: Partial<AttestRoutesOptions> = {}) {
   const attest = buildAttestRoutes({
     getSigningKey: options.getSigningKey ?? (async () => signingKey),
     rateLimiter: options.rateLimiter,
+    lockfileRequestRateLimiter: options.lockfileRequestRateLimiter,
     integrityLookup: options.integrityLookup,
   })
 
@@ -490,32 +491,32 @@ describe('POST /v1/attest/lockfile: partial attestation (X-AuPM-Donate: 0)', () 
   })
 })
 
-describe('POST /v1/attest/lockfile: body size cap', () => {
-  // A stream instrumented to record whether anything ever acquired a
-  // reader on it — used to prove the oversized-Content-Length path returns
-  // before the body is read at all, not merely before it finishes.
-  //
-  // CAUTION: a ReadableStream's `pull()` fires once automatically, to
-  // pre-fill its internal queue, even when nothing ever calls
-  // `getReader()` on it — that firing is not evidence anything read the
-  // body. `getReader()` — which readLimitedBody() must call to read even
-  // one byte — is the real signal.
-  function neverReadStream(): { stream: ReadableStream<Uint8Array>; wasRead: () => boolean } {
-    const stream = new ReadableStream<Uint8Array>({
-      pull(controller) {
-        controller.enqueue(encoder.encode('{}'))
-        controller.close()
-      },
-    })
-    let read = false
-    const originalGetReader = stream.getReader.bind(stream)
-    stream.getReader = ((...args: Parameters<typeof stream.getReader>) => {
-      read = true
-      return originalGetReader(...args)
-    }) as typeof stream.getReader
-    return { stream, wasRead: () => read }
-  }
+// A stream instrumented to record whether anything ever acquired a reader
+// on it — used to prove a pre-middleware returns before the body is read at
+// all, not merely before it finishes.
+//
+// CAUTION: a ReadableStream's `pull()` fires once automatically, to
+// pre-fill its internal queue, even when nothing ever calls `getReader()`
+// on it — that firing is not evidence anything read the body. `getReader()`
+// — which readLimitedBody() must call to read even one byte — is the real
+// signal.
+function neverReadStream(): { stream: ReadableStream<Uint8Array>; wasRead: () => boolean } {
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      controller.enqueue(encoder.encode('{}'))
+      controller.close()
+    },
+  })
+  let read = false
+  const originalGetReader = stream.getReader.bind(stream)
+  stream.getReader = ((...args: Parameters<typeof stream.getReader>) => {
+    read = true
+    return originalGetReader(...args)
+  }) as typeof stream.getReader
+  return { stream, wasRead: () => read }
+}
 
+describe('POST /v1/attest/lockfile: body size cap', () => {
   // A stream that emits `totalBytes` across small chunks, and records both
   // how many bytes it actually handed out and whether it was cancelled —
   // used to prove a hard read cap stops mid-stream, never draining a body
@@ -608,6 +609,107 @@ describe('POST /v1/attest/lockfile: body size cap', () => {
       body: '{ not json',
     })
     expect(res.status).toBe(400)
+  })
+})
+
+// Defect this pins: the free-path limiter (`rateLimiter` above) only guards
+// the zero-coverage and partial branches — a lockfile with at least one
+// reviewed entry never reached it, so a caller could spend server CPU (a
+// parse, roughly 500 status lookups, and a signature) on every such request
+// at no cost. `lockfileRequestRateLimiter` runs first, before the body is
+// read at all, on every lockfile request regardless of coverage.
+describe('POST /v1/attest/lockfile: per-request rate limit (paid and free paths alike)', () => {
+  test('over the cap: 429, and the body is never read', async () => {
+    const { app } = buildTestApp({
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+
+    // Exhausts the one-request cap; the body content does not matter here.
+    const first = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(first.status).not.toBe(429)
+
+    const { stream, wasRead } = neverReadStream()
+    const second = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: stream,
+      duplex: 'half',
+    } as unknown as RequestInit)
+
+    expect(second.status).toBe(429)
+    expect(wasRead()).toBe(false)
+  })
+
+  test('over the cap on a priced (reviewed) lockfile: 429, never a 400 from parsing it', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp({
+      lockfileRequestRateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }),
+    })
+    const priced = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3') },
+      }),
+    }
+
+    const first = await app.request('/v1/attest/lockfile', priced)
+    expect(first.status).not.toBe(429)
+
+    // A malformed body would otherwise fail analyzeLockfile() with 400
+    // (see the body-size-cap describe above); getting 429 instead proves
+    // the limiter runs, and rejects, before that parse.
+    const second = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{ not json',
+    })
+    expect(second.status).toBe(429)
+  })
+
+  test('the free-path limiter still applies on top of the per-request limiter', async () => {
+    // The per-request limiter defaults to its own (much larger) cap, so
+    // this isolates the free-path limiter's own, smaller cap.
+    const { app } = buildTestApp({ rateLimiter: createRateLimiter({ windowMs: 60_000, max: 1 }) })
+    const zeroCoverage = {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3') },
+      }),
+    }
+
+    const first = await app.request('/v1/attest/lockfile', zeroCoverage)
+    expect(first.status).toBe(200)
+
+    const second = await app.request('/v1/attest/lockfile', zeroCoverage)
+    expect(second.status).toBe(429)
+  })
+
+  test('under both limits: a priced lockfile still proceeds past both pre-middlewares', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp()
+
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: { 'node_modules/ms': npmEntry('2.1.3') },
+      }),
+    })
+
+    // buildTestApp chains the pre-middleware straight into the real
+    // handler (no payment gate in this file — see proxy/src/app.test.ts
+    // for the 402/429 ordering against the real gate); reaching 200 here
+    // proves neither limiter blocked a within-cap, priced request.
+    expect(res.status).toBe(200)
   })
 })
 

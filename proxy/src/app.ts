@@ -39,6 +39,8 @@ export interface CreateAppOptions {
   getSigningKey?: () => Promise<SigningKeyLike>
   /** Rate limiter for the free (zero-coverage) lockfile path. Injectable for tests. */
   rateLimiter?: RateLimiter
+  /** Rate limiter for every lockfile attestation request, paid or free. Injectable for tests. */
+  lockfileRequestRateLimiter?: RateLimiter
   /** Known-good tarball integrity lookup for reviewed packages. Injectable for tests. */
   integrityLookup?: AttestRoutesOptions['integrityLookup']
 }
@@ -61,6 +63,7 @@ export function createApp(
   const attest = buildAttestRoutes({
     getSigningKey: options.getSigningKey ?? getAttestationSigningKey,
     rateLimiter: options.rateLimiter,
+    lockfileRequestRateLimiter: options.lockfileRequestRateLimiter,
     integrityLookup: options.integrityLookup,
   })
 

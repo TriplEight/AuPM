@@ -876,6 +876,10 @@ shape with one package.
   `attestation`.
 - **Free paths are rate-limited** per IP (e.g. 20/hour, 429 beyond): the zero-coverage path
   and the partial path.
+- **Every lockfile request is also rate-limited** per IP (e.g. 120/hour, 429 beyond), paid or
+  free, checked before the body is read. Without this, a lockfile with at least one reviewed
+  entry could spend server CPU (a parse, status lookups, a signature) on every request at no
+  cost — the free-path limit above never sees the priced branch.
 
 **Verification levels:**
 - **L1 (offline, MVP):** `aupm verify att.json --lockfile package-lock.json` — checks the ed25519
