@@ -1,8 +1,10 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import algosdk from 'algosdk'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { APP_SPEC } from '../artifacts/payment_router/PaymentRouterClient'
 import {
   ADMIN_MSIG_THRESHOLD,
   assertAppCreatedFresh,
@@ -10,15 +12,26 @@ import {
   assertExistingAppMatchesConfig,
   assertExistingAppSafeToReuse,
   assertMainnetConfirmed,
+  assertMethodSignatureMatchesSpec,
   assertNetworkMatchesGenesis,
   assertOptedIntoUsdc,
+  assertSingleKeyDeployNotMainnet,
   buildAdminMultisigParams,
+  buildUnsignedAnnounceReleaseTxn,
   buildUnsignedCreateApplicationTxn,
+  buildUnsignedExecuteReleaseTxn,
+  buildUnsignedSetCrediterTxn,
+  buildUnsignedSetIdentityTxn,
+  deploy,
   deriveAdminMultisigAddress,
+  EXECUTE_RELEASE_MIN_FEE,
+  identityBoxName,
   parseAdminMultisigAddrs,
+  parseAppId,
   parseAuditorMap,
   parseNetwork,
   resolveClientConfig,
+  resolveExecuteReleaseFee,
   writeUnsignedTxnFile,
 } from './deploy-config'
 
@@ -437,5 +450,297 @@ describe('writeUnsignedTxnFile', () => {
     const decodedArgs = (decoded.applicationCall?.appArgs ?? []).map((a) => new Uint8Array(a))
     const originalArgs = (txn.applicationCall?.appArgs ?? []).map((a) => new Uint8Array(a))
     expect(decodedArgs).toEqual(originalArgs)
+  })
+})
+
+// --- Admin-call multisig builders (ADR 0010, SPEC §10.2a, docs/TASK.md P8b) -------------------
+
+describe('parseAppId', () => {
+  test('refuses an unset value', () => {
+    expect(() => parseAppId(undefined)).toThrow(/PAYMENT_ROUTER_APP_ID is not set/)
+  })
+
+  test('refuses a non-integer value', () => {
+    expect(() => parseAppId('not-a-number')).toThrow(/must be an integer/)
+  })
+
+  test('refuses zero or a negative value', () => {
+    expect(() => parseAppId('0')).toThrow(/must be a positive integer/)
+    expect(() => parseAppId('-5')).toThrow(/must be a positive integer/)
+  })
+
+  test('parses a positive integer', () => {
+    expect(parseAppId('772553842')).toBe(772553842n)
+  })
+})
+
+describe('identityBoxName', () => {
+  test('encodes the "id:" prefix plus the identity, as literal utf8 bytes', () => {
+    expect(identityBoxName('treasury')).toEqual(new TextEncoder().encode('id:treasury'))
+    expect(identityBoxName('github:octocat')).toEqual(new TextEncoder().encode('id:github:octocat'))
+  })
+})
+
+describe('resolveExecuteReleaseFee', () => {
+  test('never returns below EXECUTE_RELEASE_MIN_FEE', () => {
+    expect(EXECUTE_RELEASE_MIN_FEE).toBe(3_000)
+    expect(resolveExecuteReleaseFee(0)).toBe(EXECUTE_RELEASE_MIN_FEE)
+    expect(resolveExecuteReleaseFee(1_000)).toBe(EXECUTE_RELEASE_MIN_FEE)
+  })
+
+  test('keeps a higher suggested fee unchanged', () => {
+    expect(resolveExecuteReleaseFee(5_000)).toBe(5_000)
+  })
+})
+
+describe('assertMethodSignatureMatchesSpec', () => {
+  const fakeSpec = {
+    methods: [{ name: 'setCrediter', args: [{ type: 'address' }], returns: { type: 'void' } }],
+  } as unknown as Parameters<typeof assertMethodSignatureMatchesSpec>[1]
+
+  test('passes when the signature matches the spec method', () => {
+    expect(() =>
+      assertMethodSignatureMatchesSpec('setCrediter(address)void', fakeSpec),
+    ).not.toThrow()
+  })
+
+  test('throws when the signature disagrees with the spec method', () => {
+    expect(() => assertMethodSignatureMatchesSpec('setCrediter(uint64)void', fakeSpec)).toThrow(
+      /disagrees with the rebuilt ARC-56 spec/,
+    )
+  })
+
+  test('is a no-op when the spec does not declare the method yet (a stale spec)', () => {
+    expect(() =>
+      assertMethodSignatureMatchesSpec('announceRelease(address)void', fakeSpec),
+    ).not.toThrow()
+  })
+
+  test('setCrediter and setIdentity already agree with the real, generated ARC-56 spec', () => {
+    expect(() =>
+      assertMethodSignatureMatchesSpec('setCrediter(address)void', APP_SPEC),
+    ).not.toThrow()
+    expect(() =>
+      assertMethodSignatureMatchesSpec('setIdentity(string,address)void', APP_SPEC),
+    ).not.toThrow()
+  })
+
+  test('announceRelease/executeRelease are checked automatically once the spec is rebuilt', () => {
+    // The real, generated APP_SPEC is stale today: it still declares the superseded
+    // releaseAuthority(address), not announceRelease/executeRelease (ADR 0010), until a human
+    // reruns `algokit project run build`. This call is a no-op now. Once the spec is rebuilt
+    // with both methods, this same assertion starts failing loudly if either hand-written
+    // signature in deploy-config.ts disagrees with the rebuilt spec.
+    expect(() =>
+      assertMethodSignatureMatchesSpec('announceRelease(address)void', APP_SPEC),
+    ).not.toThrow()
+    expect(() => assertMethodSignatureMatchesSpec('executeRelease()void', APP_SPEC)).not.toThrow()
+  })
+})
+
+describe('admin-call builders', () => {
+  const addrs = [
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+  ]
+  const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
+  const APP_ID = 772553842n
+  const FAKE_SUGGESTED_PARAMS: algosdk.SuggestedParams = {
+    fee: 0n,
+    minFee: 1_000n,
+    firstValid: 100n,
+    lastValid: 1_100n,
+    genesisID: 'mainnet-v1.0',
+    genesisHash: new Uint8Array(32),
+    flatFee: false,
+  }
+
+  test('buildUnsignedSetCrediterTxn: sender, app id and ABI-encoded crediter address', () => {
+    const crediterAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedSetCrediterTxn(
+      APP_ID,
+      multisigAddress,
+      crediterAddress,
+      FAKE_SUGGESTED_PARAMS,
+    )
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    expect(txn.applicationCall?.appIndex).toBe(APP_ID)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs[0]).toEqual(
+      algosdk.ABIMethod.fromSignature('setCrediter(address)void').getSelector(),
+    )
+    expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(crediterAddress)
+    expect(txn.applicationCall?.boxes ?? []).toHaveLength(0)
+  })
+
+  test('buildUnsignedSetIdentityTxn: ABI-encoded identity/address and the identity box ref', () => {
+    const identityAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedSetIdentityTxn(
+      APP_ID,
+      multisigAddress,
+      'github:octocat',
+      identityAddress,
+      FAKE_SUGGESTED_PARAMS,
+    )
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs[0]).toEqual(
+      algosdk.ABIMethod.fromSignature('setIdentity(string,address)void').getSelector(),
+    )
+    expect(new algosdk.ABIStringType().decode(appArgs[1])).toBe('github:octocat')
+    expect(new algosdk.ABIAddressType().decode(appArgs[2])).toBe(identityAddress)
+    const boxes = txn.applicationCall?.boxes ?? []
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].appIndex).toBe(0n)
+    expect(new Uint8Array(boxes[0].name)).toEqual(identityBoxName('github:octocat'))
+  })
+
+  test('buildUnsignedAnnounceReleaseTxn: ABI-encoded target address, no box or foreign refs', () => {
+    const toAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedAnnounceReleaseTxn(APP_ID, multisigAddress, toAddress, {
+      ...FAKE_SUGGESTED_PARAMS,
+    })
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs[0]).toEqual(
+      algosdk.ABIMethod.fromSignature('announceRelease(address)void').getSelector(),
+    )
+    expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(toAddress)
+    expect(txn.applicationCall?.boxes ?? []).toHaveLength(0)
+    expect(txn.applicationCall?.foreignAssets ?? []).toHaveLength(0)
+  })
+
+  test('buildUnsignedExecuteReleaseTxn: no args, payTo/treasury accounts, USDC asset, treasury box', () => {
+    const payToAddress = algosdk.generateAccount().addr.toString()
+    const treasuryAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedExecuteReleaseTxn(
+      APP_ID,
+      multisigAddress,
+      payToAddress,
+      treasuryAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+    )
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs).toHaveLength(1)
+    expect(appArgs[0]).toEqual(
+      algosdk.ABIMethod.fromSignature('executeRelease()void').getSelector(),
+    )
+
+    const accounts = (txn.applicationCall?.accounts ?? []).map((a) => a.toString())
+    expect(accounts).toEqual([payToAddress, treasuryAddress])
+    expect(txn.applicationCall?.foreignAssets ?? []).toEqual([31566704n])
+
+    const boxes = txn.applicationCall?.boxes ?? []
+    expect(boxes).toHaveLength(1)
+    expect(boxes[0].appIndex).toBe(0n)
+    expect(new Uint8Array(boxes[0].name)).toEqual(identityBoxName('treasury'))
+  })
+
+  test('buildUnsignedExecuteReleaseTxn: flat fee is at least EXECUTE_RELEASE_MIN_FEE', () => {
+    const payToAddress = algosdk.generateAccount().addr.toString()
+    const treasuryAddress = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedExecuteReleaseTxn(
+      APP_ID,
+      multisigAddress,
+      payToAddress,
+      treasuryAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+    )
+    expect(txn.fee).toBeGreaterThanOrEqual(BigInt(EXECUTE_RELEASE_MIN_FEE))
+
+    const higherFeeParams = { ...FAKE_SUGGESTED_PARAMS, minFee: 5_000n }
+    const higherFeeTxn = buildUnsignedExecuteReleaseTxn(
+      APP_ID,
+      multisigAddress,
+      payToAddress,
+      treasuryAddress,
+      31566704,
+      higherFeeParams,
+    )
+    expect(higherFeeTxn.fee).toBe(5_000n)
+  })
+})
+
+// --- Single-key deploy() refuses MainNet (ADR 0010) --------------------------------------------
+
+describe('assertSingleKeyDeployNotMainnet', () => {
+  test('refuses MainNet', () => {
+    expect(() => assertSingleKeyDeployNotMainnet('mainnet')).toThrow(/ADR 0010/)
+  })
+
+  test('is a no-op on TestNet', () => {
+    expect(() => assertSingleKeyDeployNotMainnet('testnet')).not.toThrow()
+  })
+})
+
+describe('deploy() refuses MainNet before building any client or reading any mnemonic', () => {
+  const ENV_KEYS = ['NETWORK', 'CONFIRM_MAINNET', 'PAY_TO_ADDRESS', 'OPS_ADDRESS', 'AUDITORS']
+  let savedEnv: Record<string, string | undefined>
+
+  beforeEach(() => {
+    savedEnv = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]))
+  })
+
+  afterEach(() => {
+    for (const key of ENV_KEYS) {
+      if (savedEnv[key] === undefined) delete process.env[key]
+      else process.env[key] = savedEnv[key]
+    }
+    vi.restoreAllMocks()
+  })
+
+  test('NETWORK=mainnet: rejects and never calls AlgorandClient.fromConfig', async () => {
+    process.env.NETWORK = 'mainnet'
+    const fromConfigSpy = vi.spyOn(AlgorandClient, 'fromConfig')
+
+    await expect(deploy()).rejects.toThrow(/ADR 0010/)
+    expect(fromConfigSpy).not.toHaveBeenCalled()
+  })
+
+  test('NETWORK unset (defaults to mainnet): rejects and never calls AlgorandClient.fromConfig', async () => {
+    delete process.env.NETWORK
+    const fromConfigSpy = vi.spyOn(AlgorandClient, 'fromConfig')
+
+    await expect(deploy()).rejects.toThrow(/ADR 0010/)
+    expect(fromConfigSpy).not.toHaveBeenCalled()
+  })
+
+  test('NETWORK=testnet: proceeds past the guard and reads DEPLOYER/CREDITER mnemonics', async () => {
+    process.env.NETWORK = 'testnet'
+    process.env.PAY_TO_ADDRESS = algosdk.generateAccount().addr.toString()
+    process.env.OPS_ADDRESS = algosdk.generateAccount().addr.toString()
+
+    // One fixed fake signer for both DEPLOYER and CREDITER: deployPaymentRouter's own
+    // assertCrediterDistinct then refuses (crediter === deployer) once it runs — proof this
+    // TestNet call reaches deployPaymentRouter, well past the MainNet guard, without needing to
+    // mock the rest of algod's chain calls.
+    const fakeAddress = algosdk.generateAccount().addr.toString()
+    const fromEnvironment = vi.fn().mockResolvedValue({ addr: { toString: () => fakeAddress } })
+    const fakeAlgorandClient = {
+      client: {
+        algod: {
+          getTransactionParams: () => ({ do: async () => ({ genesisID: 'testnet-v1.0' }) }),
+        },
+      },
+      account: { fromEnvironment },
+    }
+    vi.spyOn(AlgorandClient, 'fromConfig').mockReturnValue(
+      fakeAlgorandClient as unknown as AlgorandClient,
+    )
+
+    let caught: unknown
+    try {
+      await deploy()
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect((caught as Error).message).not.toMatch(/ADR 0010/)
+    expect(fromEnvironment).toHaveBeenCalledWith('DEPLOYER')
+    expect(fromEnvironment).toHaveBeenCalledWith('CREDITER')
   })
 })
