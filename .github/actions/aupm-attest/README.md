@@ -28,7 +28,7 @@ Upload the output file with `actions/upload-artifact` in a later step.
 | `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
 | `output` | `aupm-attestation.json` | Path where the action writes the signed envelope. |
 | `donate` | `false` | Set to `true` to pay for a reviewed lockfile attestation. |
-| `donor-mnemonic` | (empty) | A funded MainNet donor mnemonic, from a GitHub secret. Read only when `donate` is `true`. |
+| `donor-mnemonic` | (empty) | A funded donor mnemonic, from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
 
 ## Behavior
 
@@ -51,6 +51,15 @@ to opt in.
 The action maps `donor-mnemonic` to the CLI's `AUPM_DONOR_MNEMONIC`
 environment variable. It maps `donate: 'true'` to the CLI's `--donate`
 flag.
+
+A paid run logs a `::notice::` with the amount and the settlement txid,
+for example `AuPM donation: 30000 microUSDC, settlement txid <txid>`. It
+adds the same line to the job summary.
+
+The donor pays on Algorand MainNet by default. For a TestNet rehearsal,
+set `NETWORK: testnet` in the job's `env:`. The action has no network
+input. Without that variable, a TestNet server's 402 does not match the
+donor's network, and the run pays nothing.
 
 WARNING: pass `donor-mnemonic` only through a GitHub secret in `with:`. The
 action forwards it through the spawned CLI's environment only. It never

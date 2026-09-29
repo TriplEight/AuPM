@@ -2,7 +2,6 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { decodePaymentResponseHeader } from '@x402-avm/core/http'
 import {
   EXPLORER_NETWORK,
   fetchWithDonation,
@@ -32,46 +31,6 @@ export type InstallOutcome =
     }
 
 export type InstallResult = InstallOutcome
-
-type DecodedSettleResponse = {
-  success: boolean
-  transaction: string
-}
-
-function isDecodedSettleResponse(value: unknown): value is DecodedSettleResponse {
-  return (
-    typeof value === 'object' &&
-    value !== null &&
-    'success' in value &&
-    typeof (value as { success: unknown }).success === 'boolean' &&
-    'transaction' in value &&
-    typeof (value as { transaction: unknown }).transaction === 'string'
-  )
-}
-
-// Reads the settlement txid from the PAYMENT-RESPONSE header the installed
-// @x402-avm/hono middleware sets on a paid response (legacy name
-// X-PAYMENT-RESPONSE also accepted by @x402-avm/core). A missing header
-// means the download was free. A present but malformed or unsuccessful
-// header means settlement is unproven — that must never be reported as
-// 'free'.
-function readSettlementTxid(res: Response): string | null {
-  const header = res.headers.get('PAYMENT-RESPONSE') ?? res.headers.get('X-PAYMENT-RESPONSE')
-  if (!header) return null
-
-  let decoded: unknown
-  try {
-    decoded = decodePaymentResponseHeader(header)
-  } catch {
-    throw new Error('Install failed: malformed PAYMENT-RESPONSE header')
-  }
-
-  if (!isDecodedSettleResponse(decoded) || !decoded.success || !decoded.transaction) {
-    throw new Error('Install failed: unsettled PAYMENT-RESPONSE header')
-  }
-
-  return decoded.transaction
-}
 
 export const installTool = {
   name: 'install_audited_package',
@@ -114,7 +73,7 @@ export const installTool = {
       throw new Error(`Install failed: ${res.status}`)
     }
 
-    const txid = readSettlementTxid(res)
+    const txid = result.settlement?.txid ?? null
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-'))
     const tarballPath = path.join(tmpDir, tarballName)

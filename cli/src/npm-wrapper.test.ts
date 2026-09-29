@@ -208,6 +208,7 @@ describe('runNpmWrapper', () => {
       status: 'attested',
       summary: { total: 3, reviewed: 0, unreviewed: 3, unresolvable: 0, integrityMismatch: 0 },
       attestation: {},
+      settlement: null,
     })
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
@@ -264,6 +265,7 @@ describe('runNpmWrapper', () => {
       status: 'attested',
       summary: { total: 1, reviewed: 1, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
       attestation: { payloadType: 'application/vnd.in-toto+json', payload: 'e30=', signatures: [] },
+      settlement: { txid: 'SETTLE1', amountMicro: 1_000 },
     })
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
@@ -280,9 +282,33 @@ describe('runNpmWrapper', () => {
       allowDonation: true,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 1 package is audited (COMMUNITY_REVIEWED). Donated $0.001.',
+      'aupm: 1 package is audited (COMMUNITY_REVIEWED). ' +
+        'Donated $0.001 (1000 microUSDC), settlement txid SETTLE1.',
     )
     expect(fs.existsSync(outPath)).toBe(true)
+    logSpy.mockRestore()
+  })
+
+  it('with --donate but no settlement, says no donation settled, never "Donated"', async () => {
+    fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { total: 1, reviewed: 1, unreviewed: 0, unresolvable: 0, integrityMismatch: 0 },
+      attestation: {},
+      settlement: null,
+    })
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { runNpmWrapper } = await import('./npm-wrapper.js')
+
+    const runPromise = runNpmWrapper(['install', 'ms@2.1.3', '--donate'])
+    child.emit('exit', 0, null)
+    await runPromise
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: 1 package is audited (COMMUNITY_REVIEWED). No donation settled.',
+    )
     logSpy.mockRestore()
   })
 

@@ -91,9 +91,11 @@ describe('aupm attest', () => {
     }
     vi.mocked(attestLockfileTool.handler).mockResolvedValue({
       status: 'attested',
-      summary: { reviewed: 1 },
+      summary: { reviewed: 30 },
       attestation,
+      settlement: { txid: 'SETTLETXID', amountMicro: 30_000 },
     })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 
     const { runAttest } = await import('./attest.js')
     const outPath = path.join(outDir, 'out.json')
@@ -102,6 +104,32 @@ describe('aupm attest', () => {
     expect(exitCode).toBe(0)
     expect(attestLockfileTool.handler).toHaveBeenCalledWith({ lockfilePath, allowDonation: true })
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
+    const printed = logSpy.mock.calls.map((call) => String(call[0]))
+    expect(printed).toContain('donated $0.03 (30000 microUSDC), settlement txid SETTLETXID')
+    expect(JSON.parse(printed.at(-1) ?? '')).toEqual({
+      reviewed: 30,
+      donatedMicro: 30_000,
+      settlementTxid: 'SETTLETXID',
+    })
+    logSpy.mockRestore()
+  })
+
+  it('a free attestation prints the summary alone, with no donation line', async () => {
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { reviewed: 0 },
+      attestation: { payloadType: 'application/vnd.in-toto+json', payload: 'xyz', signatures: [] },
+      settlement: null,
+    })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    const { runAttest } = await import('./attest.js')
+    await runAttest([lockfilePath, '--donate', '--out', path.join(outDir, 'free.json')])
+
+    const printed = logSpy.mock.calls.map((call) => String(call[0]))
+    expect(printed.some((line) => line.startsWith('donated'))).toBe(false)
+    expect(JSON.parse(printed.at(-1) ?? '')).toEqual({ reviewed: 0 })
+    logSpy.mockRestore()
   })
 
   it('writes to the default aupm-attestation.json path when --out is omitted', async () => {
@@ -114,6 +142,7 @@ describe('aupm attest', () => {
       status: 'attested',
       summary: { reviewed: 1 },
       attestation,
+      settlement: null,
     })
 
     const cwd = process.cwd()
