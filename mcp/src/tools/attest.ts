@@ -2,9 +2,11 @@
 import fs from 'node:fs'
 import { fetchWithDonation, PRICE_PER_ENTRY_MICRO, USDC_ASSET_ID } from '../donor.js'
 import { countLockfileEntries } from '../lockfile-entries.js'
+import { proxyUrl } from '../proxy-url.js'
 
-const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
-const LOCKFILE_ATTEST_URL = `${PROXY_URL}/v1/attest/lockfile`
+function lockfileAttestUrl(): string {
+  return `${proxyUrl()}/v1/attest/lockfile`
+}
 
 export type AttestLockfileOutcome =
   | {
@@ -78,7 +80,7 @@ export const attestLockfileTool = {
     const entryCount = countLockfileEntries(lockfileBytes)
 
     const result = await fetchWithDonation(
-      LOCKFILE_ATTEST_URL,
+      lockfileAttestUrl(),
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -118,7 +120,7 @@ export const attestLockfileTool = {
         return {
           status: 'donation_required',
           priceMicro: withheld * PRICE_PER_ENTRY_MICRO,
-          resourceUrl: LOCKFILE_ATTEST_URL,
+          resourceUrl: lockfileAttestUrl(),
           asset: USDC_ASSET_ID,
           withheld,
           summary: body.summary,

@@ -9,8 +9,7 @@ No MainNet deployment exists yet. MainNet runs no contract, and no payment has s
 
 `contracts/smart_contracts/artifacts/` holds a Puya build of `PaymentRouter`. MainNet does not
 run a `PaymentRouter` application id yet. Follow
-[RUNBOOK-contract-build.md](RUNBOOK-contract-build.md) before any MainNet deploy, then
-[RUNBOOK-mainnet-launch.md](RUNBOOK-mainnet-launch.md) for the deploy itself.
+[RUNBOOK-contract-build.md](RUNBOOK-contract-build.md) before any MainNet deploy. The operator runbook for the deploy is not published.
 
 Contract tests run under `algorand-typescript-testing`, in JavaScript. A passing test does not
 prove the contract compiles under Puya. Only `algokit project run build`, on a machine with
@@ -201,7 +200,5 @@ Each command here exits 0 against this repository state.
 ## Further reading
 
 - [SPEC.md](../SPEC.md) — the authoritative specification.
-- [docs/TASK.md](TASK.md) — next steps and work items.
 - [docs/adr/](adr/) — design decisions.
 - [RUNBOOK-contract-build.md](RUNBOOK-contract-build.md) — regenerate the contract artifacts.
-- [RUNBOOK-mainnet-launch.md](RUNBOOK-mainnet-launch.md) — deploy to MainNet.
