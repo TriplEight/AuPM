@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   checkIntegrityMatchesNpm,
   checkIsSelfZeroPayment,
+  checkScopeAllowedOnNetwork,
   checkSenderIsMappedAuditor,
   decodeReviewNote,
   distIntegrityForVersion,
@@ -22,6 +23,24 @@ const FIELDS = {
   reviewer: 'github:alice',
   scope: 'source read, no build',
 }
+
+test('checkScopeAllowedOnNetwork refuses an unread scope off TestNet', () => {
+  for (const scope of ['unread: testnet rehearsal', 'UNREAD', '  Unread rehearsal']) {
+    assert.throws(() => checkScopeAllowedOnNetwork(scope, 'mainnet'), /TestNet-only \(ADR 0012\)/)
+    assert.throws(() => checkScopeAllowedOnNetwork(scope, 'localnet'), /TestNet-only/)
+    assert.doesNotThrow(() => checkScopeAllowedOnNetwork(scope, 'testnet'))
+  }
+})
+
+test('checkScopeAllowedOnNetwork allows a read scope on every network', () => {
+  for (const scope of [
+    'full source',
+    'unreadable code was deobfuscated',
+    'source read, unread tests',
+  ]) {
+    assert.doesNotThrow(() => checkScopeAllowedOnNetwork(scope, 'mainnet'))
+  }
+})
 
 test('encodeReviewNote / decodeReviewNote round-trip', () => {
   const note = decodeReviewNote(encodeReviewNote(FIELDS))
