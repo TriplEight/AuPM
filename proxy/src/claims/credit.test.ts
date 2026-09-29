@@ -13,9 +13,11 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-credit-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
-const { writeAccruals } = await import('./ledger.js')
+const { writeAccruals, openBatch, listUncreditedAccruals } = await import('./ledger.js')
 const { setStatus } = await import('../status.js')
-const { runCreditStep, buildCreditCallRefs, planCreditChunk } = await import('./credit.js')
+const { runCreditStep, buildCreditCallRefs, planCreditChunk, MAX_CREDIT_ENTRIES } = await import(
+  './credit.js'
+)
 const { groupForCredit } = await import('./ledger.js')
 type AccrualRow = import('./schema.js').AccrualRow
 type Attribution = import('./attribution-rules.js').Attribution
@@ -306,6 +308,62 @@ describe('runCreditStep: batch resend after a crash', () => {
   })
 })
 
+describe('runCreditStep: a pending batch over the entry limit', () => {
+  const FIVE_AUDITORS: Attribution = {
+    route: 'lockfile',
+    priceMicro: 5000,
+    packages: [0, 1, 2, 3, 4].map((i) => ({
+      pkg: `pkg-${i}`,
+      version: '1.0.0',
+      auditor: `github:auditor-${i}`,
+    })),
+  }
+
+  // What the planner before the entry limit did: one batch with 5 entries.
+  function openOversizedBatch(): void {
+    writeAccruals(FIVE_AUDITORS, 'TXID-FIVE')
+    openBatch(1, listUncreditedAccruals())
+  }
+
+  test('not credited on chain: released, then re-planned within the limit and sent', async () => {
+    openOversizedBatch()
+    const submit = makeSubmitMock('CREDIT-REPLANNED')
+    const outcome = await runCreditStep(stubClient(true, submit, 0), envWithApp())
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 1, creditTxid: 'CREDIT-REPLANNED' })
+    expect(submit).toHaveBeenCalledTimes(1)
+    const [, batchSeq, attributed, , entries] = firstCallArgs(submit)
+    expect(batchSeq).toBe(1)
+    expect(attributed).toBe(3000)
+    expect(entries).toHaveLength(3)
+    const uncredited = db
+      .prepare('SELECT COUNT(DISTINCT pkg) AS n FROM accruals WHERE batch_seq IS NULL')
+      .get()
+    expect(uncredited).toEqual({ n: 2 })
+  })
+
+  test('already credited on chain: never released, its txid is recovered from the note', async () => {
+    openOversizedBatch()
+    const submit = makeSubmitMock('SHOULD-NEVER-BE-SENT')
+    const outcome = await runCreditStep(stubClient(true, submit, 1, 'ON-CHAIN'), envWithApp())
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 1, creditTxid: 'ON-CHAIN' })
+    expect(submit).not.toHaveBeenCalled()
+    const released = db.prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL').get()
+    expect(released).toEqual({ n: 0 })
+  })
+
+  test('a pending batch within the limit is resent as-is, never released', async () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-SMALL')
+    openBatch(1, listUncreditedAccruals())
+    const submit = makeSubmitMock('CREDIT-RESENT')
+    await runCreditStep(stubClient(true, submit, 0), envWithApp())
+
+    const [, batchSeq, attributed, , entries] = firstCallArgs(submit)
+    expect([batchSeq, attributed, entries.length]).toEqual([1, 2000, 2])
+  })
+})
+
 describe('buildCreditCallRefs', () => {
   const PAY_TO_ADDR = 'PAYTOADDRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
   const ASSET_ID = 31566704n
@@ -359,7 +417,8 @@ describe('buildCreditCallRefs', () => {
   })
 })
 
-// Audit L2: one credit() call fits at most 6 identity boxes ("ops" included).
+// One credit() call fits at most MAX_CREDIT_ENTRIES (repo, identity) entries:
+// the opcode budget measured on TestNet (173 + 159 per entry, limit 700).
 // A larger backlog must split into several batches, never stall the job.
 function packageRows(txid: string, pkg: string, auditor: string): AccrualRow[] {
   const base = {
@@ -392,52 +451,52 @@ function unassignedRow(txid: string, amount: number): AccrualRow {
   }
 }
 
-function auditorsOf(rows: AccrualRow[]): string[] {
-  return [...new Set(rows.filter((r) => r.role === 'auditor').map((r) => r.identity))].sort()
-}
-
 describe('planCreditChunk', () => {
   test('no rows: an empty chunk', () => {
     expect(planCreditChunk([])).toEqual([])
   })
 
-  test('5 distinct auditors plus ops fit: every row goes into the chunk', () => {
-    const rows = [0, 1, 2, 3, 4].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`))
+  test('the limit is 3 entries', () => {
+    expect(MAX_CREDIT_ENTRIES).toBe(3)
+  })
+
+  test('3 packages in 3 repos fit: every row goes into the chunk', () => {
+    const rows = [0, 1, 2].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`))
     expect(planCreditChunk(rows)).toEqual(rows)
   })
 
-  test('a 6th distinct auditor waits for the next batch, with all its role rows', () => {
-    const rows = [0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`))
+  test('a 4th repo waits for the next batch, with all its role rows', () => {
+    const rows = [0, 1, 2, 3].flatMap((i) => packageRows('T', `p${i}`, 'github:alice'))
     const chunk = planCreditChunk(rows)
-    expect(auditorsOf(chunk)).toEqual([
-      'github:a0',
-      'github:a1',
-      'github:a2',
-      'github:a3',
-      'github:a4',
-    ])
-    expect(chunk.some((r) => r.pkg === 'p5')).toBe(false)
+    expect(chunk.map((r) => r.pkg).sort()).toEqual(['p0', 'p0', 'p1', 'p1', 'p2', 'p2'])
   })
 
-  test('a repeated auditor costs no new box: a later package by a known auditor still fits', () => {
+  test('one auditor across many repos still splits: the limit counts entries, not identities', () => {
+    const rows = Array.from({ length: 30 }, (_, i) =>
+      packageRows('T', `p${i}`, 'github:tripleight'),
+    ).flat()
+    expect(groupForCredit(planCreditChunk(rows)).entries).toHaveLength(3)
+  })
+
+  test('a repeated (repo, identity) adds no entry: a later package in a known repo still fits', () => {
     const rows = [
-      ...[0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
-      ...packageRows('T', 'p6', 'github:a0'),
+      ...[0, 1, 2, 3].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
+      ...packageRows('T2', 'p0', 'github:a0'),
     ]
     const chunk = planCreditChunk(rows)
-    expect(chunk.some((r) => r.pkg === 'p6')).toBe(true)
-    expect(chunk.some((r) => r.pkg === 'p5')).toBe(false)
+    expect(chunk.some((r) => r.settle_txid === 'T2')).toBe(true)
+    expect(chunk.some((r) => r.pkg === 'p3')).toBe(false)
   })
 
-  test('unassigned rows always go into the chunk: they add no box', () => {
+  test('unassigned rows always go into the chunk: they add no entry', () => {
     const rows = [
-      ...[0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
+      ...[0, 1, 2, 3].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
       unassignedRow('U1', 5123),
     ]
     expect(planCreditChunk(rows)).toContainEqual(unassignedRow('U1', 5123))
   })
 
-  test("each chunk's entries sum to exactly 300 per 1,000 attributed, within the box limit", () => {
+  test("each chunk's entries sum to exactly 300 per 1,000 attributed, within the limits", () => {
     let remaining = Array.from({ length: 13 }, (_, i) =>
       packageRows(`T${i % 3}`, `p${i}`, `github:a${i % 8}`),
     ).flat()
@@ -447,22 +506,23 @@ describe('planCreditChunk', () => {
       const totals = groupForCredit(chunk)
       const entriesTotal = totals.entries.reduce((sum, e) => sum + e.amountMicro, 0)
       expect(entriesTotal * 1000).toBe(totals.attributedMicro * 300)
-      expect(new Set(['ops', ...auditorsOf(chunk)]).size).toBeLessThanOrEqual(6)
+      expect(totals.entries.length).toBeLessThanOrEqual(MAX_CREDIT_ENTRIES)
+      expect(() => buildCreditCallRefs(totals.entries, PAY_TO, 31566704n)).not.toThrow()
       remaining = remaining.filter((r) => !chunk.includes(r))
       batches += 1
     }
-    expect(batches).toBe(2)
+    expect(batches).toBe(5)
   })
 
-  test('one package that alone needs more than 6 boxes throws', () => {
-    const rows = [0, 1, 2, 3, 4, 5].flatMap((i) =>
+  test('one package that alone needs more than 3 entries throws', () => {
+    const rows = [0, 1, 2, 3].flatMap((i) =>
       packageRows('T', 'p0', `github:a${i}`).filter((r) => r.role === 'auditor'),
     )
-    expect(() => planCreditChunk(rows)).toThrow(/alone needs 7 identity boxes/)
+    expect(() => planCreditChunk(rows)).toThrow(/alone needs 4 entries/)
   })
 })
 
-describe('runCreditStep: a backlog over the box limit splits into batches', () => {
+describe('runCreditStep: a backlog over the entry limit splits into batches', () => {
   const SEVEN_AUDITORS: Attribution = {
     route: 'lockfile',
     priceMicro: 7000,
@@ -473,31 +533,25 @@ describe('runCreditStep: a backlog over the box limit splits into batches', () =
     })),
   }
 
-  test('7 auditors in one lockfile: batch 1 has 5, batch 2 has 2, then nothing is left', async () => {
+  test('7 auditors in one lockfile: batches of 3, 3 and 1, then nothing is left', async () => {
     writeAccruals(SEVEN_AUDITORS, 'TXID-SEVEN')
     const submit: SubmitCreditMock = vi.fn(async (_app, seq) => `CREDIT-${seq}`)
     const client = stubClient(true, submit)
 
-    expect(await runCreditStep(client, envWithApp())).toEqual({
-      ran: true,
-      batchSeq: 1,
-      creditTxid: 'CREDIT-1',
-    })
-    expect(await runCreditStep(client, envWithApp())).toEqual({
-      ran: true,
-      batchSeq: 2,
-      creditTxid: 'CREDIT-2',
-    })
+    for (const batchSeq of [1, 2, 3]) {
+      expect(await runCreditStep(client, envWithApp())).toEqual({
+        ran: true,
+        batchSeq,
+        creditTxid: `CREDIT-${batchSeq}`,
+      })
+    }
     expect(await runCreditStep(client, envWithApp())).toEqual({
       ran: false,
       reason: 'nothing-to-credit',
     })
 
-    const [first, second] = submit.mock.calls
-    expect(first?.[2]).toBe(5000)
-    expect(first?.[4]).toHaveLength(5)
-    expect(second?.[2]).toBe(2000)
-    expect(second?.[4]).toHaveLength(2)
+    expect(submit.mock.calls.map((call) => call[2])).toEqual([3000, 3000, 1000])
+    expect(submit.mock.calls.map((call) => call[4].length)).toEqual([3, 3, 1])
     for (const call of submit.mock.calls) {
       expect(() => buildCreditCallRefs(call[4], PAY_TO, 31566704n)).not.toThrow()
     }

@@ -294,6 +294,30 @@ export const openBatch = db.transaction(
   },
 )
 
+const unassignRowsFromBatch = db.prepare<[number]>(
+  'UPDATE accruals SET batch_seq = NULL WHERE batch_seq = ?',
+)
+const deletePendingBatchRow = db.prepare<[number]>(
+  'DELETE FROM batches WHERE batch_seq = ? AND credit_txid IS NULL',
+)
+
+/**
+ * Undoes `openBatch` for a pending batch whose credit() call can never
+ * confirm: returns its rows to uncredited and deletes its batch row, in one
+ * SQLite transaction. The caller proves first that the chain never credited
+ * this batch (see `runCreditStep`). Throws, and writes nothing, when the
+ * batch is missing or already has a credit txid.
+ */
+export const releaseBatch = db.transaction((batchSeq: number): void => {
+  unassignRowsFromBatch.run(batchSeq)
+  const { changes } = deletePendingBatchRow.run(batchSeq)
+  if (changes !== 1) {
+    throw new Error(
+      `releaseBatch: batch ${batchSeq} is missing or already credited; nothing was released`,
+    )
+  }
+})
+
 const recordCreditTxidStmt = db.prepare<[string, number]>(
   'UPDATE batches SET credit_txid = ? WHERE batch_seq = ?',
 )

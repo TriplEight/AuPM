@@ -153,7 +153,7 @@ describe('runNightly: order and stop conditions', () => {
 })
 
 describe('runNightly: credits every batch a large backlog needs (audit L2)', () => {
-  test('7 auditors: two credit() batches in one run, onCredited once per batch', async () => {
+  test('7 auditors: three credit() batches in one run, onCredited once per batch', async () => {
     writeAccruals(
       {
         route: 'lockfile',
@@ -184,10 +184,11 @@ describe('runNightly: credits every batch a large backlog needs (audit L2)', () 
       onCredited: (seq, txid) => credited.push([seq, txid]),
     })
 
-    expect(creditClient.submitCredit).toHaveBeenCalledTimes(2)
+    expect(creditClient.submitCredit).toHaveBeenCalledTimes(3)
     expect(credited).toEqual([
       [1, 'CREDIT-1'],
       [2, 'CREDIT-2'],
+      [3, 'CREDIT-3'],
     ])
   })
 })
