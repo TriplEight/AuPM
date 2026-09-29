@@ -48,8 +48,8 @@ export interface NightlyDeps {
   env?: NodeJS.ProcessEnv
   log?: (line: string) => void
   /**
-   * Called once, only when the credit step actually credited a batch this
-   * run. Lets runNightlyWithLease record `batch_seq`/`credit_txid` on the
+   * Called once per batch the credit step credited this run, in batch order.
+   * Lets runNightlyWithLease record the last `batch_seq`/`credit_txid` on the
    * run's SQLite record (item N1.5) without runNightly itself returning a
    * value — nightly.test.ts's existing `.resolves.toBeUndefined()`
    * assertions stay unchanged.
@@ -89,13 +89,20 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
     return
   }
 
-  const outcome = await runCreditStep(deps.creditClient, env)
-  if (!outcome.ran) {
-    log(`aupm-nightly: credit skipped — ${outcome.reason}`)
-    return
+  // One credit() call holds at most MAX_IDENTITY_BOXES identities, so a large
+  // backlog needs several batches. Each credited batch closes the pending
+  // batch or stamps at least one uncredited row, so this loop always ends.
+  let credited = 0
+  for (;;) {
+    const outcome = await runCreditStep(deps.creditClient, env)
+    if (!outcome.ran) {
+      if (credited === 0) log(`aupm-nightly: credit skipped — ${outcome.reason}`)
+      return
+    }
+    credited += 1
+    log(`aupm-nightly: credited batch ${outcome.batchSeq}, txid ${outcome.creditTxid}`)
+    deps.onCredited?.(outcome.batchSeq, outcome.creditTxid)
   }
-  log(`aupm-nightly: credited batch ${outcome.batchSeq}, txid ${outcome.creditTxid}`)
-  deps.onCredited?.(outcome.batchSeq, outcome.creditTxid)
 }
 
 /** Why runNightlyWithLease did not attempt a run, beyond a normal success

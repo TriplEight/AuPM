@@ -644,11 +644,9 @@ export async function deployMultisigCreate(): Promise<void> {
 // here, write it to a file, two of the three holders sign it in turn with `goal clerk multisig
 // sign`, then whoever holds the twice-signed file submits it with `goal clerk rawsend`.
 //
-// setCrediter and setIdentity are already in the generated ARC-56 spec (APP_SPEC). announceRelease
-// and executeRelease are not: the spec still describes the superseded `releaseAuthority(address)`
-// until a human reruns `algokit project run build` (P8 item 4). Their signatures below are taken
-// straight from contract.algo.ts's own method declarations. assertMethodSignatureMatchesSpec
-// fails loudly if a rebuilt spec ever disagrees with any of the four hand-written signatures.
+// The four signatures below are hand-written from contract.algo.ts's own method declarations.
+// assertMethodSignatureMatchesSpec fails loudly if the generated ARC-56 spec (APP_SPEC) ever
+// disagrees with any of them.
 
 const SET_CREDITER_METHOD_SIGNATURE = 'setCrediter(address)void'
 const SET_IDENTITY_METHOD_SIGNATURE = 'setIdentity(string,address)void'
@@ -681,10 +679,8 @@ export function identityBoxName(identity: string): Uint8Array {
 }
 
 /**
- * Refuses when a hand-written method signature disagrees with the same-named method in a
- * rebuilt ARC-56 spec. A no-op while the spec is stale and does not yet declare the method at
- * all (announceRelease/executeRelease, until a human reruns `algokit project run build`) — the
- * point is to catch drift once the method appears, not to demand it exist yet. Pure: covered
+ * Refuses when a hand-written method signature disagrees with the same-named method in the
+ * ARC-56 spec. A no-op when the spec does not declare the method at all. Pure: covered
  * directly by deploy-config.spec.ts.
  *
  * @param signature - the hand-written ABI method signature, e.g. "announceRelease(address)void".
@@ -966,8 +962,9 @@ export async function deployMultisigAnnounceRelease(): Promise<void> {
  * CLI entry point: builds executeRelease() for the admin multisig and writes it, unsigned, to
  * PAYMENT_ROUTER_MSIG_EXECUTE_RELEASE_TXN_PATH (default ./payment-router-execute-release.txn).
  * Refuses on MainNet without CONFIRM_MAINNET=1, same as every other entry here — running this
- * before the delay has passed still writes a file, since only a live executeRelease() call
- * checks the delay; the operator runbook (not published) gates the operator's own timing.
+ * before the delay has passed or after the execute window has closed still writes a file,
+ * since only a live executeRelease() call checks the timing; the operator runbook (not
+ * published) gates the operator's own timing. Sign and submit the file inside the window.
  */
 export async function deployMultisigExecuteRelease(): Promise<void> {
   const payToAddress = process.env.PAY_TO_ADDRESS

@@ -15,15 +15,16 @@
 import algosdk from 'algosdk'
 import { auditorShareMicro } from './attribution-rules.js'
 import {
-  assignUncreditedToBatch,
   type CreditEntry,
   getLastBatchSeq,
   getPendingBatch,
-  insertPendingBatch,
+  groupForCredit,
+  listUncreditedAccruals,
+  openBatch,
   recordBatchCreditTxid,
   summarizeBatch,
-  summarizeUncredited,
 } from './ledger.js'
+import type { AccrualRow } from './schema.js'
 
 /**
  * The exact `credit` method signature from
@@ -117,6 +118,57 @@ export function buildCreditCallRefs(
     )
   }
   return { boxes, accounts, assets }
+}
+
+// credit() references one payTo account and one asset; every other
+// reference slot holds one `bal:<identity>` box, "ops" included.
+const MAX_IDENTITY_BOXES = MAX_TOTAL_REFERENCES - 2
+
+/**
+ * Picks the uncredited rows for the next credit() batch so that its distinct
+ * box identities ("ops" included) fit in MAX_IDENTITY_BOXES. The unit is one
+ * paid package: every role row of one `(settle_txid, pkg, version)` goes into
+ * the same batch, so a batch's auditor entries always sum to exactly
+ * `auditorShareMicro(attributedMicro)`. Every `unassigned` row goes into the
+ * batch too: it adds no box. Units that would push the batch past the limit
+ * wait for the next batch; the nightly job credits batches until none is
+ * left. Pure: no database or network access.
+ *
+ * @param rows - uncredited rows, oldest payment first (listUncreditedAccruals).
+ * @returns the rows of the next batch; empty only when `rows` is empty.
+ */
+export function planCreditChunk(rows: AccrualRow[]): AccrualRow[] {
+  const units = new Map<string, AccrualRow[]>()
+  const chunk: AccrualRow[] = []
+  for (const row of rows) {
+    if (row.route === 'unassigned') {
+      chunk.push(row)
+      continue
+    }
+    const key = `${row.settle_txid}\u0000${row.pkg}\u0000${row.version}`
+    const unit = units.get(key)
+    if (unit) unit.push(row)
+    else units.set(key, [row])
+  }
+
+  const identities = new Set<string>([OPS_IDENTITY])
+  for (const [key, unit] of units) {
+    const unitIdentities = unit.filter((r) => r.role === 'auditor').map((r) => r.identity)
+    const merged = new Set([...identities, ...unitIdentities])
+    if (merged.size > MAX_IDENTITY_BOXES) {
+      if (identities.size === 1) {
+        throw new Error(
+          `planCreditChunk: package unit "${key.replaceAll('\u0000', ' ')}" (settlement, ` +
+            `package, version) alone needs ${merged.size} identity boxes, over the ` +
+            `limit of ${MAX_IDENTITY_BOXES}; it can never fit in one credit() call`,
+        )
+      }
+      continue
+    }
+    for (const identity of merged) identities.add(identity)
+    chunk.push(...unit)
+  }
+  return chunk
 }
 
 /** Chain access the credit step needs, injectable for tests. */
@@ -230,15 +282,17 @@ export async function runCreditStep(
     return { ran: true, batchSeq: pending.batch_seq, creditTxid }
   }
 
-  const totals = summarizeUncredited()
-  if (totals.attributedMicro === 0 && totals.unattributedMicro === 0) {
+  const uncredited = listUncreditedAccruals()
+  const all = groupForCredit(uncredited)
+  if (all.attributedMicro === 0 && all.unattributedMicro === 0) {
     return { ran: false, reason: 'nothing-to-credit' }
   }
-  assertEntriesMatchAuditorShare(totals.attributedMicro, totals.entries)
+  const chunk = planCreditChunk(uncredited)
+  const planned = groupForCredit(chunk)
+  assertEntriesMatchAuditorShare(planned.attributedMicro, planned.entries)
 
   const batchSeq = getLastBatchSeq() + 1
-  insertPendingBatch(batchSeq, totals.attributedMicro, totals.unattributedMicro)
-  assignUncreditedToBatch(batchSeq)
+  const totals = openBatch(batchSeq, chunk)
 
   const creditTxid = await client.submitCredit(
     appId,

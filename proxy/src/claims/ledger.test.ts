@@ -18,6 +18,8 @@ const {
   accrualCountForTxid,
   getAccrualsForTxid,
   getEarningsForLogin,
+  listUncreditedAccruals,
+  openBatch,
   recordPayout,
   writeAccruals,
 } = await import('./ledger.js')
@@ -26,6 +28,7 @@ type Attribution = import('./attribution-rules.js').Attribution
 
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
+  db.exec('DELETE FROM batches')
   db.exec('DELETE FROM payouts')
   db.exec('DELETE FROM audit_status')
 })
@@ -207,5 +210,37 @@ describe('identity canonicalisation', () => {
     expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(300)
     expect(lower.totalAccruedMicro).toBe(300)
     expect(upper.totalAccruedMicro).toBe(300)
+  })
+})
+
+describe('openBatch', () => {
+  const countBatches = () => db.prepare('SELECT COUNT(*) AS n FROM batches').get()
+
+  test('stamps exactly the given rows and stores their totals', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-OPEN')
+    const rows = listUncreditedAccruals()
+    const msRows = rows.filter((r) => r.pkg === 'ms')
+
+    const totals = openBatch(1, msRows)
+
+    expect(totals.attributedMicro).toBe(1000)
+    expect(totals.entries).toEqual([{ repo: '', identity: 'github:alice', amountMicro: 300 }])
+    expect(listUncreditedAccruals()).toHaveLength(rows.length - msRows.length)
+    expect(db.prepare('SELECT attributed_micro FROM batches WHERE batch_seq = 1').get()).toEqual({
+      attributed_micro: 1000,
+    })
+  })
+
+  test('a row already in a batch: throws and writes nothing (no batch row, no stamped rows)', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-TWICE')
+    const rows = listUncreditedAccruals()
+    openBatch(
+      1,
+      rows.filter((r) => r.pkg === 'ms'),
+    )
+
+    expect(() => openBatch(2, rows)).toThrow(/already in a batch; batch 2 was not opened/)
+    expect(countBatches()).toEqual({ n: 1 })
+    expect(listUncreditedAccruals()).toHaveLength(rows.filter((r) => r.pkg !== 'ms').length)
   })
 })
