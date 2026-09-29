@@ -34,6 +34,8 @@ WARNING: every change preserves these. A violation costs money or a false securi
 5. A `COMMUNITY_REVIEWED` record means a human read that exact tarball.
    Never create a review record in code, in a shipped fixture, or in a seed script.
    A review record needs a review anchor signed by that auditor's address.
+   Exception, TestNet only (ADR 0012): an unread review goes through the same anchor and
+   `record-review.mjs` path, with a scope that starts with `unread`, and a TestNet issuer origin.
 6. The facilitator is mandatory. No local facilitator. No direct chain submission.
 7. Money is integer micro-units. Never use floats. SQLite money columns are `INTEGER`.
 8. Public texts show the target split and the MVP split. Never claim a share goes to a role

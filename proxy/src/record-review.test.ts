@@ -73,6 +73,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       prompt: async () => 'yes',
       statusStore,
       auditorsEnv: 'github:alice=ADDR1',
+      network: 'mainnet',
       log: () => {},
     })
 
@@ -96,11 +97,55 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       prompt: async () => 'no',
       statusStore,
       auditorsEnv: 'github:alice=ADDR1',
+      network: 'testnet',
       log: () => {},
     })
 
     expect(result.recorded).toBe(false)
     const row = statusStore.getStatusOrUnreviewed('ms', '2.1.3')
     expect(row.status).toBe('UNREVIEWED')
+  })
+
+  const unreadTx = () =>
+    goodTx({ note: encodeReviewNote({ ...NOTE_FIELDS, scope: 'unread: testnet rehearsal' }) })
+
+  test('an unread scope on MainNet is refused before the prompt, and writes no row', async () => {
+    let prompted = false
+    await expect(
+      runRecordReview({
+        anchorTxid: 'TXID1',
+        indexerClient: stubIndexer(unreadTx()),
+        fetchImpl: stubFetch(),
+        prompt: async () => {
+          prompted = true
+          return 'yes'
+        },
+        statusStore,
+        auditorsEnv: 'github:alice=ADDR1',
+        network: 'mainnet',
+        log: () => {},
+      }),
+    ).rejects.toThrow(/TestNet-only \(ADR 0012\)/)
+
+    expect(prompted).toBe(false)
+    expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')
+  })
+
+  test('an unread scope on TestNet is recorded with its scope visible', async () => {
+    const result = await runRecordReview({
+      anchorTxid: 'TXID1',
+      indexerClient: stubIndexer(unreadTx()),
+      fetchImpl: stubFetch(),
+      prompt: async () => 'yes',
+      statusStore,
+      auditorsEnv: 'github:alice=ADDR1',
+      network: 'testnet',
+      log: () => {},
+    })
+
+    expect(result.recorded).toBe(true)
+    expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').review_scope).toBe(
+      'unread: testnet rehearsal',
+    )
   })
 })

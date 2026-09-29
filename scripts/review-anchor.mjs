@@ -255,3 +255,22 @@ export function checkIntegrityMatchesNpm(note, npmIntegrity) {
     )
   }
 }
+
+/** A scope that starts with the word "unread" marks a TestNet rehearsal review (ADR 0012). */
+const UNREAD_SCOPE = /^\s*unread\b/i
+
+/**
+ * Throws when an unread rehearsal review would be recorded anywhere except TestNet
+ * (ADR 0012, CLAUDE.md invariant 5). Any network value other than "testnet" counts as MainNet.
+ *
+ * @param {string} scope - the anchor note's review scope.
+ * @param {string} network - the network the review is recorded for.
+ */
+export function checkScopeAllowedOnNetwork(scope, network) {
+  if (network !== 'testnet' && UNREAD_SCOPE.test(scope)) {
+    throw new Error(
+      `refusing: scope "${scope}" marks an unread review, and unread reviews are ` +
+        `TestNet-only (ADR 0012); network is ${network}`,
+    )
+  }
+}
