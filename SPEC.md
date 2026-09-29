@@ -434,10 +434,10 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   future claims to the new address; it never touches a balance already claimed.
 - The contract keeps a running total of credited, unclaimed balances, so it can compute the
   unallocated balance as the USDC balance of `payTo` minus that total.
-- Admin-gated `releaseAuthority(to)` carries over from SplitRouter. Planned for the MainNet
-  build (P8): it is replaced by `announceRelease(to)` and `executeRelease()`, a two-step flow
-  with a compiled-in delay (§10.2a, ADR 0010). `attest()` and `setAttestationKey()` do not:
-  reviews are anchored by the auditor (§14, ADR 0007).
+- Admin-gated `announceRelease(to)` and `executeRelease()` replace SplitRouter's
+  `releaseAuthority(to)`: a two-step flow with a compiled-in delay and execute window (§10.2a,
+  ADR 0010). `attest()` and `setAttestationKey()` do not carry over: reviews are anchored by the
+  auditor (§14, ADR 0007).
 - Amount-agnostic: no assertion on a fixed payment amount.
 - Every price is a multiple of 1,000 µUSDC, so every attributed credit splits exactly.
 
@@ -471,10 +471,11 @@ rekey. After the rekey the key has no signing power over `payTo`.
 `Global.creatorAddress` is a 2-of-3 Algorand multisig address, not one key. No single lost or
 leaked key can call `setCrediter`, `setIdentity`, `announceRelease`, or `executeRelease`.
 
-Planned for the MainNet build (P8): `releaseAuthority(to)` is replaced by two admin methods.
+The MainNet build replaces `releaseAuthority(to)` with two admin methods.
 - `announceRelease(to)` records `to` and the current round in global state.
 - `executeRelease()` runs only after a compiled-in delay of about 7 days (216,000 rounds) from
-  the announced round. In order, it: (1) issues one inner USDC transfer of `creditedUnclaimed`
+  the announced round, and only within the 216,000 rounds after that delay. After the window,
+  it fails until the admin announces again, which restarts the delay. In order, it: (1) issues one inner USDC transfer of `creditedUnclaimed`
   from `payTo` to the address mapped to identity `"treasury"` — it fails if `"treasury"` is not
   mapped; (2) sets `creditedUnclaimed` to 0; (3) marks the app retired, so `credit()` and
   `claim()` both fail on it from then on; (4) rekeys `payTo` to `to`. `payTo`'s address does not
@@ -488,6 +489,11 @@ as proof of the amount owed.
 
 Public texts say the treasury role is onboarded only once `"treasury"` is mapped with
 `setIdentity` (invariant 8, CLAUDE.md). Before that, `executeRelease` cannot run.
+
+The delay limits only the migration path. `setIdentity` and `setCrediter` take effect at once,
+so the multisig can redirect every credited balance and the unallocated USDC with no delay.
+Public texts state that the admin is trusted, and never present the delay as protection against
+the admin. A timelock on those methods is a v7 candidate (§21).
 
 ### 10.3 SQLite is the store (ADR 0001)
 
@@ -1181,3 +1187,7 @@ Decided in the v6 review. Not in the MVP.
   on-chain; SQLite keeps only the ledger.
 - **Litestream** replication of the ledger, if the nightly copy is not enough.
 - **PostgreSQL** when a second proxy instance runs (ADR 0001).
+- **Timelocked admin remaps.** Put `setIdentity` (at least for an identity with a nonzero
+  balance) and `setCrediter` behind the same announce-then-delay flow as `executeRelease`. Today
+  the 2-of-3 multisig can redirect every balance at once (§10.2a, pre-MainNet audit finding H1).
+  Needs a new contract.

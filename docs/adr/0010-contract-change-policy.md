@@ -39,7 +39,9 @@ The contract needs no change for this: it already just compares `Txn.sender.byte
 `releaseAuthority(to)` is replaced by two admin methods:
 - `announceRelease(to)` records `to` and the current round in global state.
 - `executeRelease()` runs only after a compiled-in delay of about 7 days (216,000 rounds) from
-  the announced round. It then, in order: (1) issues one inner USDC transfer of
+  the announced round, and only within the next 216,000 rounds (the execute window). After the
+  window, the announcement expires: `executeRelease()` fails until the admin announces again,
+  which restarts the delay and warns payees again. It then, in order: (1) issues one inner USDC transfer of
   `creditedUnclaimed` from `payTo` to the address mapped to identity `"treasury"` — it fails if
   `"treasury"` is not mapped; (2) sets `creditedUnclaimed` to 0; (3) marks the app retired, so
   `credit()` and `claim()` fail on it from then on; (4) rekeys `payTo` to `to`.
@@ -71,6 +73,15 @@ nowhere to send `creditedUnclaimed`.
 - The 7-day delay is public: any observer can see an announced migration and its target address
   before it executes. It gives payees a warning window; it does not stop a determined multisig
   from migrating.
+- The delay does not limit the admin at all. `setIdentity` and `setCrediter` take effect at
+  once: the multisig can remap any identity to its own address and claim, or set itself as
+  crediter, credit the unallocated USDC to an identity it maps, and claim, with no announcement
+  (pre-MainNet audit finding H1). The admin is trusted. Public texts say so and never present
+  the delay as protection against the admin. A timelock on those methods is a v7 candidate
+  (`SPEC.md` §21).
+- The execute window stops an old announcement from staying executable for good (pre-MainNet
+  audit finding L1). An expired announcement needs a new `announceRelease`, a new delay, and
+  so a new warning to payees.
 - The operator runbook (not published) gets the D procedure as a checklist.
 
 ## Options rejected

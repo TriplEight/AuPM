@@ -67,9 +67,13 @@ target share once it onboards. TestNet runs the same split. See
 
 ### Trust model
 
-The contract admin is a 2-of-3 multisig, not one key. A migration to a new contract needs a
-public announcement, then a 7-day delay before it takes effect. Any balance still unclaimed at
-that point moves to the treasury account, which pays it to the payee on request. See
+The contract admin is a 2-of-3 multisig, not one key. The admin is trusted: two of the three
+signers can together redirect any credited balance and the unallocated USDC at any time, with
+no delay, because remapping an identity or changing the crediter key takes effect at once.
+A migration to a new contract needs a public announcement, then a 7-day delay, and then must
+run within the next 7 days or be announced again. The delay gives payees a warning window
+for a migration. It does not limit what the multisig can do. Any balance still unclaimed at
+migration moves to the treasury account, which pays it to the payee on request. See
 [ADR 0010](docs/adr/0010-contract-change-policy.md) for the full design.
 
 ## For users and donors
