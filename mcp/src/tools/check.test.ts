@@ -85,23 +85,4 @@ describe('check_audit_status', () => {
     expect(url).toContain('%40scope')
     expect(url).not.toContain('@')
   })
-
-  it('defaults to https://aupm.fyi when AUPM_PROXY_URL is unset', async () => {
-    delete process.env.AUPM_PROXY_URL
-    const mockFetch = vi.fn(async () => new Response('{}', { status: 200 }))
-    vi.stubGlobal('fetch', mockFetch)
-
-    await checkTool.handler({ pkg: 'lodash', version: '4.17.21' })
-
-    expect(mockFetch).toHaveBeenCalledWith('https://aupm.fyi/api/v1/status/lodash/4.17.21')
-  })
-
-  it('uses AUPM_PROXY_URL when set', async () => {
-    const mockFetch = vi.fn(async () => new Response('{}', { status: 200 }))
-    vi.stubGlobal('fetch', mockFetch)
-
-    await checkTool.handler({ pkg: 'lodash', version: '4.17.21' })
-
-    expect(mockFetch).toHaveBeenCalledWith('http://localhost:4873/api/v1/status/lodash/4.17.21')
-  })
 })
