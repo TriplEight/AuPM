@@ -4,6 +4,9 @@
 // Context — with a stubbed fetch (never the real registry). deps.timeoutMs
 // is set small in the timeout test so the test runs fast without fake
 // timers; a real AbortSignal.timeout still fires, proving the wiring works.
+import http from 'node:http'
+import type { AddressInfo } from 'node:net'
+import zlib from 'node:zlib'
 import { Hono } from 'hono'
 import { describe, expect, test, vi } from 'vitest'
 import { type ProxyToNpmDeps, proxyToNpm } from './proxy.js'
@@ -63,5 +66,38 @@ describe('proxyToNpm', () => {
 
     expect(res.status).toBe(500)
     consoleError.mockRestore()
+  })
+
+  test('drops content-encoding and content-length after fetch decodes a gzip body', async () => {
+    // A real fetch against a real gzip server: fetch decodes the body but
+    // keeps the upstream headers. Forwarding them makes npm gunzip plain
+    // JSON and fail with Z_DATA_ERROR.
+    const body = JSON.stringify({ name: 'ms', padding: 'x'.repeat(2048) })
+    const server = http.createServer((_req, res) => {
+      const gz = zlib.gzipSync(body)
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-encoding': 'gzip',
+        'content-length': String(gz.length),
+      })
+      res.end(gz)
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const localFetch: typeof fetch = (input, init) =>
+      fetch(String(input).replace('https://registry.npmjs.org', `http://127.0.0.1:${port}`), init)
+
+    try {
+      const app = appWith({ fetch: localFetch, timeoutMs: 30_000 })
+      const res = await app.request('/ms', { headers: { 'accept-encoding': 'gzip' } })
+
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-encoding')).toBeNull()
+      expect(res.headers.get('content-length')).toBeNull()
+      expect(res.headers.get('content-type')).toBe('application/json')
+      expect(await res.text()).toBe(body)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
   })
 })
