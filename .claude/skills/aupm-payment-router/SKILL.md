@@ -12,8 +12,8 @@ Status: specified in `SPEC.md` §10.1–10.2 (v6). Built by `docs/TASK.md`. Expe
 `contracts/smart_contracts/payment_router/contract.algo.ts` (Puya-TS, ARC-4). Build runbook:
 `docs/RUNBOOK-contract-build.md`.
 Decisions: `docs/adr/0002-repo-pools-with-trusted-crediter.md`,
-`docs/adr/0003-six-way-split.md`, `docs/adr/0004-payto-rekeyed-account.md`,
-`docs/adr/0005-credit-batches.md`, `docs/adr/0007-auditor-anchors-review.md`.
+`docs/adr/0004-payto-rekeyed-account.md`, `docs/adr/0005-credit-batches.md`,
+`docs/adr/0007-auditor-anchors-review.md`.
 
 ## Money flow
 
