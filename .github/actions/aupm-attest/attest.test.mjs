@@ -4,7 +4,13 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 
-import { buildPnpmArgs, parseSummaryFromStdout, resolveOptions, run } from './attest.mjs'
+import {
+  buildPnpmArgs,
+  parseSummaryFromStdout,
+  reportDonation,
+  resolveOptions,
+  run,
+} from './attest.mjs'
 
 const CANARY_MNEMONIC = 'canary abandon abandon abandon abandon abandon abandon do-not-leak-4f9c'
 
@@ -33,6 +39,11 @@ if (mode === 'error') {
 } else if (mode === 'mismatch') {
   process.stdout.write('attestation written to out.json\\n')
   process.stdout.write(JSON.stringify({ total: 3, reviewed: 2, unreviewed: 1, integrityMismatch: 1 }) + '\\n')
+  process.exit(0)
+} else if (mode === 'donated') {
+  process.stdout.write('attestation written to out.json\\n')
+  process.stdout.write('donated $0.03 (30000 microUSDC), settlement txid TXIDDONATED\\n')
+  process.stdout.write(JSON.stringify({ total: 30, reviewed: 30, unreviewed: 0, integrityMismatch: 0, donatedMicro: 30000, settlementTxid: 'TXIDDONATED' }) + '\\n')
   process.exit(0)
 } else if (mode === 'withheld') {
   process.stdout.write('attestation written to out.json\\n')
@@ -101,6 +112,41 @@ test('a withheld count (no donate opt-in) warns with the count and exits 0', asy
   const logged = logCalls.mock.calls.map((call) => String(call.arguments[0])).join('\n')
   assert.match(logged, /::warning::/)
   assert.match(logged, /3 reviewed package\(s\) withheld/)
+})
+
+test('a paid attestation reports the amount and txid as a notice and in the job summary', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { binDir } = makeFakeCli(dir, 'donated')
+  const summaryPath = join(dir, 'step-summary.md')
+  const originalSummary = process.env.GITHUB_STEP_SUMMARY
+  process.env.GITHUB_STEP_SUMMARY = summaryPath
+  t.after(() => {
+    if (originalSummary === undefined) delete process.env.GITHUB_STEP_SUMMARY
+    else process.env.GITHUB_STEP_SUMMARY = originalSummary
+  })
+  const logCalls = t.mock.method(console, 'log')
+
+  const code = await withFakeCliOnPath(binDir, () =>
+    run(baseOptions({ donate: true, donorMnemonic: CANARY_MNEMONIC })),
+  )
+
+  assert.equal(code, 0)
+  const logged = logCalls.mock.calls.map((call) => String(call.arguments[0])).join('\n')
+  assert.match(logged, /::notice::AuPM donation: 30000 microUSDC, settlement txid TXIDDONATED/)
+  assert.doesNotMatch(logged, /::warning::/)
+  assert.equal(
+    readFileSync(summaryPath, 'utf8'),
+    'AuPM donation: 30000 microUSDC, settlement txid TXIDDONATED\n',
+  )
+})
+
+test('reportDonation prints nothing for a free attestation', (t) => {
+  const logCalls = t.mock.method(console, 'log')
+  reportDonation({ total: 2, reviewed: 0 }, {})
+  reportDonation({ donatedMicro: 1.5, settlementTxid: 'X' }, {})
+  reportDonation(null, {})
+  assert.equal(logCalls.mock.callCount(), 0)
 })
 
 test('donate set without a donor-mnemonic warns, exits 0, and never starts the CLI', async (t) => {

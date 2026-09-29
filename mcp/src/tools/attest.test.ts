@@ -229,6 +229,8 @@ describe('attest_lockfile', () => {
     })
 
     expect(result.status).toBe('attested')
+    if (result.status !== 'attested') throw new Error('unreachable')
+    expect(result.settlement).toEqual({ txid: 'txid-25-ok', amountMicro: 25_000 })
     expect(paidRequestCount).toBe(1)
   })
 
@@ -379,6 +381,10 @@ describe('attest_lockfile', () => {
     expect(result.status).toBe('attested')
     if (result.status !== 'attested') throw new Error('unreachable')
     expect(result.summary).toMatchObject({ reviewed: 1 })
+    expect(result.settlement).toEqual({
+      txid: 'txid-lockfile-ok',
+      amountMicro: Number(LOCKFILE_PRICE),
+    })
     expect(paidRequestCount).toBe(1)
     expect(capturedBody).toContain('node_modules/ms')
 
@@ -411,6 +417,8 @@ describe('attest_lockfile', () => {
     const result = await attestLockfileTool.handler({ lockfilePath, allowDonation: true })
 
     expect(result.status).toBe('attested')
+    if (result.status !== 'attested') throw new Error('unreachable')
+    expect(result.settlement).toBeNull()
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })

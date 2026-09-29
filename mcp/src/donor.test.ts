@@ -161,8 +161,42 @@ describe('fetchWithDonation', () => {
     const result = await fetchWithDonation(RESOURCE_URL, undefined, true, 25)
 
     expect(result.kind).toBe('response')
+    if (result.kind !== 'response') throw new Error('unreachable')
+    expect(result.settlement).toEqual({ txid: 'txid-25-entries-ok', amountMicro: 25_000 })
     expect(paidRequestCount).toBe(1)
   })
+
+  for (const [name, header, error] of [
+    ['a malformed', 'not-base64-json', /malformed PAYMENT-RESPONSE header/],
+    [
+      'an unsuccessful',
+      encodePaymentResponseHeader({
+        success: false,
+        transaction: '',
+        network: ALGORAND_MAINNET_CAIP2,
+      }),
+      /unsettled PAYMENT-RESPONSE header/,
+    ],
+  ] as const) {
+    it(`${name} PAYMENT-RESPONSE on a paid retry is an error, never a free response`, async () => {
+      process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+      const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input)
+        if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+        const request = input instanceof Request ? input : new Request(url, init)
+        if (!request.headers.get('PAYMENT-SIGNATURE')) {
+          return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
+        }
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { 'PAYMENT-RESPONSE': header },
+        })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      await expect(fetchWithDonation(RESOURCE_URL, undefined, true)).rejects.toThrow(error)
+    })
+  }
 
   it('a lockfile with 25 entries refuses a 402 one microUSDC over the scaled cap', async () => {
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
