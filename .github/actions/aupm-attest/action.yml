@@ -21,7 +21,7 @@ inputs:
     required: false
     default: 'false'
   donor-mnemonic:
-    description: 'A funded MainNet donor mnemonic, from a GitHub secret. Read only when donate is "true".'
+    description: 'A funded donor mnemonic, from a GitHub secret. MainNet unless the job sets NETWORK: testnet. Read only when donate is "true".'
     required: false
     default: ''
 outputs:

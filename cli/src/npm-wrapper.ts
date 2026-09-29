@@ -146,8 +146,15 @@ export async function printPostInstallSummary(
 
   const amount = formatMicroUsd(reviewed * PRICE_PER_ENTRY_MICRO)
   const plural = reviewed === 1 ? 'package is' : 'packages are'
-  if (allowDonation) {
-    console.log(`aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). Donated ${amount}.`)
+  const settlement = outcome.status === 'attested' ? outcome.settlement : null
+  if (allowDonation && settlement) {
+    console.log(
+      `aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). ` +
+        `Donated ${formatMicroUsd(settlement.amountMicro)} ` +
+        `(${settlement.amountMicro} microUSDC), settlement txid ${settlement.txid}.`,
+    )
+  } else if (allowDonation) {
+    console.log(`aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). No donation settled.`)
   } else {
     console.log(
       `aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). ${amount} available to donate.`,

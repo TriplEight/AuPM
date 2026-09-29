@@ -257,13 +257,21 @@ describe('install_audited_package', () => {
   })
 
   it('accepts the legacy X-PAYMENT-RESPONSE header the same way', async () => {
-    const mockFetch = vi.fn(
-      async () =>
-        new Response(new Uint8Array([1, 2, 3, 4]), {
-          status: 200,
-          headers: { 'X-PAYMENT-RESPONSE': settleResponseHeader('txid-legacy456') },
-        }),
-    )
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (!request.headers.get('PAYMENT-SIGNATURE')) {
+        return new Response(null, {
+          status: 402,
+          headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader() },
+        })
+      }
+      return new Response(new Uint8Array([1, 2, 3, 4]), {
+        status: 200,
+        headers: { 'X-PAYMENT-RESPONSE': settleResponseHeader('txid-legacy456') },
+      })
+    })
     vi.stubGlobal('fetch', mockFetch)
 
     const result = await installTool.handler({
@@ -291,6 +299,21 @@ describe('install_audited_package', () => {
     await expect(
       installTool.handler({ pkg: 'lodash', version: '4.17.21', allowDonation: true }),
     ).rejects.toThrow()
+  })
+
+  it('never reports paid for a settlement header on a response the donor did not pay', async () => {
+    const mockFetch = vi.fn(
+      async () =>
+        new Response(new Uint8Array([1, 2, 3, 4]), {
+          status: 200,
+          headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-unpaid') },
+        }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(
+      installTool.handler({ pkg: 'lodash', version: '4.17.21', allowDonation: true }),
+    ).rejects.toThrow(/no donation requirement approved/)
   })
 
   it('raises an error rather than reporting free when settlement did not succeed', async () => {

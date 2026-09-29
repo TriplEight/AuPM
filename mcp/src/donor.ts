@@ -15,7 +15,7 @@ import {
 } from '@x402-avm/avm'
 import { registerExactAvmScheme } from '@x402-avm/avm/exact/client'
 import { x402Client } from '@x402-avm/core/client'
-import { decodePaymentRequiredHeader } from '@x402-avm/core/http'
+import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from '@x402-avm/core/http'
 import type { PaymentRequirements } from '@x402-avm/core/types'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
 import { signerFromMnemonic } from './signer.js'
@@ -85,7 +85,9 @@ function isDonationCompliant(requirement: PaymentRequirements, capMicro: bigint)
 // Filters out any requirement above the spend cap or on a non-USDC asset.
 // Registered as an x402Client policy, so the cap runs inside the normal
 // wrapFetchWithPayment flow and enforces before a signature is ever created.
-function donationCapPolicy(capMicro: bigint) {
+// It passes on only the first compliant requirement, so the requirement it
+// reports through onApproved is the one the client signs.
+function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) => void) {
   return (_version: number, requirements: PaymentRequirements[]): PaymentRequirements[] => {
     const compliant = requirements.filter((requirement) =>
       isDonationCompliant(requirement, capMicro),
@@ -100,7 +102,9 @@ function donationCapPolicy(capMicro: bigint) {
           `${capMicro} microUSDC cap, or is not the ${network} USDC asset ${USDC_ASSET_ID}`,
       )
     }
-    return compliant
+    const [approved] = compliant as [PaymentRequirements]
+    onApproved(Number(approved.amount))
+    return [approved]
   }
 }
 
@@ -121,14 +125,63 @@ function lazyDonorSigner(): ClientAvmSigner {
   }
 }
 
-function buildDonationClient(capMicro: bigint): x402Client {
+function buildDonationClient(
+  capMicro: bigint,
+  onApproved: (amountMicro: number) => void,
+): x402Client {
   const client = new x402Client()
   registerExactAvmScheme(client, {
     signer: lazyDonorSigner(),
     networks: [CAIP2_NETWORK],
-    policies: [donationCapPolicy(capMicro)],
+    policies: [donationCapPolicy(capMicro, onApproved)],
   })
   return client
+}
+
+/** A settled donation: the facilitator's transaction id and the amount signed. */
+export type Settlement = {
+  txid: string
+  amountMicro: number
+}
+
+type DecodedSettleResponse = {
+  success: boolean
+  transaction: string
+}
+
+function isDecodedSettleResponse(value: unknown): value is DecodedSettleResponse {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'success' in value &&
+    typeof (value as { success: unknown }).success === 'boolean' &&
+    'transaction' in value &&
+    typeof (value as { transaction: unknown }).transaction === 'string'
+  )
+}
+
+/**
+ * Reads the settlement txid from the PAYMENT-RESPONSE header the server's
+ * @x402-avm/hono middleware sets on a paid response (legacy name
+ * X-PAYMENT-RESPONSE also accepted by @x402-avm/core). A missing header
+ * means no payment was made. A present but malformed or unsuccessful header
+ * means settlement is unproven, which must never be reported as free.
+ */
+export function readSettlementTxid(res: Response): string | null {
+  const header = res.headers.get('PAYMENT-RESPONSE') ?? res.headers.get('X-PAYMENT-RESPONSE')
+  if (!header) return null
+
+  let decoded: unknown
+  try {
+    decoded = decodePaymentResponseHeader(header)
+  } catch {
+    throw new Error('malformed PAYMENT-RESPONSE header')
+  }
+
+  if (!isDecodedSettleResponse(decoded) || !decoded.success || !decoded.transaction) {
+    throw new Error('unsettled PAYMENT-RESPONSE header')
+  }
+  return decoded.transaction
 }
 
 /** Header name AuPM clients send on every request (SPEC.md §11.4, ADR 0006). */
@@ -158,7 +211,7 @@ function decodeDonationRequirement(res: Response): DonationRequirement {
 }
 
 export type DonationFetchResult =
-  | { kind: 'response'; response: Response }
+  | { kind: 'response'; response: Response; settlement: Settlement | null }
   | { kind: 'donation_required'; requirement: DonationRequirement }
 
 /**
@@ -171,6 +224,10 @@ export type DonationFetchResult =
  * `entryCount` is the number of lockfile entries the caller is sending (1
  * for a tarball or a single attestation). It sets the spend cap:
  * `PRICE_PER_ENTRY_MICRO * entryCount` microUSDC — never a fixed cap.
+ *
+ * A paid response carries `settlement`: the settlement txid from
+ * PAYMENT-RESPONSE and the amount of the requirement the donor signed.
+ * A free response carries `settlement: null`.
  */
 export async function fetchWithDonation(
   url: string,
@@ -182,16 +239,25 @@ export async function fetchWithDonation(
 
   if (!allowDonation) {
     const res = await fetch(url, requestInit)
-    if (res.status !== 402) return { kind: 'response', response: res }
+    if (res.status !== 402) return { kind: 'response', response: res, settlement: null }
     return { kind: 'donation_required', requirement: decodeDonationRequirement(res) }
   }
 
-  const client = buildDonationClient(donationCapMicro(entryCount))
+  const approved: { micro: number | null } = { micro: null }
+  const client = buildDonationClient(donationCapMicro(entryCount), (amountMicro) => {
+    approved.micro = amountMicro
+  })
   const payFetch = wrapFetchWithPayment(fetch, client)
+  let res: Response
   try {
-    const res = await payFetch(url, requestInit)
-    return { kind: 'response', response: res }
+    res = await payFetch(url, requestInit)
   } catch (error) {
     throw new DonationRefusedError(error instanceof Error ? error.message : String(error))
   }
+  const txid = readSettlementTxid(res)
+  if (txid === null) return { kind: 'response', response: res, settlement: null }
+  if (approved.micro === null) {
+    throw new Error(`settlement ${txid} arrived for a request no donation requirement approved`)
+  }
+  return { kind: 'response', response: res, settlement: { txid, amountMicro: approved.micro } }
 }
