@@ -89,8 +89,9 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
     return
   }
 
-  // One credit() call holds at most MAX_IDENTITY_BOXES identities, so a large
-  // backlog needs several batches. Each credited batch closes the pending
+  // One credit() call holds at most MAX_IDENTITY_BOXES identities and
+  // MAX_CREDIT_ENTRIES (repo, identity) entries, so a large backlog needs
+  // several batches. Each credited batch closes the pending
   // batch or stamps at least one uncredited row, so this loop always ends.
   let credited = 0
   for (;;) {

@@ -20,7 +20,9 @@ const {
   getEarningsForLogin,
   listUncreditedAccruals,
   openBatch,
+  recordBatchCreditTxid,
   recordPayout,
+  releaseBatch,
   writeAccruals,
 } = await import('./ledger.js')
 const { setStatus } = await import('../status.js')
@@ -242,5 +244,34 @@ describe('openBatch', () => {
     expect(() => openBatch(2, rows)).toThrow(/already in a batch; batch 2 was not opened/)
     expect(countBatches()).toEqual({ n: 1 })
     expect(listUncreditedAccruals()).toHaveLength(rows.filter((r) => r.pkg !== 'ms').length)
+  })
+})
+
+describe('releaseBatch', () => {
+  const countBatches = () => db.prepare('SELECT COUNT(*) AS n FROM batches').get()
+
+  test('a pending batch: its rows return to uncredited and its batch row is deleted', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-RELEASE')
+    const rows = listUncreditedAccruals()
+    openBatch(1, rows)
+
+    releaseBatch(1)
+
+    expect(countBatches()).toEqual({ n: 0 })
+    expect(listUncreditedAccruals()).toHaveLength(rows.length)
+  })
+
+  test('a credited batch: throws and changes nothing', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-CREDITED')
+    openBatch(1, listUncreditedAccruals())
+    recordBatchCreditTxid(1, 'CREDIT-TXID')
+
+    expect(() => releaseBatch(1)).toThrow(/batch 1 is missing or already credited/)
+    expect(countBatches()).toEqual({ n: 1 })
+    expect(listUncreditedAccruals()).toHaveLength(0)
+  })
+
+  test('a missing batch: throws', () => {
+    expect(() => releaseBatch(7)).toThrow(/batch 7 is missing or already credited/)
   })
 })
