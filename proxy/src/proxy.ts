@@ -46,8 +46,14 @@ export async function proxyToNpm(
     throw err
   }
 
+  // fetch has already decoded the body, so the upstream encoding and length
+  // no longer describe it. Forwarding them makes npm gunzip plain JSON.
+  const responseHeaders = new Headers(response.headers)
+  responseHeaders.delete('content-encoding')
+  responseHeaders.delete('content-length')
+
   return new Response(response.body, {
     status: response.status,
-    headers: response.headers,
+    headers: responseHeaders,
   })
 }
