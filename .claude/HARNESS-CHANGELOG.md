@@ -5,6 +5,20 @@ Newest first.
 
 ---
 
+## 2026-09-29 — Bring the `aupm-payment-router` skill up to date (audit L3)
+
+**`.claude/skills/aupm-payment-router/SKILL.md` rewrite.**
+- What: replaced the 40/60 split with 30/70 and the 40/10/20/15/10/5 target with
+  30/10/20/25/10/5. Replaced `releaseAuthority` with `announceRelease`/`executeRelease`,
+  including the execute window. Added the admin-trust warning (the delay does not limit
+  `setIdentity`/`setCrediter`), the rekey-script build checks, batch splitting in the nightly
+  job, and the unsandboxed Puya build. Added a rule: the source wins over this file.
+- Why: the pre-MainNet audit found the skill described a superseded contract. An agent that
+  followed it could reintroduce the old split or the old release method.
+- Expected effect: agents that load the skill get the contract that ships on MainNet.
+
+---
+
 ## 2026-09-21 — Align the harness with the MainNet design
 
 **`CLAUDE.md` rewrite.**

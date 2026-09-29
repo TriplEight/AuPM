@@ -102,7 +102,8 @@ delay window before `executeRelease` can run.
 _Avoid_: propose release, queue release
 
 **Execute release**:
-The admin step, runnable only after the delay window, that sweeps the old app's unclaimed
+The admin step, runnable only after the delay and before the execute window that follows it
+closes, that sweeps the old app's unclaimed
 balance to treasury, retires the old app, and rekeys `payTo` to the new address.
 _Avoid_: finalize release, migrate
 

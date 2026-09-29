@@ -873,7 +873,13 @@ async function runOnChainRehearsal(loraUrl) {
     if (!deployOk) return
 
     const rekeyOk = await check('on-chain: rekey fresh payTo to PaymentRouter', async () => {
-      const txid = await rekeyPayToToApp({ algod, network: 'testnet', payToAccount, appId })
+      const txid = await rekeyPayToToApp({
+        algod,
+        network: 'testnet',
+        payToAccount,
+        appId,
+        expectedCreator: deployerAccount.addr.toString(),
+      })
       console.log(`\n    Rekey: ${txid}`)
       console.log(`    Lora: ${loraUrl(txid)}`)
     })

@@ -15,7 +15,9 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-credit-test-${rand
 const { default: db } = await import('./schema.js')
 const { writeAccruals } = await import('./ledger.js')
 const { setStatus } = await import('../status.js')
-const { runCreditStep, buildCreditCallRefs } = await import('./credit.js')
+const { runCreditStep, buildCreditCallRefs, planCreditChunk } = await import('./credit.js')
+const { groupForCredit } = await import('./ledger.js')
+type AccrualRow = import('./schema.js').AccrualRow
 type Attribution = import('./attribution-rules.js').Attribution
 type CreditChainClient = import('./credit.js').CreditChainClient
 type CreditEntry = import('./ledger.js').CreditEntry
@@ -354,5 +356,154 @@ describe('buildCreditCallRefs', () => {
       amountMicro: 100,
     }))
     expect(() => buildCreditCallRefs(entries, PAY_TO_ADDR, ASSET_ID)).not.toThrow()
+  })
+})
+
+// Audit L2: one credit() call fits at most 6 identity boxes ("ops" included).
+// A larger backlog must split into several batches, never stall the job.
+function packageRows(txid: string, pkg: string, auditor: string): AccrualRow[] {
+  const base = {
+    settle_txid: txid,
+    route: 'lockfile',
+    pkg,
+    version: '1.0.0',
+    repo: `acme/${pkg}`,
+    batch_seq: null,
+    created_at: 1,
+  }
+  return [
+    { ...base, role: 'auditor', identity: auditor, amount_micro: 300 },
+    { ...base, role: 'ops', identity: 'ops', amount_micro: 700 },
+  ]
+}
+
+function unassignedRow(txid: string, amount: number): AccrualRow {
+  return {
+    settle_txid: txid,
+    route: 'unassigned',
+    pkg: '',
+    version: '',
+    repo: '',
+    role: 'ops',
+    identity: 'ops',
+    amount_micro: amount,
+    batch_seq: null,
+    created_at: 1,
+  }
+}
+
+function auditorsOf(rows: AccrualRow[]): string[] {
+  return [...new Set(rows.filter((r) => r.role === 'auditor').map((r) => r.identity))].sort()
+}
+
+describe('planCreditChunk', () => {
+  test('no rows: an empty chunk', () => {
+    expect(planCreditChunk([])).toEqual([])
+  })
+
+  test('5 distinct auditors plus ops fit: every row goes into the chunk', () => {
+    const rows = [0, 1, 2, 3, 4].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`))
+    expect(planCreditChunk(rows)).toEqual(rows)
+  })
+
+  test('a 6th distinct auditor waits for the next batch, with all its role rows', () => {
+    const rows = [0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`))
+    const chunk = planCreditChunk(rows)
+    expect(auditorsOf(chunk)).toEqual([
+      'github:a0',
+      'github:a1',
+      'github:a2',
+      'github:a3',
+      'github:a4',
+    ])
+    expect(chunk.some((r) => r.pkg === 'p5')).toBe(false)
+  })
+
+  test('a repeated auditor costs no new box: a later package by a known auditor still fits', () => {
+    const rows = [
+      ...[0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
+      ...packageRows('T', 'p6', 'github:a0'),
+    ]
+    const chunk = planCreditChunk(rows)
+    expect(chunk.some((r) => r.pkg === 'p6')).toBe(true)
+    expect(chunk.some((r) => r.pkg === 'p5')).toBe(false)
+  })
+
+  test('unassigned rows always go into the chunk: they add no box', () => {
+    const rows = [
+      ...[0, 1, 2, 3, 4, 5].flatMap((i) => packageRows('T', `p${i}`, `github:a${i}`)),
+      unassignedRow('U1', 5123),
+    ]
+    expect(planCreditChunk(rows)).toContainEqual(unassignedRow('U1', 5123))
+  })
+
+  test("each chunk's entries sum to exactly 300 per 1,000 attributed, within the box limit", () => {
+    let remaining = Array.from({ length: 13 }, (_, i) =>
+      packageRows(`T${i % 3}`, `p${i}`, `github:a${i % 8}`),
+    ).flat()
+    let batches = 0
+    while (remaining.length > 0) {
+      const chunk = planCreditChunk(remaining)
+      const totals = groupForCredit(chunk)
+      const entriesTotal = totals.entries.reduce((sum, e) => sum + e.amountMicro, 0)
+      expect(entriesTotal * 1000).toBe(totals.attributedMicro * 300)
+      expect(new Set(['ops', ...auditorsOf(chunk)]).size).toBeLessThanOrEqual(6)
+      remaining = remaining.filter((r) => !chunk.includes(r))
+      batches += 1
+    }
+    expect(batches).toBe(2)
+  })
+
+  test('one package that alone needs more than 6 boxes throws', () => {
+    const rows = [0, 1, 2, 3, 4, 5].flatMap((i) =>
+      packageRows('T', 'p0', `github:a${i}`).filter((r) => r.role === 'auditor'),
+    )
+    expect(() => planCreditChunk(rows)).toThrow(/alone needs 7 identity boxes/)
+  })
+})
+
+describe('runCreditStep: a backlog over the box limit splits into batches', () => {
+  const SEVEN_AUDITORS: Attribution = {
+    route: 'lockfile',
+    priceMicro: 7000,
+    packages: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+      pkg: `pkg-${i}`,
+      version: '1.0.0',
+      auditor: `github:auditor-${i}`,
+    })),
+  }
+
+  test('7 auditors in one lockfile: batch 1 has 5, batch 2 has 2, then nothing is left', async () => {
+    writeAccruals(SEVEN_AUDITORS, 'TXID-SEVEN')
+    const submit: SubmitCreditMock = vi.fn(async (_app, seq) => `CREDIT-${seq}`)
+    const client = stubClient(true, submit)
+
+    expect(await runCreditStep(client, envWithApp())).toEqual({
+      ran: true,
+      batchSeq: 1,
+      creditTxid: 'CREDIT-1',
+    })
+    expect(await runCreditStep(client, envWithApp())).toEqual({
+      ran: true,
+      batchSeq: 2,
+      creditTxid: 'CREDIT-2',
+    })
+    expect(await runCreditStep(client, envWithApp())).toEqual({
+      ran: false,
+      reason: 'nothing-to-credit',
+    })
+
+    const [first, second] = submit.mock.calls
+    expect(first?.[2]).toBe(5000)
+    expect(first?.[4]).toHaveLength(5)
+    expect(second?.[2]).toBe(2000)
+    expect(second?.[4]).toHaveLength(2)
+    for (const call of submit.mock.calls) {
+      expect(() => buildCreditCallRefs(call[4], PAY_TO, 31566704n)).not.toThrow()
+    }
+    const uncredited = db
+      .prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL')
+      .get()
+    expect(uncredited).toEqual({ n: 0 })
   })
 })

@@ -80,10 +80,10 @@ each of these on TestNet before any MainNet deploy (`SPEC.md` §17, item R0):
   fails.
 - `claim()` on a balance of 99,999 microUSDC fails. On 100,000 it succeeds.
 - `claim()` with an outer fee below 2,000 microALGO fails.
-- `releaseAuthority()` rekeys `payTo` to the given address, and only the admin can call it.
-  Planned for the MainNet build (P8): `announceRelease()` and `executeRelease()` replace it, with
-  a compiled-in delay (ADR 0010). Add `announceRelease()`/`executeRelease()` checks here once
-  that build lands.
+- Only the admin can call `announceRelease()` and `executeRelease()` (ADR 0010).
+- `executeRelease()` fails before `announcedRound + 216,000` and from `announcedRound + 432,000`.
+  In between, it sweeps `creditedUnclaimed` to `"treasury"`, retires the app, and rekeys
+  `payTo` to the announced address.
 
 Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
 1. `payTo` opts into USDC.

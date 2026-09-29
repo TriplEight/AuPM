@@ -152,6 +152,46 @@ describe('runNightly: order and stop conditions', () => {
   })
 })
 
+describe('runNightly: credits every batch a large backlog needs (audit L2)', () => {
+  test('7 auditors: two credit() batches in one run, onCredited once per batch', async () => {
+    writeAccruals(
+      {
+        route: 'lockfile',
+        priceMicro: 7000,
+        packages: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+          pkg: `nightly-pkg-${i}`,
+          version: '1.0.0',
+          auditor: `github:nightly-${i}`,
+        })),
+      },
+      'TXID-NIGHTLY-SEVEN',
+    )
+    const creditClient: CreditChainClient = {
+      isPayToRekeyed: vi.fn().mockResolvedValue(true),
+      submitCredit: vi.fn(async (_app: bigint, seq: number) => `CREDIT-${seq}`),
+      getOnChainLastBatchSeq: vi.fn().mockResolvedValue(0),
+      findCreditTxidByNote: vi.fn().mockResolvedValue(null),
+    }
+    const credited: [number, string][] = []
+
+    await runNightly({
+      indexer: emptyIndexer(),
+      backup: () => '/backup/audit-2026.db',
+      creditClient,
+      assertGenesisMatches: () => {},
+      env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
+      log: () => {},
+      onCredited: (seq, txid) => credited.push([seq, txid]),
+    })
+
+    expect(creditClient.submitCredit).toHaveBeenCalledTimes(2)
+    expect(credited).toEqual([
+      [1, 'CREDIT-1'],
+      [2, 'CREDIT-2'],
+    ])
+  })
+})
+
 describe('runNightly: genesis guard (R3c)', () => {
   test('a genesis mismatch stops the job before reconcile: no reconcile, no backup, no credit', async () => {
     const indexer = emptyIndexer()
