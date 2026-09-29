@@ -13,8 +13,9 @@
 // Equivalently: node --import tsx/esm scripts/record-review.mjs <anchorTxid>
 // run with proxy/ as the working directory and its node_modules resolvable.
 // In the proxy container this later becomes:
-//   docker compose run --rm aupm node --import tsx/esm \
-//     scripts/record-review.mjs <anchorTxid>
+//   docker compose exec -it aupm node --import tsx/esm \
+//     ../scripts/record-review.mjs <anchorTxid> --network <network>
+// (the image's working directory is /app/proxy).
 //
 // This never runs in CI, a fixture or a seed path (CLAUDE.md invariant 5):
 // with no TTY on stdin, it refuses before any network or database access.
@@ -24,6 +25,7 @@ import { indexerEndpoint, parseNetworkFlag } from './network.mjs'
 import {
   checkIntegrityMatchesNpm,
   checkIsSelfZeroPayment,
+  checkScopeAllowedOnNetwork,
   checkSenderIsMappedAuditor,
   decodeReviewNote,
   distIntegrityForVersion,
@@ -54,6 +56,7 @@ function printUsage() {
  * @param {(question: string) => Promise<string>} deps.prompt
  * @param {{setStatus: Function, getStatusOrUnreviewed: Function}} deps.statusStore
  * @param {string|undefined} deps.auditorsEnv - the raw AUDITORS env value.
+ * @param {string} deps.network - the network the review is recorded for (ADR 0012).
  * @param {(line: string) => void} [deps.log]
  * @returns {Promise<{recorded: boolean, pkg?: string, version?: string, repo?: string, reviewer?: string}>}
  */
@@ -64,6 +67,7 @@ export async function runRecordReview({
   prompt,
   statusStore,
   auditorsEnv,
+  network,
   log = console.log,
 }) {
   const auditors = parseAuditors(auditorsEnv)
@@ -71,6 +75,7 @@ export async function runRecordReview({
   const { transaction: tx } = await indexerClient.lookupTransactionByID(anchorTxid).do()
   checkIsSelfZeroPayment(tx)
   const note = decodeReviewNote(tx.note)
+  checkScopeAllowedOnNetwork(note.scope, network)
   const login = checkSenderIsMappedAuditor({ sender: tx.sender, note, auditors })
 
   const packument = await fetchNpmPackument(note.name, fetchImpl)
@@ -144,6 +149,7 @@ async function main() {
       prompt,
       statusStore,
       auditorsEnv: process.env.AUDITORS,
+      network,
     })
     process.exit(result.recorded ? 0 : 1)
   } finally {

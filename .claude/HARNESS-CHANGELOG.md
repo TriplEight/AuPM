@@ -223,3 +223,16 @@ SPM uses TypeScript only, so the removed skills were noise in the skill list.
 files arrive formatted. The guard matches text, not shell syntax: a command whose text contains
 `git push origin master` or a `MNEMONIC` variable expansion is blocked, also inside quotes or a
 heredoc. That is on purpose. Write such text with the Edit tool.
+
+## 2026-09-29 — invariant 5 TestNet exception (ADR 0012)
+
+**What.** `CLAUDE.md` invariant 5 gains a TestNet-only exception. An unread review uses the
+normal anchor and `record-review.mjs` path, with a scope that starts with `unread`, on a server
+with a TestNet issuer origin. `record-review.mjs` refuses an `unread` scope off TestNet.
+
+**Why.** A TestNet rehearsal needs 15–30 reviewed packages. A human read of each one costs more
+than the rehearsal needs. The operator chose the exception.
+
+**Expected effect.** Agents may help seed unread reviews on TestNet through the normal path.
+They still never write a review record in code, a fixture, or a seed script in the repo, and
+never record an `unread` scope for MainNet.
