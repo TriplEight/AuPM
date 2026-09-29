@@ -22,6 +22,7 @@ import {
   listUncreditedAccruals,
   openBatch,
   recordBatchCreditTxid,
+  releaseBatch,
   summarizeBatch,
 } from './ledger.js'
 import type { AccrualRow } from './schema.js'
@@ -65,6 +66,17 @@ function creditNote(batchSeq: number): Uint8Array {
 // AVM app-call limit: accounts, assets, apps and boxes together must not
 // exceed this many foreign references on one application-call transaction.
 const MAX_TOTAL_REFERENCES = 8
+
+/**
+ * The most `(repo, identity)` entries one credit() call can hold. One app
+ * call has an opcode budget of 700. credit() loops over `entries` twice, and
+ * a simulate of the deployed PaymentRouter (TestNet app 772851922,
+ * 2026-09-29) measured its cost as 173 + 159 per entry: 3 entries cost 650,
+ * 4 entries cost 809. The cost does not depend on string lengths (the loops
+ * use constant-cost opcodes). Re-measure this if contract.algo.ts's credit()
+ * changes.
+ */
+export const MAX_CREDIT_ENTRIES = 3
 
 /** The exact resource references one credit() call needs. */
 export interface CreditCallRefs {
@@ -121,18 +133,34 @@ export function buildCreditCallRefs(
 }
 
 // credit() references one payTo account and one asset; every other
-// reference slot holds one `bal:<identity>` box, "ops" included.
+// reference slot holds one `bal:<identity>` box, "ops" included. A batch of
+// MAX_CREDIT_ENTRIES entries names at most that many auditor identities
+// plus "ops", so the entry limit keeps every batch inside the box limit too.
+// buildCreditCallRefs still checks the references before any network call.
 const MAX_IDENTITY_BOXES = MAX_TOTAL_REFERENCES - 2
+if (MAX_CREDIT_ENTRIES + 1 > MAX_IDENTITY_BOXES) {
+  throw new Error('credit.ts: MAX_CREDIT_ENTRIES plus "ops" must fit in MAX_IDENTITY_BOXES')
+}
+
+/** `keys` plus the `(repo, identity)` entry keys of the auditor rows in `unit`. */
+function withEntryKeys(keys: Set<string>, unit: AccrualRow[]): Set<string> {
+  const merged = new Set(keys)
+  for (const row of unit) {
+    if (row.role === 'auditor') merged.add(`${row.repo ?? ''}\u0000${row.identity}`)
+  }
+  return merged
+}
 
 /**
  * Picks the uncredited rows for the next credit() batch so that its distinct
- * box identities ("ops" included) fit in MAX_IDENTITY_BOXES. The unit is one
- * paid package: every role row of one `(settle_txid, pkg, version)` goes into
- * the same batch, so a batch's auditor entries always sum to exactly
+ * `(repo, identity)` entries fit in MAX_CREDIT_ENTRIES (the opcode budget,
+ * which also bounds the identity boxes). The unit is one paid package: every
+ * role row of one `(settle_txid, pkg, version)` goes into the same batch, so
+ * a batch's auditor entries always sum to exactly
  * `auditorShareMicro(attributedMicro)`. Every `unassigned` row goes into the
- * batch too: it adds no box. Units that would push the batch past the limit
- * wait for the next batch; the nightly job credits batches until none is
- * left. Pure: no database or network access.
+ * batch too: it adds no entry. Units that would push the batch past the
+ * limit wait for the next batch; the nightly job credits batches until none
+ * is left. Pure: no database or network access.
  *
  * @param rows - uncredited rows, oldest payment first (listUncreditedAccruals).
  * @returns the rows of the next batch; empty only when `rows` is empty.
@@ -151,21 +179,20 @@ export function planCreditChunk(rows: AccrualRow[]): AccrualRow[] {
     else units.set(key, [row])
   }
 
-  const identities = new Set<string>([OPS_IDENTITY])
+  let entryKeys = new Set<string>()
   for (const [key, unit] of units) {
-    const unitIdentities = unit.filter((r) => r.role === 'auditor').map((r) => r.identity)
-    const merged = new Set([...identities, ...unitIdentities])
-    if (merged.size > MAX_IDENTITY_BOXES) {
-      if (identities.size === 1) {
+    const merged = withEntryKeys(entryKeys, unit)
+    if (merged.size > MAX_CREDIT_ENTRIES) {
+      if (entryKeys.size === 0) {
         throw new Error(
           `planCreditChunk: package unit "${key.replaceAll('\u0000', ' ')}" (settlement, ` +
-            `package, version) alone needs ${merged.size} identity boxes, over the ` +
-            `limit of ${MAX_IDENTITY_BOXES}; it can never fit in one credit() call`,
+            `package, version) alone needs ${merged.size} entries, over the limit of ` +
+            `${MAX_CREDIT_ENTRIES}; it can never fit in one credit() call`,
         )
       }
       continue
     }
-    for (const identity of merged) identities.add(identity)
+    entryKeys = merged
     chunk.push(...unit)
   }
   return chunk
@@ -236,6 +263,9 @@ function assertEntriesMatchAuditorShare(attributedMicro: number, entries: Credit
  * last credited batch`). This recovers the confirmed txid from the
  * `aupm:credit:<batchSeq>` note instead of resending, or stops with a
  * thrown error the operator must act on when the indexer has no match.
+ * A pending batch that the chain has not credited and that holds more than
+ * MAX_CREDIT_ENTRIES entries can never confirm (opcode budget): its rows
+ * are released and planned again within the limit.
  */
 export async function runCreditStep(
   client: CreditChainClient,
@@ -270,16 +300,23 @@ export async function runCreditStep(
     }
 
     const { entries } = summarizeBatch(pending.batch_seq)
-    assertEntriesMatchAuditorShare(pending.attributed_micro, entries)
-    const creditTxid = await client.submitCredit(
-      appId,
-      pending.batch_seq,
-      pending.attributed_micro,
-      pending.unattributed_micro,
-      entries,
-    )
-    recordBatchCreditTxid(pending.batch_seq, creditTxid)
-    return { ran: true, batchSeq: pending.batch_seq, creditTxid }
+    if (entries.length > MAX_CREDIT_ENTRIES) {
+      // The chain has not credited this batch (checked above), and a credit()
+      // call with this many entries exceeds the opcode budget, so no earlier
+      // attempt can ever confirm. Release its rows and plan within the limit.
+      releaseBatch(pending.batch_seq)
+    } else {
+      assertEntriesMatchAuditorShare(pending.attributed_micro, entries)
+      const creditTxid = await client.submitCredit(
+        appId,
+        pending.batch_seq,
+        pending.attributed_micro,
+        pending.unattributed_micro,
+        entries,
+      )
+      recordBatchCreditTxid(pending.batch_seq, creditTxid)
+      return { ran: true, batchSeq: pending.batch_seq, creditTxid }
+    }
   }
 
   const uncredited = listUncreditedAccruals()
