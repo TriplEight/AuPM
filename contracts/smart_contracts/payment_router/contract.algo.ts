@@ -40,6 +40,11 @@ const TREASURY_IDENTITY = 'treasury'
 // in: a new value needs a new contract, per docs/adr/0010.
 const RELEASE_DELAY_ROUNDS = Uint64(216_000)
 
+// Rounds after the delay during which executeRelease() may run. About 7 days.
+// After that the announcement expires: executeRelease() fails until the admin
+// announces again, which restarts the delay and warns payees again.
+const RELEASE_WINDOW_ROUNDS = Uint64(216_000)
+
 // repo travels with each entry for shape parity with SPEC §10.1, but the
 // contract never stores it. The per-repo breakdown lives in the off-chain
 // ledger (SPEC §13.2); on-chain, a balance is per identity only.
@@ -188,17 +193,18 @@ export class PaymentRouter extends Contract {
   }
 
   // Admin-only. Records the migration target and the current round.
-  // executeRelease() may run once RELEASE_DELAY_ROUNDS have passed. A
-  // second call before that overwrites the target and restarts the delay
-  // from the new round (ADR 0010): the delay always measures from the
-  // most recent announcement, not the first one.
+  // executeRelease() may run once RELEASE_DELAY_ROUNDS have passed, for
+  // RELEASE_WINDOW_ROUNDS. A second call overwrites the target and restarts
+  // the delay from the new round (ADR 0010): the delay always measures from
+  // the most recent announcement, not the first one.
   public announceRelease(to: Account): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     this.announcedTo.value = to.bytes
     this.announcedRound.value = Global.round
   }
 
-  // Admin-only. Runs only after the announce-to-execute delay has passed.
+  // Admin-only. Runs only after the announce-to-execute delay has passed and
+  // before the execute window that follows it closes.
   // Sweeps creditedUnclaimed to the "treasury" identity's mapped address,
   // zeroes creditedUnclaimed, marks the app retired (credit() and claim()
   // fail on it from then on), then rekeys payTo to the announced address.
@@ -207,9 +213,11 @@ export class PaymentRouter extends Contract {
   public executeRelease(): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     assert(this.announcedTo.hasValue, 'no release announced')
+    const executableFrom: uint64 = this.announcedRound.value + RELEASE_DELAY_ROUNDS
+    assert(Global.round >= executableFrom, 'release delay has not passed')
     assert(
-      Global.round >= this.announcedRound.value + RELEASE_DELAY_ROUNDS,
-      'release delay has not passed',
+      Global.round < executableFrom + RELEASE_WINDOW_ROUNDS,
+      'release window has expired; announce again',
     )
     assert(this.identityAddress(TREASURY_IDENTITY).exists, 'treasury identity not mapped')
 

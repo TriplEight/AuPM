@@ -329,6 +329,57 @@ describe('PaymentRouter', () => {
       ).toThrow('release delay has not passed')
     })
 
+    test('executeRelease(): succeeds on the last round of the execute window', () => {
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 215_999n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
+      expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    })
+
+    test('executeRelease(): after the execute window closes fails', () => {
+      // A stale announcement must not stay executable for good (audit L1).
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 216_000n })
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('release window has expired')
+    })
+
+    test('executeRelease(): an expired announcement works again only after a new delay', () => {
+      const { contract, admin, ops } = setup(0n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
+
+      const reannounced = 1_000n + 500_000n
+      ctx.ledger.patchGlobalData({ round: reannounced })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      expect(() =>
+        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+      ).toThrow('release delay has not passed')
+
+      ctx.ledger.patchGlobalData({ round: reannounced + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+      const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
+      expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    })
+
     test('executeRelease(): without "treasury" mapped fails, even after the delay', () => {
       const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
