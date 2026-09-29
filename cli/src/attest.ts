@@ -104,6 +104,25 @@ export async function runAttest(argv: string[]): Promise<number> {
 
   fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
   console.log(`attestation written to ${args.outPath}`)
-  console.log(JSON.stringify(result.summary, null, 2))
+  const { settlement } = result
+  if (settlement === null) {
+    console.log(JSON.stringify(result.summary, null, 2))
+    return 0
+  }
+  console.log(
+    `donated ${formatMicroUsd(settlement.amountMicro)} (${settlement.amountMicro} microUSDC), ` +
+      `settlement txid ${settlement.txid}`,
+  )
+  console.log(
+    JSON.stringify(
+      {
+        ...(result.summary as Record<string, unknown>),
+        donatedMicro: settlement.amountMicro,
+        settlementTxid: settlement.txid,
+      },
+      null,
+      2,
+    ),
+  )
   return 0
 }

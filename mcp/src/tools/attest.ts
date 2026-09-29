@@ -1,6 +1,11 @@
 // mcp/src/tools/attest.ts
 import fs from 'node:fs'
-import { fetchWithDonation, PRICE_PER_ENTRY_MICRO, USDC_ASSET_ID } from '../donor.js'
+import {
+  fetchWithDonation,
+  PRICE_PER_ENTRY_MICRO,
+  type Settlement,
+  USDC_ASSET_ID,
+} from '../donor.js'
 import { countLockfileEntries } from '../lockfile-entries.js'
 import { proxyUrl } from '../proxy-url.js'
 
@@ -13,6 +18,8 @@ export type AttestLockfileOutcome =
       status: 'attested'
       summary: unknown
       attestation: unknown
+      /** The donation that paid for this attestation, or null when it was free. */
+      settlement: Settlement | null
     }
   | {
       status: 'donation_required'
@@ -67,7 +74,8 @@ export const attestLockfileTool = {
     'when the tree has zero reviewed packages. Pass allowDonation: true to pay for and ' +
     'receive the full attestation. Without allowDonation, the reviewed entries are ' +
     "withheld and the result reports status: 'donation_required' with the partial " +
-    'attestation, the withheld count, the price, and the resource URL — never a 402.',
+    'attestation, the withheld count, the price, and the resource URL — never a 402. ' +
+    'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid.',
 
   async handler({
     lockfilePath,
@@ -129,6 +137,11 @@ export const attestLockfileTool = {
       }
     }
 
-    return { status: 'attested', summary: body.summary, attestation: body.attestation }
+    return {
+      status: 'attested',
+      summary: body.summary,
+      attestation: body.attestation,
+      settlement: result.settlement,
+    }
   },
 }

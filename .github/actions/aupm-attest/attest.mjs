@@ -6,6 +6,7 @@
 // (see run()).
 
 import { spawn } from 'node:child_process'
+import { appendFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
@@ -18,6 +19,20 @@ const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
 /** Print a GitHub Actions warning annotation. */
 export function warn(message) {
   console.log(`::warning::${message}`)
+}
+
+/**
+ * Report a paid attestation: a `::notice::` annotation and, on a runner, one
+ * line in the job summary. Reads `donatedMicro` and `settlementTxid` from the
+ * CLI's summary; prints nothing for a free attestation.
+ */
+export function reportDonation(summary, env = process.env) {
+  const micro = summary?.donatedMicro
+  const txid = summary?.settlementTxid
+  if (!Number.isInteger(micro) || typeof txid !== 'string') return
+  const line = `AuPM donation: ${micro} microUSDC, settlement txid ${txid}`
+  console.log(`::notice::${line}`)
+  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`)
 }
 
 /** Convert an input value (string or boolean) to a strict boolean. */
@@ -184,6 +199,8 @@ export async function run(options, { spawnFn = spawn } = {}) {
           "Set donate: 'true' and a donor-mnemonic secret to include them.",
       )
     }
+
+    reportDonation(summary)
 
     const mismatchCount = summary?.integrityMismatch ?? 0
     if (normalizeBool(failOnMismatch) && mismatchCount > 0) {
