@@ -11,8 +11,7 @@ import {
   USDC_ASSET_ID,
 } from '../donor.js'
 import { formatMicroUsd } from '../money.js'
-
-const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
+import { proxyUrl } from '../proxy-url.js'
 
 export type InstallOutcome =
   | {
@@ -96,7 +95,7 @@ export const installTool = {
     const basePkg = pkg.split('/').pop() ?? pkg
     const tarballName = `${basePkg}-${version}.tgz`
     const pkgPath = pkg.startsWith('@') ? pkg.replace('@', '%40').replace('/', '%2F') : pkg
-    const url = `${PROXY_URL}/${pkgPath}/-/${tarballName}`
+    const url = `${proxyUrl()}/${pkgPath}/-/${tarballName}`
 
     const result = await fetchWithDonation(url, undefined, allowDonation)
     if (result.kind === 'donation_required') {

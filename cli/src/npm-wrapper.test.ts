@@ -81,6 +81,23 @@ describe('runNpmWrapper', () => {
     fs.rmSync(cwd, { recursive: true, force: true })
   })
 
+  it('uses AUPM_PROXY_URL as the registry when set, without a trailing slash', async () => {
+    vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873/')
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const { runNpmWrapper } = await import('./npm-wrapper.js')
+
+    const runPromise = runNpmWrapper(['view', 'ms'])
+    child.emit('exit', 0, null)
+    await runPromise
+
+    expect(spawn).toHaveBeenCalledWith('npm', ['view', 'ms'], {
+      stdio: 'inherit',
+      env: expect.objectContaining({ npm_config_registry: 'http://localhost:4873' }),
+    })
+    vi.unstubAllEnvs()
+  })
+
   it('spawns npm with the user argv unchanged, the registry in env, no shell', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
@@ -93,7 +110,7 @@ describe('runNpmWrapper', () => {
     expect(exitCode).toBe(0)
     expect(spawn).toHaveBeenCalledWith('npm', ['view', 'ms'], {
       stdio: 'inherit',
-      env: expect.objectContaining({ npm_config_registry: 'http://localhost:4873' }),
+      env: expect.objectContaining({ npm_config_registry: 'https://aupm.fyi' }),
     })
     // No shell option and no `command` string — an args array only.
     const spawnArgs = vi.mocked(spawn).mock.calls[0]

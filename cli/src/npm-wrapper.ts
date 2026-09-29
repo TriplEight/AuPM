@@ -13,9 +13,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { PRICE_PER_ENTRY_MICRO } from 'aupm-mcp/donor'
 import { formatMicroUsd } from 'aupm-mcp/money'
+import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
 
-const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
 const LOCKFILE_NAME = 'package-lock.json'
 
 // npm subcommands that can add or change a reviewed package in
@@ -88,7 +88,7 @@ export function runNpmProcess(npmArgs: string[]): Promise<number> {
   return new Promise((resolve, reject) => {
     const child: ChildProcess = spawn('npm', npmArgs, {
       stdio: 'inherit',
-      env: { ...process.env, npm_config_registry: PROXY_URL },
+      env: { ...process.env, npm_config_registry: proxyUrl() },
     })
     child.on('error', reject)
     child.on('exit', (code, signal) => {

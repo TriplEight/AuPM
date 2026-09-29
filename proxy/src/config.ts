@@ -13,6 +13,7 @@ import { x402Version as X402_PROTOCOL_VERSION } from '@x402-avm/core'
 import type { Network, SupportedResponse } from '@x402-avm/core/types'
 import algosdk from 'algosdk'
 import { loadSigningKey, type SigningKey } from './attest/keys.js'
+import { readSecret } from './secret.js'
 
 export type SupportedKind = SupportedResponse['kinds'][number]
 
@@ -215,7 +216,7 @@ let signingKeyPromise: Promise<SigningKey> | null = null
 
 export function getAttestationSigningKey(): Promise<SigningKey> {
   if (!signingKeyPromise) {
-    const source = process.env.ATTEST_SIGNING_KEY
+    const source = readSecret('ATTEST_SIGNING_KEY')
     if (!source) {
       throw new Error('ATTEST_SIGNING_KEY is not set: cannot sign attestations')
     }

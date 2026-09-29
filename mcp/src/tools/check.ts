@@ -1,6 +1,5 @@
 // mcp/src/tools/check.ts
-const PROXY_URL = process.env.AUPM_PROXY_URL ?? 'http://localhost:4873'
-
+import { proxyUrl } from '../proxy-url.js'
 export type AuditStatusResult = {
   pkg: string
   version: string
@@ -18,7 +17,7 @@ export const checkTool = {
     'Free — no payment required.',
   async handler({ pkg, version }: { pkg: string; version: string }): Promise<AuditStatusResult> {
     const encodedPkg = pkg.startsWith('@') ? pkg.replace('@', '%40') : encodeURIComponent(pkg)
-    const url = `${PROXY_URL}/api/v1/status/${encodedPkg}/${version}`
+    const url = `${proxyUrl()}/api/v1/status/${encodedPkg}/${version}`
     const res = await fetch(url)
     if (!res.ok) throw new Error(`Status check failed: ${res.status} ${await res.text()}`)
     return res.json() as Promise<AuditStatusResult>

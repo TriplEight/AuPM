@@ -14,6 +14,7 @@
 import algosdk from 'algosdk'
 import { NETWORK, PAY_TO, USDC_ASA_ID } from '../config.js'
 import db from '../db.js'
+import { readSecret } from '../secret.js'
 import { backupDatabase } from './backup.js'
 import { buildAlgodCreditClient, type CreditChainClient } from './credit.js'
 import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
@@ -73,11 +74,11 @@ function portOf(url: string): string {
 }
 
 /**
- * null when CREDITER_MNEMONIC is unset — the credit step then logs why and
+ * null when neither the variable nor its _FILE form is set — the credit step then logs why and
  * stops (SPEC.md §13.2 step 3) rather than failing to build a client.
  */
 function buildCreditClient(indexerUrl: string): CreditChainClient | null {
-  const crediterMnemonic = process.env.CREDITER_MNEMONIC
+  const crediterMnemonic = readSecret('CREDITER_MNEMONIC')
   if (!crediterMnemonic) return null
 
   const server = process.env.ALGOD_SERVER ?? DEFAULT_ALGOD_SERVER
