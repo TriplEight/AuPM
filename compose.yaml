@@ -52,7 +52,7 @@
 
 services:
   aupm:
-    image: ghcr.io/tripleight/aupm:v0.2.1
+    image: ghcr.io/tripleight/aupm:v0.2.2
     build:
       context: .
       dockerfile: proxy/Dockerfile
