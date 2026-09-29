@@ -473,12 +473,13 @@ async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<Algo
 //      `goal` once: `goal account multisig new <addr1> <addr2> <addr3> -T 2`.
 //   3. Two of the three holders each sign the same file in turn:
 //      `goal clerk multisig sign -t payment-router-create.txn`.
-//   4. Whoever holds the twice-signed file submits it:
-//      `goal clerk rawsend -f payment-router-create.txn`, then records the
-//      resulting app id as PAYMENT_ROUTER_APP_ID.
+//   4. Whoever holds the twice-signed file POSTs it to the target network's
+//      algod (`/v2/transactions`, Content-Type application/x-binary), then
+//      records the resulting app id as PAYMENT_ROUTER_APP_ID. Not
+//      `algokit goal clerk rawsend`: that goal runs in the LocalNet container
+//      and sends to LocalNet.
 // setCrediter/setIdentity/announceRelease/executeRelease follow the same
-// build-sign-submit shape afterwards (built with `goal app call` or a
-// future helper here); this work item covers only the create step.
+// build-sign-submit shape afterwards (the deployMultisig* entry points below).
 
 export const ADMIN_MSIG_THRESHOLD = 2
 
@@ -629,11 +630,7 @@ export async function deployMultisigCreate(): Promise<void> {
   writeUnsignedTxnFile(txn, outPath)
 
   console.log(`Admin multisig address (2-of-3, ADR 0010): ${multisigAddress}`)
-  console.log(`Unsigned createApplication call written to ${outPath}.`)
-  console.log(
-    'Two of the three holders must sign it offline (goal clerk multisig sign) before ' +
-      'submitting with goal clerk rawsend — see the comment above parseAdminMultisigAddrs.',
-  )
+  printMultisigSigningInstructions('createApplication', outPath)
 }
 
 // --- 2-of-3 admin multisig: post-creation admin calls (ADR 0010, docs/TASK.md P8b) ----------
@@ -642,7 +639,7 @@ export async function deployMultisigCreate(): Promise<void> {
 // (contract.algo.ts: each asserts `Txn.sender.bytes === Global.creatorAddress.bytes`), so each
 // needs the same offline multisig flow as deployMultisigCreate above: build the unsigned call
 // here, write it to a file, two of the three holders sign it in turn with `goal clerk multisig
-// sign`, then whoever holds the twice-signed file submits it with `goal clerk rawsend`.
+// sign`, then whoever holds the twice-signed file POSTs it to the network's algod.
 //
 // The four signatures below are hand-written from contract.algo.ts's own method declarations.
 // assertMethodSignatureMatchesSpec fails loudly if the generated ARC-56 spec (APP_SPEC) ever
@@ -890,8 +887,10 @@ async function resolveMultisigCallContext(): Promise<{
 function printMultisigSigningInstructions(callLabel: string, outPath: string): void {
   console.log(`Unsigned ${callLabel} call written to ${outPath}.`)
   console.log(
-    'Two of the three holders must sign it offline (goal clerk multisig sign) before ' +
-      'submitting with goal clerk rawsend — see the operator runbook (not published).',
+    'Two of the three holders must sign it offline (goal clerk multisig sign), then POST the ' +
+      'signed file to the target network algod /v2/transactions ' +
+      '(Content-Type: application/x-binary). Do not use `algokit goal clerk rawsend`: it sends ' +
+      'to LocalNet. See the operator runbook (not published).',
   )
 }
 
