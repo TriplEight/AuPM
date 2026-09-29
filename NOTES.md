@@ -3,6 +3,16 @@
 The session log is local-only (`NOTES.local.md`, untracked). This file lists merged changes.
 
 ## 2026-09-29
+- #38 `5e9d315`: multisig submit instructions POST to algod, not `algokit goal clerk rawsend`.
+- #39 `f803173`: `.dockerignore` excludes nested `.claude/` directories.
+- #40 `7af05bd`: ADR 0012. Unread review records are allowed on TestNet only.
+- #41 `1295f69`: one `credit()` call holds at most 3 entries (opcode budget 173 + 159 per entry).
+  A pending batch over the limit is released and planned again.
+- #42 `6a76338`: the CLI, `aupm install --donate` and the Action report the settled amount and
+  txid.
+- TestNet rehearsal, app 772851922: all phases pass. Credit batches 2–11, claims
+  `N5LHMVSY7766AJLTQ2SUSXATADDKYYCEUFIFU5MGAYTGGIRTUAKQ` and
+  `EINZFK6UI23O7P4S6R6SCT7OCUDTUPFY4S4DQ4DY46VB7GKKZOXA`.
 - W1 `e2d7434`: `announceRelease(to)` targets the new app, never `payTo`. The runbook orders
   funding and checks box minimum balances.
 - W5 `21b6900`: `GET /` serves the `og:` page. The `og:image` is at `/.well-known/aupm-og.png`.
