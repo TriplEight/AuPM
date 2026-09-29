@@ -7,7 +7,7 @@ Part I is the product: the problem, the model, the roles and the phases. Part II
 the MVP for the Global x402 Challenge on Algorand MainNet. Read the whole document before you
 write code. §10 lists the constraints that invalidate parts of the built code.
 
-Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items are tracked in a local-only file.
+Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items: `docs/TASK.md`.
 
 **Version history**
 - **v2 (2026-09-19):** open questions resolved, claims ledger added, Bazaar config confirmed,
@@ -221,15 +221,15 @@ Phase 5 governance, together with the decline/donate flow.
 | Auditor | 30% | 300 |
 | Ops (ops 5% + the 65% of roles not yet onboarded) | 70% | 700 |
 
-The 70% is ops income, not a debt owed to anyone (ADR 0011).
+The 70% is ops income, not a debt owed to anyone (ADR 0011, supersedes ADR 0003).
 
 **Disclosure rule.** Every public text (README, `og:description`, Bazaar descriptions, the
 submission form) shows both splits: "Target split 30/10/20/25/10/5. In the MVP: 30% to the
 auditor, 70% to the operator until the other roles launch." Never write "20% goes to
 maintainers" while that share is ops income.
 
-TestNet runs the same 30/70 split (P8d). The earlier TestNet app (772553842,
-40/60) is retired; TestNet now runs a new app from the rebuilt 300/700 contract.
+TestNet runs the same 30/70 split (docs/TASK.md P8d). The earlier TestNet app (772553842,
+40/60, ADR 0003) is retired; TestNet now runs a new app from the rebuilt 300/700 contract.
 
 Payments are USDC on Algorand MainNet. No other chains or rails in the MVP.
 
@@ -419,7 +419,7 @@ donor ──facilitator──▶ payTo (plain account, rekeyed to PaymentRouter)
   It credits each auditor `identity`'s balance directly, and credits `attributedTotal −
   sum(entries) + unattributedTotal` to the `"ops"` identity's balance. `unattributedTotal` is
   USDC that reached `payTo` with no ledger attribution (§13.2 reconciliation). The 30/70 split
-  is enforced on-chain per batch, on every network (P8d). There is no rounding:
+  is enforced on-chain per batch, on every network (docs/TASK.md P8d). There is no rounding:
   each reviewed package in each payment credits exactly 300 µUSDC.
   Balances are keyed by identity, not by address and not by
   `(repo, identity)`: the per-repo breakdown lives in the off-chain ledger only (§13.2). An
@@ -480,7 +480,7 @@ Planned for the MainNet build (P8): `releaseAuthority(to)` is replaced by two ad
   `claim()` both fail on it from then on; (4) rekeys `payTo` to `to`. `payTo`'s address does not
   change; the rekey changes the authorizer, not the address (invariant 1 holds).
 
-Before `announceRelease`, run the migration runbook procedure (the operator runbook, not published):
+Before `announceRelease`, run the migration runbook procedure (`docs/RUNBOOK-mainnet-launch.md`):
 a final credit batch, an announcement to payees, a claim window, and stopping the nightly job
 against the old app id before `executeRelease` runs. After `executeRelease`, the treasury pays
 each swept balance to its payee off-chain, on request. The old app's balance boxes stay in place
@@ -657,8 +657,8 @@ Confirmed against GoPlausible's troubleshooting guide (algorand.co, 2026-08-13) 
   appears. Validate in a unit test: `validateDiscoveryExtension(decl.bazaar).valid === true`.
 - The catalog row is created **when a client pays**, from the payment payload. The facilitator
   does not crawl the host.
-- Merchant branding comes from `og:site_name`, `og:title`, `og:description`, `og:image` that the
-  app serves at `GET /` (§6.2 disclosure rule applies). Trigger one more payment after changing them.
+- Merchant branding comes from `og:site_name`, `og:title`, `og:description`, `og:image` at the
+  domain root (§6.2 disclosure rule applies). Trigger one more payment after changing them.
 
 ```ts
 import { Hono } from 'hono'
@@ -794,7 +794,7 @@ withdrawal.
 
 Reason: a lockfile that pins a reviewed version must work the same way on every surface.
 
-**Planned — pnpm and npx (P2).** `aupm pnpm <args>` and `aupm npx <args>` are not
+**Planned — pnpm and npx (docs/TASK.md P2).** `aupm pnpm <args>` and `aupm npx <args>` are not
 built. `POST /v1/attest/lockfile` parses only `package-lock.json` (lockfileVersion 2 or 3); it
 does not parse `pnpm-lock.yaml`. `aupm <npm args>` covers `npm install`, `i`, `ci`, and `add`
 only.
@@ -981,12 +981,13 @@ admin, the donor or `payTo`.
 
 - **No automated issues, PRs, or emails to third-party repos.** Bot-opened issues on popular
   repos read as spam and risk GitHub AUP enforcement and reputational damage to a security
-  product.
+  product. Unsolicited commercial email is restricted under German UWG §7.
 - Phase 2: opt-in notifications.
 
 **Legal note before the first third-party payout:** paying third parties from funds AuPM
-attributes to them may carry legal duties. Get a legal read before any role other than the
-team's auditors and ops is paid. In the MVP only the team claims.
+attributes to them may touch payment-services regulation (ZAG) for a German operator. Get a
+lawyer's read before any role other than the team's auditors and ops is paid. In the MVP only
+the team claims.
 
 ## 14. Honesty constraints for seeded data
 
@@ -1045,7 +1046,7 @@ Use the `scope-sentinel` subagent before anything sizable.
 - `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
 - Target split **30/10/20/25/10/5** → per 1,000 µUSDC: 300/100/200/250/100/50.
 - MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. One split on every network
-  (P8d); the earlier TestNet app (772553842, 40/60) is retired.
+  (docs/TASK.md P8d); the earlier TestNet app (772553842, 40/60) is retired.
 - `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per nightly batch.
 - `MIN_CLAIM` = 100,000 µUSDC. A claim's fee (2,000 µALGO) is pooled by the claimant.
 - Facilitator `https://facilitator.goplausible.xyz`, mandatory. It pays network fees for
@@ -1064,7 +1065,7 @@ Use the `scope-sentinel` subagent before anything sizable.
 
 ## 17. Work sequence
 
-The work items with acceptance checks are in a local-only file. This section fixes the order and
+The work items with acceptance checks are in `docs/TASK.md`. This section fixes the order and
 the gates.
 
 **P0. Recruit third-party donors (spans the whole plan; owner: the team).** Line up 3–10
@@ -1081,7 +1082,7 @@ withdrawal or bridge hop takes days; an in-app wallet purchase is faster. Chase 
    Cold keys never touch the server.
 2. MainNet config; the server refuses to boot if `getSupported()` lacks MainNet `exact` with
    `x402Version` 2, and logs the resolved `feePayer`.
-3. Deploy with Docker Compose on the production host; the app serves `og:*` metadata at `GET /`.
+3. Deploy with Docker Compose on the production host; `og:*` metadata at the domain root.
    *Check:* `curl -sI -H 'X-AuPM-Donate: 1' "https://<domain>/v1/attest?name=ms&version=2.1.3"`
    → 402 once `ms@2.1.3` is reviewed.
 4. Auditors anchor 3–5 real reviews; the operator records each with `record-review` (§14).

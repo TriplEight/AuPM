@@ -15,7 +15,6 @@ import {
   FACILITATOR_URL,
 } from './config.js'
 import db from './db.js'
-import { assertValidSecretSources } from './secret.js'
 import { installShutdownHandlers } from './shutdown.js'
 import { boot } from './x402/server.js'
 
@@ -53,7 +52,6 @@ async function main(): Promise<void> {
     assertValidPayTo()
     assertValidIssuerUrl()
     assertValidKeyValidFrom()
-    assertValidSecretSources()
     nightlyMode = resolveNightlyMode(process.env.AUPM_NIGHTLY)
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)

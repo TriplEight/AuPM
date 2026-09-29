@@ -22,5 +22,5 @@ the off-chain ledger (§13.2); the contract sees only an identity and an amount.
 Amended by ADR 0011: the contract asserts the auditor entries sum to exactly 30% of `total`,
 not 40%.
 
-Amended by P8d: TestNet moves to a new app from the rebuilt 30% contract; the
+Amended by docs/TASK.md P8d: TestNet moves to a new app from the rebuilt 30% contract; the
 earlier TestNet app, which still asserted 40%, is retired.

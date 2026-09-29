@@ -82,15 +82,15 @@ aupm install ms@2.1.3               # installs through the AuPM registry, same a
 aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
 ```
 
-`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
-MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm
-release, `npm install -g aupm` installs it. Until then, run it from a clone. See
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `http://localhost:4873`.
+After the first npm release, a hosted `https://<domain>` deployment also works. You do not need
+to clone this repository to use `aupm`: after the first npm release, `npm install -g aupm`
+installs it. Until then, run it from a clone. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
 
 Plain npm also works, and stays free:
 
 ```bash
-npm config set registry https://aupm.fyi/
+npm config set registry https://<domain>/
 ```
 
 For a local proxy, use `http://localhost:4873/`.
@@ -112,7 +112,7 @@ To donate, you need a funded Algorand account holding USDC. See "Donor account s
 
 ## For auditors
 
-Onboarding is manual in the MVP (planned). The path today:
+Onboarding is manual in the MVP (planned: item A1, `docs/TASK.md`). The path today:
 
 1. Open an Algorand account and opt it in to USDC.
 2. The admin maps your identity on-chain with `setIdentity`.
@@ -136,6 +136,7 @@ aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 
 - [SPEC.md](SPEC.md) — the authoritative specification.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
+- [docs/TASK.md](docs/TASK.md) — next steps and work items.
 - [docs/adr/](docs/adr/) — design decisions.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
 

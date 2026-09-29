@@ -12,10 +12,8 @@ AuPM is an npm-compatible registry overlay for the Global x402 Challenge on Algo
   lockfile, 1,000 µUSDC per reviewed entry.
 
 **Spec: `SPEC.md`.** Terms: `CONTEXT.md`. Decisions: `docs/adr/`.
-Next steps and work items: `docs/TASK.md` (local-only, untracked; agents in a local checkout still
-use it). Operator procedures: `docs/RUNBOOK-contract-build.md` and `docs/RUNBOOK-mainnet-launch.md`
-(the second is local-only, untracked). Session log: `NOTES.local.md` (local-only).
-`NOTES.md` is the public changelog.
+Next steps and work items: `docs/TASK.md`.
+Operator procedures: `docs/RUNBOOK-*.md`. Session log: `NOTES.md`.
 Generic Algorand and AlgoKit guidance: `AGENTS.md` (read only when you need it).
 
 ## Invariants
@@ -106,8 +104,7 @@ Never weaken an assertion to make a check pass.
   touch the server. The server holds only the crediter key and the unfunded attestation key.
 - Never log or hardcode a mnemonic or a private key.
 - No AI attribution in code, comments, docs, or commits.
-- After a unit of work, append a dated entry to `NOTES.local.md` (`/handoff`).
-  Add a short line to `NOTES.md` only for a merged change with a SHA or txid.
+- After a unit of work, append a dated entry to `NOTES.md` (`/handoff`).
 - Redirect long output to `$TMPDIR/<name>.log`. Read the exit code and the last 30 lines.
 - Search before you read. Read line ranges, not whole files.
 

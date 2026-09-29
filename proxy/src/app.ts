@@ -1,6 +1,5 @@
 // proxy/src/app.ts
 
-import { readFileSync } from 'node:fs'
 import * as ed from '@noble/ed25519'
 import type { x402HTTPResourceServer } from '@x402-avm/core/http'
 import { paymentMiddlewareFromHTTPServer } from '@x402-avm/hono'
@@ -12,15 +11,13 @@ import type { LockfileAnalysis } from './attest/lockfile.js'
 import type { RateLimiter } from './attest/ratelimit.js'
 import { claimsLedgerMiddleware } from './claims/middleware.js'
 import { createClaimsRouter } from './claims/routes.js'
-import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey, ISSUER } from './config.js'
-import { buildFrontPage } from './front-page.js'
+import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey } from './config.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
 import healthRouter from './routes/health.js'
 import statusRouter from './routes/status.js'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
-import { OG_DESCRIPTION } from './x402/routes.js'
 import { isTarballPath, parseTarballPath, TARBALL_PRICE_MICRO } from './x402/tarball.js'
 
 export type AppVariables = {
@@ -103,18 +100,6 @@ export function createApp(
     // The key list changes only on rotation, so it is safe to cache.
     c.header('cache-control', 'public, max-age=3600')
     return c.json(keys)
-  })
-
-  // Free, never gated, never ledgered: the front page and its image carry
-  // the og: tags for the Bazaar merchant card. WARNING: these routes must
-  // never return 402. Hono answers HEAD from the GET handler. The image
-  // path starts with a dot, so no npm package name can collide with it.
-  const frontPage = buildFrontPage(ISSUER, OG_DESCRIPTION)
-  const ogImage = readFileSync(new URL('./assets/og-image.png', import.meta.url))
-  app.get('/', (c) => c.html(frontPage))
-  app.get('/.well-known/aupm-og.png', (c) => {
-    c.header('cache-control', 'public, max-age=86400')
-    return c.body(ogImage, 200, { 'content-type': 'image/png' })
   })
 
   // Claims ledger write path (SPEC.md 5.2), registered *before* the
