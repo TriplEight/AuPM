@@ -1,5 +1,5 @@
 ---
-description: Append a dated handoff entry to NOTES.md for the other dev
+description: Append a dated handoff entry to NOTES.local.md for the other dev
 argument-hint: "[short summary of what you just finished]"
 allowed-tools: Read, Edit, Bash
 ---
