@@ -183,7 +183,7 @@ export interface UncreditedTotals {
  * `(repo, identity)` — never split per payment, and never per package
  * within the same `(repo, identity)` pair.
  */
-function groupForCredit(rows: AccrualRow[]): UncreditedTotals {
+export function groupForCredit(rows: AccrualRow[]): UncreditedTotals {
   let attributedMicro = 0
   let unattributedMicro = 0
   const entryTotals = new Map<string, CreditEntry>()
@@ -206,12 +206,13 @@ function groupForCredit(rows: AccrualRow[]): UncreditedTotals {
 }
 
 const listUncreditedRows = db.prepare<[], AccrualRow>(
-  'SELECT * FROM accruals WHERE batch_seq IS NULL',
+  'SELECT * FROM accruals WHERE batch_seq IS NULL ' +
+    'ORDER BY created_at, settle_txid, pkg, version, role',
 )
 
-/** Every accrual row not yet assigned to a batch, grouped for `credit()`. */
-export function summarizeUncredited(): UncreditedTotals {
-  return groupForCredit(listUncreditedRows.all())
+/** Every accrual row not yet assigned to a batch, oldest payment first. */
+export function listUncreditedAccruals(): AccrualRow[] {
+  return listUncreditedRows.all()
 }
 
 const listRowsForBatch = db.prepare<[number], AccrualRow>(
@@ -228,14 +229,10 @@ export function summarizeBatch(batchSeq: number): UncreditedTotals {
   return groupForCredit(listRowsForBatch.all(batchSeq))
 }
 
-const assignBatchSeq = db.prepare<[number]>(
-  'UPDATE accruals SET batch_seq = ? WHERE batch_seq IS NULL',
+const assignRowBatchSeq = db.prepare<[number, string, string, string, string]>(
+  'UPDATE accruals SET batch_seq = ? ' +
+    'WHERE settle_txid = ? AND role = ? AND pkg = ? AND version = ? AND batch_seq IS NULL',
 )
-
-/** Assigns every still-uncredited accrual row to `batchSeq`. */
-export function assignUncreditedToBatch(batchSeq: number): void {
-  assignBatchSeq.run(batchSeq)
-}
 
 const getLastBatchRow = db.prepare<[], { batch_seq: number }>(
   'SELECT batch_seq FROM batches ORDER BY batch_seq DESC LIMIT 1',
@@ -265,15 +262,37 @@ const insertBatch = db.prepare<[number, number, number, number]>(
    VALUES (?, ?, ?, ?)`,
 )
 
-/** Opens batch `batchSeq` with its totals, before its rows are stamped and
- * before `credit()` is called. `credit_txid` starts NULL. */
-export function insertPendingBatch(
-  batchSeq: number,
-  attributedMicro: number,
-  unattributedMicro: number,
-): void {
-  insertBatch.run(batchSeq, attributedMicro, unattributedMicro, Date.now())
-}
+/**
+ * Opens batch `batchSeq` for exactly `rows` (still uncredited), before
+ * `credit()` is called: inserts the batch row with the totals of `rows` and
+ * stamps each row with `batchSeq`, in one SQLite transaction. `credit_txid`
+ * starts NULL. Throws, and writes nothing, when a row is missing or already
+ * in a batch.
+ *
+ * @returns the totals and entries of `rows` — what `credit()` must send.
+ */
+export const openBatch = db.transaction(
+  (batchSeq: number, rows: AccrualRow[]): UncreditedTotals => {
+    const totals = groupForCredit(rows)
+    insertBatch.run(batchSeq, totals.attributedMicro, totals.unattributedMicro, Date.now())
+    for (const row of rows) {
+      const { changes } = assignRowBatchSeq.run(
+        batchSeq,
+        row.settle_txid,
+        row.role,
+        row.pkg,
+        row.version,
+      )
+      if (changes !== 1) {
+        throw new Error(
+          `openBatch: accrual (${row.settle_txid}, ${row.role}, ${row.pkg}@${row.version}) ` +
+            `is missing or already in a batch; batch ${batchSeq} was not opened`,
+        )
+      }
+    }
+    return totals
+  },
+)
 
 const recordCreditTxidStmt = db.prepare<[string, number]>(
   'UPDATE batches SET credit_txid = ? WHERE batch_seq = ?',
