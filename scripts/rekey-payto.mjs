@@ -4,7 +4,10 @@
 // has no signing power over payTo. Order is not reversible — payTo must
 // already be opted into USDC (scripts/optin-usdc.mjs) before this runs. On
 // MainNet, refuses without --confirm-mainnet (scripts/network.mjs) and
-// refuses unless the connected algod's genesis id matches NETWORK.
+// refuses unless the connected algod's genesis id matches NETWORK. Refuses
+// unless the app's approval and clear programs equal the committed
+// PaymentRouter.arc56.json byteCode and its creator equals the 2-of-3 admin
+// multisig derived from AUPM_ADMIN_MSIG_ADDRS.
 //
 // Usage: node scripts/rekey-payto.mjs <PAY_TO_MNEMONIC_ENV_VAR> [--network testnet|mainnet] [--confirm-mainnet]
 // Example: node scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network testnet
@@ -126,6 +129,112 @@ export function assertAppRoutesForPayTo({ appPayTo, payToAddress, appAssetId, ex
   }
 }
 
+const ARC56_PATH = path.join(
+  __dirname,
+  '..',
+  'contracts',
+  'smart_contracts',
+  'artifacts',
+  'payment_router',
+  'PaymentRouter.arc56.json',
+)
+
+/**
+ * Reads the approval and clear program bytes that `algokit project run build`
+ * wrote into PaymentRouter.arc56.json. These are the audited programs; the
+ * MainNet createApplication call (deploy-config.ts) sends these exact bytes.
+ *
+ * @param {string} [arc56Path] - path to the ARC-56 spec; defaults to the committed artifact.
+ * @returns {{approval: Uint8Array, clear: Uint8Array}}
+ */
+export function loadBuiltPrograms(arc56Path = ARC56_PATH) {
+  const spec = JSON.parse(fs.readFileSync(arc56Path, 'utf8'))
+  if (!spec.byteCode?.approval || !spec.byteCode?.clear) {
+    throw new Error(`${arc56Path} has no byteCode; run \`algokit project run build\` first`)
+  }
+  return {
+    approval: new Uint8Array(Buffer.from(spec.byteCode.approval, 'base64')),
+    clear: new Uint8Array(Buffer.from(spec.byteCode.clear, 'base64')),
+  }
+}
+
+/**
+ * Derives the 2-of-3 admin multisig address from AUPM_ADMIN_MSIG_ADDRS
+ * ("addr1,addr2,addr3"). Same derivation as deploy-config.ts
+ * (parseAdminMultisigAddrs + deriveAdminMultisigAddress): version 1,
+ * threshold 2, addresses in the given order.
+ *
+ * @param {string|undefined} addrsEnv - the raw AUPM_ADMIN_MSIG_ADDRS value.
+ * @param {typeof import('algosdk')} algosdkImpl
+ * @returns {string} the multisig address, which is Global.creatorAddress of the app.
+ */
+export function deriveAdminMultisigAddress(addrsEnv, algosdkImpl) {
+  const addrs = (addrsEnv ?? '')
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean)
+  if (addrs.length !== 3) {
+    throw new Error(
+      `AUPM_ADMIN_MSIG_ADDRS must list exactly 3 addresses, got ${addrs.length} ` +
+        '(ADR 0010: the app creator is a 2-of-3 multisig)',
+    )
+  }
+  for (const addr of addrs) {
+    if (!algosdkImpl.isValidAddress(addr)) {
+      throw new Error(`AUPM_ADMIN_MSIG_ADDRS contains an invalid Algorand address: ${addr}`)
+    }
+  }
+  if (new Set(addrs).size !== addrs.length) {
+    throw new Error('AUPM_ADMIN_MSIG_ADDRS addresses must be distinct')
+  }
+  return algosdkImpl.multisigAddress({ version: 1, threshold: 2, addrs }).toString()
+}
+
+function bytesEqual(a, b) {
+  return a.length === b.length && a.every((v, i) => v === b[i])
+}
+
+/**
+ * Refuses to rekey to an app whose code or creator is not the audited build.
+ * The rekey is not reversible by the payTo key, and assertAppRoutesForPayTo
+ * checks only global state, which any app can copy. Pure: no network access.
+ *
+ * @param {object} app - the on-chain app, from algod getApplicationByID().params.
+ * @param {Uint8Array} app.approvalProgram
+ * @param {Uint8Array} app.clearStateProgram
+ * @param {number|undefined} app.extraProgramPages
+ * @param {string} app.creator - the creator address, as a string.
+ * @param {object} expected
+ * @param {Uint8Array} expected.approval - approval bytes from loadBuiltPrograms().
+ * @param {Uint8Array} expected.clear - clear bytes from loadBuiltPrograms().
+ * @param {string} expected.creator - the admin address (the multisig on MainNet).
+ */
+export function assertAppIsAuditedBuild(app, expected) {
+  if (!bytesEqual(app.approvalProgram, expected.approval)) {
+    throw new Error(
+      "the app's approval program does not equal PaymentRouter.arc56.json byteCode.approval; " +
+        'refusing to rekey payTo to code that is not the audited build',
+    )
+  }
+  if (!bytesEqual(app.clearStateProgram, expected.clear)) {
+    throw new Error(
+      "the app's clear program does not equal PaymentRouter.arc56.json byteCode.clear; " +
+        'refusing to rekey payTo to code that is not the audited build',
+    )
+  }
+  if ((app.extraProgramPages ?? 0) !== 0) {
+    throw new Error(
+      `the app has ${app.extraProgramPages} extra program page(s); the audited build has 0`,
+    )
+  }
+  if (app.creator !== expected.creator) {
+    throw new Error(
+      `the app's creator (${app.creator}) does not equal the expected admin ` +
+        `(${expected.creator}); refusing to rekey payTo to an app another key administers`,
+    )
+  }
+}
+
 /**
  * Refuses when the connected algod's genesis id does not match the
  * selected network. AlgorandClient/algod is picked by ALGOD_SERVER, which
@@ -171,7 +280,8 @@ export function decodeAppState(appInfo, algosdkImpl) {
 /**
  * Rekeys `payToAccount` to PaymentRouter app `appId`'s address: checks
  * payTo's current opt-in/auth-addr state and the app's own stored
- * payTo/asset (assertPayToReadyForRekey, assertAppRoutesForPayTo), signs
+ * payTo/asset (assertPayToReadyForRekey, assertAppRoutesForPayTo), the
+ * app's program bytes and creator (assertAppIsAuditedBuild), then signs
  * and sends the rekey payment, and returns the confirmed transaction id.
  * Explicit-argument core of `main()` below, so a TestNet rehearsal script
  * can rekey a fresh, in-memory payTo without this module's own CLI/.env
@@ -182,9 +292,11 @@ export function decodeAppState(appInfo, algosdkImpl) {
  * @param {'testnet'|'mainnet'} params.network
  * @param {{addr: {toString(): string}, sk: Uint8Array}} params.payToAccount
  * @param {bigint|number} params.appId
+ * @param {string} params.expectedCreator - the app's admin: the 2-of-3 multisig on the CLI
+ *   path, the single deployer key in the TestNet rehearsal.
  * @returns {Promise<string>} the confirmed rekey transaction id.
  */
-export async function rekeyPayToToApp({ algod, network, payToAccount, appId }) {
+export async function rekeyPayToToApp({ algod, network, payToAccount, appId, expectedCreator }) {
   const usdcAsaId = Number(usdcAssetId(network))
   const payToAddress = payToAccount.addr.toString()
 
@@ -201,6 +313,16 @@ export async function rekeyPayToToApp({ algod, network, payToAccount, appId }) {
     appAssetId: appState.assetId,
     expectedAssetId: usdcAsaId,
   })
+  const built = loadBuiltPrograms()
+  assertAppIsAuditedBuild(
+    {
+      approvalProgram: appInfo.params.approvalProgram,
+      clearStateProgram: appInfo.params.clearStateProgram,
+      extraProgramPages: appInfo.params.extraProgramPages,
+      creator: appInfo.params.creator.toString(),
+    },
+    { approval: built.approval, clear: built.clear, creator: expectedCreator },
+  )
 
   const appAddress = algosdk.getApplicationAddress(BigInt(appId)).toString()
   const sp = await algod.getTransactionParams().do()
@@ -252,11 +374,19 @@ async function main() {
   const payToAddress = account.addr.toString()
   assertPayToAddressEnvMatches(process.env.PAY_TO_ADDRESS, payToAddress)
 
+  const expectedCreator = deriveAdminMultisigAddress(process.env.AUPM_ADMIN_MSIG_ADDRS, algosdk)
+
   const appAddress = algosdk.getApplicationAddress(BigInt(appId)).toString()
   console.log(
     `Rekeying payTo (${payToAddress}) to PaymentRouter app ${appId} (${appAddress}) on ${network}...`,
   )
-  const txid = await rekeyPayToToApp({ algod, network, payToAccount: account, appId })
+  const txid = await rekeyPayToToApp({
+    algod,
+    network,
+    payToAccount: account,
+    appId,
+    expectedCreator,
+  })
   console.log(`payTo rekeyed to PaymentRouter. txid: ${txid}`)
   console.log('The payTo key has no signing power from here on (SPEC §10.2).')
 }
