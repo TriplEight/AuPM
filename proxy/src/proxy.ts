@@ -33,12 +33,15 @@ export async function proxyToNpm(
 
   let response: Response
   try {
-    response = await deps.fetch(upstream, {
+    const body = c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : null
+    // A stream body needs duplex: 'half', or fetch throws. TypeScript's RequestInit lacks the field.
+    const init: RequestInit & { duplex?: 'half' } = {
       method: c.req.method,
       headers,
-      body: c.req.method !== 'GET' && c.req.method !== 'HEAD' ? c.req.raw.body : undefined,
       signal: AbortSignal.timeout(deps.timeoutMs),
-    })
+      ...(body ? { body, duplex: 'half' } : {}),
+    }
+    response = await deps.fetch(upstream, init)
   } catch (err) {
     if (err instanceof Error && (err.name === 'TimeoutError' || err.name === 'AbortError')) {
       return c.json({ error: 'npm registry timeout' }, 504)
