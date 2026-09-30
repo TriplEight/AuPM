@@ -2,6 +2,7 @@
 import { Buffer } from 'node:buffer'
 import {
   ALGORAND_MAINNET_CAIP2,
+  DEFAULT_ALGOD_MAINNET,
   decodeSignedTransaction,
   decodeUnsignedTransaction,
   USDC_MAINNET_ASA_ID,
@@ -370,5 +371,30 @@ describe('fetchWithDonation: paid transaction group shape', () => {
     expect(payment.type).toBe('axfer')
     expect(payment.assetTransfer?.receiver.toString()).toBe(PAY_TO)
     expect(payment.assetTransfer?.assetId).toBe(BigInt(USDC_MAINNET_ASA_ID))
+  })
+
+  it('reads the transaction params from the MainNet algod on MainNet', async () => {
+    const paramsUrls: string[] = []
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) {
+        paramsUrls.push(url)
+        return algodParamsResponse()
+      }
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (!request.headers.get('PAYMENT-SIGNATURE')) {
+        return unpaid402(String(donationCapMicro(1)), USDC_MAINNET_ASA_ID)
+      }
+      return new Response(new Uint8Array([1]), {
+        status: 200,
+        headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-algod-ok') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await fetchWithDonation(RESOURCE_URL, undefined, true)
+
+    expect(paramsUrls).toHaveLength(1)
+    expect(paramsUrls[0]?.startsWith(DEFAULT_ALGOD_MAINNET)).toBe(true)
   })
 })
