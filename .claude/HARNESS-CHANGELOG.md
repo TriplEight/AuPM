@@ -5,14 +5,15 @@ Newest first.
 
 ---
 
-## 2026-09-30 — Remove the dead MainNet runbook reference from `CLAUDE.md`
+## 2026-09-30 — `CLAUDE.md` names only files in the repository
 
-**`CLAUDE.md` operator procedures line.**
-- What: replaced `docs/RUNBOOK-mainnet-launch.md` with `docs/DEPLOY-GUIDE.local.md`, and named
-  the separate operator repo `aupm-mainnet` for the MainNet scripts and the deployment log.
-- Why: `docs/RUNBOOK-mainnet-launch.md` never existed. The MainNet launch ran from the operator
-  repo's scripts, `RUN.md` and `DEPLOYMENT.md`.
-- Expected effect: an agent that looks for the MainNet procedure finds a file that exists.
+**`CLAUDE.md` pointers.**
+- What: removed the pointers to files that are not in the repository, including a runbook that
+  never existed. `CLAUDE.md` now names only tracked files. Pointers to a developer's own notes go
+  in `CLAUDE.local.md`, which Claude Code loads next to `CLAUDE.md`.
+- Why: a public file must not describe files that the public cannot read. One pointer also named
+  a file that did not exist.
+- Expected effect: every file that `CLAUDE.md` names exists in a clone.
 
 ---
 
