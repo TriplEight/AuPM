@@ -5,9 +5,10 @@
 // already be opted into USDC (scripts/optin-usdc.mjs) before this runs. On
 // MainNet, refuses without --confirm-mainnet (scripts/network.mjs) and
 // refuses unless the connected algod's genesis id matches NETWORK. Refuses
-// unless the app's approval and clear programs equal the committed
-// PaymentRouter.arc56.json byteCode and its creator equals the 2-of-3 admin
-// multisig derived from AUPM_ADMIN_MSIG_ADDRS.
+// unless the app's approval and clear programs equal the committed TEAL
+// compiled with the network's release rounds (MainNet: 216,000 delay and
+// 216,000 window) and its creator equals the 2-of-3 admin multisig derived
+// from AUPM_ADMIN_MSIG_ADDRS.
 //
 // Usage: node scripts/rekey-payto.mjs <PAY_TO_MNEMONIC_ENV_VAR> [--network testnet|mainnet] [--confirm-mainnet]
 // Example: node scripts/rekey-payto.mjs PAY_TO_MNEMONIC --network testnet
@@ -15,7 +16,13 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { algodEndpoint, assertMainnetConfirmed, parseNetworkFlag, usdcAssetId } from './network.mjs'
+import {
+  algodEndpoint,
+  assertMainnetConfirmed,
+  parseNetworkFlag,
+  releaseRounds,
+  usdcAssetId,
+} from './network.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
@@ -129,33 +136,73 @@ export function assertAppRoutesForPayTo({ appPayTo, payToAddress, appAssetId, ex
   }
 }
 
-const ARC56_PATH = path.join(
+const ARTIFACTS_DIR = path.join(
   __dirname,
   '..',
   'contracts',
   'smart_contracts',
   'artifacts',
   'payment_router',
-  'PaymentRouter.arc56.json',
 )
 
 /**
- * Reads the approval and clear program bytes that `algokit project run build`
- * wrote into PaymentRouter.arc56.json. These are the audited programs; the
- * MainNet createApplication call (deploy-config.ts) sends these exact bytes.
+ * Replaces the release-timing template variables in built TEAL with the
+ * values for one network. Refuses TEAL that has no such variable (a stale
+ * build from before ADR 0010's 2026-10-01 amendment) and TEAL that keeps an
+ * unknown TMPL_ variable.
  *
- * @param {string} [arc56Path] - path to the ARC-56 spec; defaults to the committed artifact.
- * @returns {{approval: Uint8Array, clear: Uint8Array}}
+ * @param {string} teal - the built approval TEAL.
+ * @param {{delay: number, window: number}} rounds - from releaseRounds().
+ * @returns {string} TEAL with both variables replaced.
  */
-export function loadBuiltPrograms(arc56Path = ARC56_PATH) {
-  const spec = JSON.parse(fs.readFileSync(arc56Path, 'utf8'))
-  if (!spec.byteCode?.approval || !spec.byteCode?.clear) {
-    throw new Error(`${arc56Path} has no byteCode; run \`algokit project run build\` first`)
+export function substituteReleaseRounds(teal, rounds) {
+  const values = {
+    TMPL_RELEASE_DELAY_ROUNDS: rounds.delay,
+    TMPL_RELEASE_WINDOW_ROUNDS: rounds.window,
   }
-  return {
-    approval: new Uint8Array(Buffer.from(spec.byteCode.approval, 'base64')),
-    clear: new Uint8Array(Buffer.from(spec.byteCode.clear, 'base64')),
+  let out = teal
+  for (const [name, value] of Object.entries(values)) {
+    const token = new RegExp(`\\b${name}\\b`, 'g')
+    if (!token.test(out)) {
+      throw new Error(
+        `the built TEAL has no ${name}; the artifacts are stale, run ` +
+          '`algokit project run build` (docs/RUNBOOK-contract-build.md)',
+      )
+    }
+    out = out.replace(token, String(value))
   }
+  const left = out.match(/\bTMPL_[A-Z0-9_]+\b/)
+  if (left) throw new Error(`the built TEAL has an unknown template variable ${left[0]}`)
+  return out
+}
+
+/**
+ * Compiles the audited programs for `network`: the built TEAL in
+ * contracts/smart_contracts/artifacts with the network's release rounds
+ * substituted (MainNet: 216,000 and 216,000, always). The result is what a
+ * correct createApplication call sends, so a program with any other delay or
+ * window does not match it.
+ *
+ * @param {object} params
+ * @param {{compile(teal: string): {do(): Promise<{result: string}>}}} params.algod
+ * @param {'testnet'|'mainnet'} params.network
+ * @param {NodeJS.ProcessEnv} [params.env] - defaults to process.env; TestNet overrides only.
+ * @param {string} [params.artifactsDir] - defaults to the committed artifacts.
+ * @returns {Promise<{approval: Uint8Array, clear: Uint8Array}>}
+ */
+export async function compileBuiltPrograms({
+  algod,
+  network,
+  env = process.env,
+  artifactsDir = ARTIFACTS_DIR,
+}) {
+  const rounds = releaseRounds(network, env)
+  const read = (name) => fs.readFileSync(path.join(artifactsDir, name), 'utf8')
+  const approvalTeal = substituteReleaseRounds(read('PaymentRouter.approval.teal'), rounds)
+  const clearTeal = read('PaymentRouter.clear.teal')
+  const compile = async (teal) =>
+    new Uint8Array(Buffer.from((await algod.compile(teal).do()).result, 'base64'))
+  return { approval: await compile(approvalTeal), clear: await compile(clearTeal) }
 }
 
 /**
@@ -205,20 +252,21 @@ function bytesEqual(a, b) {
  * @param {number|undefined} app.extraProgramPages
  * @param {string} app.creator - the creator address, as a string.
  * @param {object} expected
- * @param {Uint8Array} expected.approval - approval bytes from loadBuiltPrograms().
- * @param {Uint8Array} expected.clear - clear bytes from loadBuiltPrograms().
+ * @param {Uint8Array} expected.approval - approval bytes from compileBuiltPrograms().
+ * @param {Uint8Array} expected.clear - clear bytes from compileBuiltPrograms().
  * @param {string} expected.creator - the admin address (the multisig on MainNet).
  */
 export function assertAppIsAuditedBuild(app, expected) {
   if (!bytesEqual(app.approvalProgram, expected.approval)) {
     throw new Error(
-      "the app's approval program does not equal PaymentRouter.arc56.json byteCode.approval; " +
+      "the app's approval program does not equal the built approval program for this network " +
+        '(including its release delay and window rounds); ' +
         'refusing to rekey payTo to code that is not the audited build',
     )
   }
   if (!bytesEqual(app.clearStateProgram, expected.clear)) {
     throw new Error(
-      "the app's clear program does not equal PaymentRouter.arc56.json byteCode.clear; " +
+      "the app's clear program does not equal the built clear program; " +
         'refusing to rekey payTo to code that is not the audited build',
     )
   }
@@ -313,7 +361,7 @@ export async function rekeyPayToToApp({ algod, network, payToAccount, appId, exp
     appAssetId: appState.assetId,
     expectedAssetId: usdcAsaId,
   })
-  const built = loadBuiltPrograms()
+  const built = await compileBuiltPrograms({ algod, network })
   assertAppIsAuditedBuild(
     {
       approvalProgram: appInfo.params.approvalProgram,

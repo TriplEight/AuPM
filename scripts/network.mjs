@@ -115,6 +115,54 @@ export function indexerEndpoint(network, env = process.env) {
   }
 }
 
+// PaymentRouter release timing in rounds (ADR 0010). The contract reads both as
+// template variables (TMPL_RELEASE_DELAY_ROUNDS, TMPL_RELEASE_WINDOW_ROUNDS).
+// MainNet is fixed: about 7 days for the delay and 7 days for the window.
+// TestNet uses short defaults so the release path can be rehearsed in minutes.
+export const MAINNET_RELEASE_ROUNDS = Object.freeze({ delay: 216_000, window: 216_000 })
+export const TESTNET_RELEASE_ROUNDS = Object.freeze({ delay: 20, window: 200 })
+
+function parseRounds(name, raw) {
+  if (!/^[1-9][0-9]{0,14}$/.test(raw)) {
+    throw new Error(
+      `${name} must be a positive integer number of rounds, got ${JSON.stringify(raw)}`,
+    )
+  }
+  return Number(raw)
+}
+
+/**
+ * The release delay and window, in rounds, for `network`. MainNet always gets
+ * 216,000 and 216,000 and refuses any other RELEASE_DELAY_ROUNDS or
+ * RELEASE_WINDOW_ROUNDS value. TestNet gets 20 and 200 unless `env` overrides
+ * them.
+ *
+ * @param {'testnet'|'mainnet'} network
+ * @param {NodeJS.ProcessEnv} [env] - defaults to process.env.
+ * @returns {{delay: number, window: number}}
+ */
+export function releaseRounds(network, env = process.env) {
+  const fixed = network === 'mainnet' ? MAINNET_RELEASE_ROUNDS : TESTNET_RELEASE_ROUNDS
+  const result = { delay: fixed.delay, window: fixed.window }
+  const inputs = [
+    ['delay', 'RELEASE_DELAY_ROUNDS'],
+    ['window', 'RELEASE_WINDOW_ROUNDS'],
+  ]
+  for (const [key, name] of inputs) {
+    const raw = env[name]
+    if (raw === undefined || raw === '') continue
+    const value = parseRounds(name, raw)
+    if (network === 'mainnet' && value !== fixed[key]) {
+      throw new Error(
+        `${name}=${value} is not allowed on MainNet: the release ${key} is fixed at ` +
+          `${fixed[key]} rounds (ADR 0010); unset ${name} or use NETWORK=testnet`,
+      )
+    }
+    result[key] = value
+  }
+  return result
+}
+
 /**
  * True when `argv` carries the `--confirm-mainnet` flag.
  *

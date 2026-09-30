@@ -8,6 +8,7 @@ import {
   Global,
   GlobalState,
   itxn,
+  TemplateVar,
   Txn,
   Uint64,
   type uint64,
@@ -35,15 +36,17 @@ const OPS_IDENTITY = 'ops'
 // identity is mapped to; it fails if the identity is unmapped.
 const TREASURY_IDENTITY = 'treasury'
 
-// Delay, in rounds, between announceRelease() and a successful
-// executeRelease() call. About 7 days at ~2.9s/round (ADR 0010). Compiled
-// in: a new value needs a new contract, per docs/adr/0010.
-const RELEASE_DELAY_ROUNDS = Uint64(216_000)
-
-// Rounds after the delay during which executeRelease() may run. About 7 days.
-// After that the announcement expires: executeRelease() fails until the admin
-// announces again, which restarts the delay and warns payees again.
-const RELEASE_WINDOW_ROUNDS = Uint64(216_000)
+// Release timing is a deploy-time template variable, not a literal:
+//   TMPL_RELEASE_DELAY_ROUNDS  rounds between announceRelease() and the first
+//                              executeRelease() that can succeed.
+//   TMPL_RELEASE_WINDOW_ROUNDS rounds after the delay in which executeRelease()
+//                              may run. After that the announcement expires and
+//                              the admin must announce again.
+// MainNet uses 216,000 and 216,000 (about 7 days each at ~2.9s/round, ADR 0010).
+// deploy-config.ts refuses any other MainNet value, and
+// scripts/rekey-payto.mjs checks the on-chain program against the build
+// compiled with those values. TestNet uses short values so the path can be
+// rehearsed in minutes (ADR 0010, amendment 2026-10-01).
 
 // repo travels with each entry for shape parity with SPEC §10.1, but the
 // contract never stores it. The per-repo breakdown lives in the off-chain
@@ -193,8 +196,8 @@ export class PaymentRouter extends Contract {
   }
 
   // Admin-only. Records the migration target and the current round.
-  // executeRelease() may run once RELEASE_DELAY_ROUNDS have passed, for
-  // RELEASE_WINDOW_ROUNDS. A second call overwrites the target and restarts
+  // executeRelease() may run once TMPL_RELEASE_DELAY_ROUNDS have passed, for
+  // TMPL_RELEASE_WINDOW_ROUNDS. A second call overwrites the target and restarts
   // the delay from the new round (ADR 0010): the delay always measures from
   // the most recent announcement, not the first one.
   public announceRelease(to: Account): void {
@@ -213,10 +216,12 @@ export class PaymentRouter extends Contract {
   public executeRelease(): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     assert(this.announcedTo.hasValue, 'no release announced')
-    const executableFrom: uint64 = this.announcedRound.value + RELEASE_DELAY_ROUNDS
+    const delayRounds = TemplateVar<uint64>('RELEASE_DELAY_ROUNDS')
+    const windowRounds = TemplateVar<uint64>('RELEASE_WINDOW_ROUNDS')
+    const executableFrom: uint64 = this.announcedRound.value + delayRounds
     assert(Global.round >= executableFrom, 'release delay has not passed')
     assert(
-      Global.round < executableFrom + RELEASE_WINDOW_ROUNDS,
+      Global.round < executableFrom + windowRounds,
       'release window has expired; announce again',
     )
     assert(this.identityAddress(TREASURY_IDENTITY).exists, 'treasury identity not mapped')
