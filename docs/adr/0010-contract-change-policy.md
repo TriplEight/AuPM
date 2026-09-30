@@ -94,3 +94,39 @@ nowhere to send `creditedUnclaimed`.
   the rekey runs.** Removes the rug-pull risk structurally, but it is real migration engineering
   on both the old and the new contract, sized like a new PaymentRouter version, not a policy
   change. Deferred to a v7 candidate (`SPEC.md` §21).
+
+## Amendment 2026-10-01: release timing is a deploy-time template value
+
+What changed:
+- The release delay and the execute window are no longer literals in the contract.
+  `executeRelease()` reads them as template variables `TMPL_RELEASE_DELAY_ROUNDS` and
+  `TMPL_RELEASE_WINDOW_ROUNDS` (`TemplateVar<uint64>` in Puya-TS). The deploy step
+  replaces them before it compiles the TEAL.
+- The rules of the release path do not change. The call order is `announceRelease`, wait
+  the delay, then `executeRelease` inside the window. A new announcement restarts the delay.
+  `payTo`, the split and the `credit()` permission do not change.
+
+Why:
+- With both values compiled as 216,000 rounds (about 7 days each), nobody could rehearse
+  the release path on TestNet. A path that is never run before MainNet is an unverified path.
+
+Values per network (source of truth: `releaseRounds()` in `scripts/network.mjs`):
+
+| Network | Delay (rounds) | Window (rounds) | Override |
+|---|---|---|---|
+| MainNet | 216,000 | 216,000 | None. |
+| TestNet | 20 | 200 | `RELEASE_DELAY_ROUNDS`, `RELEASE_WINDOW_ROUNDS` |
+| LocalNet and tests | Any | Any | Set by the test. |
+
+MainNet guarantee. Two checks hold it at 216,000 and 216,000:
+1. The deploy config refuses any other MainNet value. `releaseRounds('mainnet')` throws when
+   `RELEASE_DELAY_ROUNDS` or `RELEASE_WINDOW_ROUNDS` is set to a different number.
+   `deployMultisigCreate()` and `deployPaymentRouter()` both take their values from it.
+2. `scripts/rekey-payto.mjs` compiles the built TEAL with the MainNet values and compares
+   the result with the on-chain programs (`assertAppIsAuditedBuild`). An app with any other
+   delay or window fails this check, and the `payTo` rekey does not run.
+
+The same built TEAL serves every network. A TestNet app proves the logic, not the MainNet
+values. Checks 1 and 2 prove the MainNet values.
+
+The deployed MainNet app 3727079389 is not changed by this amendment.

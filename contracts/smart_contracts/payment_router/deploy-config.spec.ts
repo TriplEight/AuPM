@@ -32,8 +32,43 @@ import {
   parseNetwork,
   resolveClientConfig,
   resolveExecuteReleaseFee,
+  resolveReleaseRounds,
   writeUnsignedTxnFile,
 } from './deploy-config'
+
+const FAKE_PROGRAMS = { approval: new Uint8Array([1, 2, 3]), clear: new Uint8Array([4, 5]) }
+
+describe('resolveReleaseRounds', () => {
+  test('MainNet is 216,000 and 216,000', async () => {
+    expect(await resolveReleaseRounds('mainnet', {})).toEqual({ delay: 216_000, window: 216_000 })
+  })
+
+  test('MainNet accepts the same values stated in env', async () => {
+    const env = { RELEASE_DELAY_ROUNDS: '216000', RELEASE_WINDOW_ROUNDS: '216000' }
+    expect(await resolveReleaseRounds('mainnet', env)).toEqual({ delay: 216_000, window: 216_000 })
+  })
+
+  test('MainNet refuses a delay other than 216,000', async () => {
+    await expect(resolveReleaseRounds('mainnet', { RELEASE_DELAY_ROUNDS: '20' })).rejects.toThrow(
+      /RELEASE_DELAY_ROUNDS=20 is not allowed on MainNet/,
+    )
+  })
+
+  test('MainNet refuses a window other than 216,000', async () => {
+    await expect(resolveReleaseRounds('mainnet', { RELEASE_WINDOW_ROUNDS: '200' })).rejects.toThrow(
+      /RELEASE_WINDOW_ROUNDS=200 is not allowed on MainNet/,
+    )
+  })
+
+  test('TestNet defaults to delay 20 and window 200', async () => {
+    expect(await resolveReleaseRounds('testnet', {})).toEqual({ delay: 20, window: 200 })
+  })
+
+  test('TestNet takes an env override', async () => {
+    const env = { RELEASE_DELAY_ROUNDS: '5', RELEASE_WINDOW_ROUNDS: '60' }
+    expect(await resolveReleaseRounds('testnet', env)).toEqual({ delay: 5, window: 60 })
+  })
+})
 
 describe('parseNetwork', () => {
   test('defaults to mainnet when unset', () => {
@@ -396,6 +431,7 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       payToAddress,
       31566704,
       FAKE_SUGGESTED_PARAMS,
+      FAKE_PROGRAMS,
     )
 
     expect(txn.sender.toString()).toBe(multisigAddress)
@@ -408,6 +444,18 @@ describe('buildUnsignedCreateApplicationTxn', () => {
     expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(31566704n)
   })
 
+  test('sends the given compiled programs unchanged', () => {
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+      FAKE_PROGRAMS,
+    )
+    expect(txn.applicationCall?.approvalProgram).toEqual(FAKE_PROGRAMS.approval)
+    expect(txn.applicationCall?.clearProgram).toEqual(FAKE_PROGRAMS.clear)
+  })
+
   test('a different payToAddress or usdcAssetId changes the encoded args, not the sender', () => {
     const otherPayTo = algosdk.generateAccount().addr.toString()
     const txn = buildUnsignedCreateApplicationTxn(
@@ -415,6 +463,7 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       otherPayTo,
       10458941,
       FAKE_SUGGESTED_PARAMS,
+      FAKE_PROGRAMS,
     )
     expect(txn.sender.toString()).toBe(multisigAddress)
     const appArgs = txn.applicationCall?.appArgs ?? []
@@ -432,15 +481,21 @@ describe('writeUnsignedTxnFile', () => {
     ]
     const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
     const payToAddress = algosdk.generateAccount().addr.toString()
-    const txn = buildUnsignedCreateApplicationTxn(multisigAddress, payToAddress, 31566704, {
-      fee: 0n,
-      minFee: 1000n,
-      firstValid: 100n,
-      lastValid: 1100n,
-      genesisID: 'mainnet-v1.0',
-      genesisHash: new Uint8Array(32),
-      flatFee: false,
-    })
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      {
+        fee: 0n,
+        minFee: 1000n,
+        firstValid: 100n,
+        lastValid: 1100n,
+        genesisID: 'mainnet-v1.0',
+        genesisHash: new Uint8Array(32),
+        flatFee: false,
+      },
+      FAKE_PROGRAMS,
+    )
 
     const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-msig-')), 'create.txn')
     writeUnsignedTxnFile(txn, outPath)

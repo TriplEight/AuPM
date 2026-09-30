@@ -20,6 +20,23 @@ import { APP_SPEC, PaymentRouterFactory } from '../artifacts/payment_router/Paym
 interface NetworkEndpoints {
   algodEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
   indexerEndpoint(network: 'mainnet' | 'testnet', env?: NodeJS.ProcessEnv): AlgoClientConfig
+  releaseRounds(
+    network: 'mainnet' | 'testnet',
+    env?: NodeJS.ProcessEnv,
+  ): { delay: number; window: number }
+}
+
+/**
+ * The approval and clear programs of the audited build for one network: the built TEAL with
+ * that network's release rounds substituted, compiled by algod. Lives in scripts/rekey-payto.mjs
+ * so the create call here and the pre-rekey audit check there use one code path.
+ */
+interface BuiltProgramCompiler {
+  compileBuiltPrograms(params: {
+    algod: unknown
+    network: 'mainnet' | 'testnet'
+    env?: NodeJS.ProcessEnv
+  }): Promise<{ approval: Uint8Array; clear: Uint8Array }>
 }
 
 // scripts/ is a plain ESM directory with no package.json of its own (see the
@@ -48,6 +65,30 @@ const NETWORK_MODULE_PATH = path.resolve(__dirname, '..', '..', '..', 'scripts',
 
 async function loadNetworkEndpoints(): Promise<NetworkEndpoints> {
   return (await import(pathToFileURL(NETWORK_MODULE_PATH).href)) as NetworkEndpoints
+}
+
+const REKEY_MODULE_PATH = path.resolve(__dirname, '..', '..', '..', 'scripts', 'rekey-payto.mjs')
+
+async function loadProgramCompiler(): Promise<BuiltProgramCompiler> {
+  return (await import(pathToFileURL(REKEY_MODULE_PATH).href)) as BuiltProgramCompiler
+}
+
+/**
+ * The release delay and window, in rounds, that PaymentRouter is compiled with on `network`
+ * (TMPL_RELEASE_DELAY_ROUNDS and TMPL_RELEASE_WINDOW_ROUNDS, ADR 0010). MainNet is always
+ * 216,000 and 216,000 and any other RELEASE_DELAY_ROUNDS or RELEASE_WINDOW_ROUNDS value throws.
+ * TestNet defaults to 20 and 200 and accepts an env override. The table lives in
+ * scripts/network.mjs, which scripts/rekey-payto.mjs also reads for its audited-build check.
+ *
+ * @param network - the resolved network.
+ * @param env - defaults to process.env; a test passes a fake env instead.
+ */
+export async function resolveReleaseRounds(
+  network: 'mainnet' | 'testnet',
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ delay: number; window: number }> {
+  const { releaseRounds } = await loadNetworkEndpoints()
+  return releaseRounds(network, env)
 }
 
 /**
@@ -388,6 +429,7 @@ export async function deployPaymentRouter(
     assertOptedIntoUsdc(identity, address, holdsAsset)
   }
 
+  const rounds = await resolveReleaseRounds(network)
   const factory = algorand.client.getTypedAppFactory(PaymentRouterFactory, {
     defaultSender: deployer.addr,
     ...(appName ? { appName } : {}),
@@ -397,6 +439,10 @@ export async function deployPaymentRouter(
     createParams: {
       method: 'createApplication',
       args: { payTo: payToAddress, usdcAsset: usdcAssetId },
+    },
+    deployTimeParams: {
+      RELEASE_DELAY_ROUNDS: rounds.delay,
+      RELEASE_WINDOW_ROUNDS: rounds.window,
     },
     onUpdate: 'append',
     onSchemaBreak: 'append',
@@ -540,7 +586,7 @@ const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)vo
 /**
  * Builds the unsigned createApplication(payTo, usdcAsset) call, sender set
  * to the admin multisig address, ready for the offline goal signing flow
- * documented above. Reads the compiled approval/clear programs and the
+ * documented above. Takes the compiled approval/clear programs from the caller and reads the
  * global state schema straight off the generated ARC-56 spec — never
  * hand-copied — so it always matches whatever `algokit project run build`
  * last produced. Pure given `suggestedParams`: no network access, so
@@ -551,18 +597,16 @@ const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)vo
  * @param payToAddress - the payTo account this deploy fixes at creation (SPEC §10.2).
  * @param usdcAssetId - the USDC asset id for the target network.
  * @param suggestedParams - the algod transaction params (fee, validity window, genesis).
+ * @param programs - the compiled approval and clear programs for the target network, with its
+ *   release rounds substituted (compileBuiltPrograms in scripts/rekey-payto.mjs).
  */
 export function buildUnsignedCreateApplicationTxn(
   multisigAddress: string,
   payToAddress: string,
   usdcAssetId: number,
   suggestedParams: algosdk.SuggestedParams,
+  programs: { approval: Uint8Array; clear: Uint8Array },
 ): algosdk.Transaction {
-  if (!APP_SPEC.byteCode) {
-    throw new Error(
-      'PaymentRouter.arc56.json has no byteCode — run `algokit project run build` first',
-    )
-  }
   const method = algosdk.ABIMethod.fromSignature(CREATE_APPLICATION_METHOD_SIGNATURE)
   const appArgs = [
     method.getSelector(),
@@ -574,8 +618,8 @@ export function buildUnsignedCreateApplicationTxn(
     sender: multisigAddress,
     suggestedParams,
     onComplete: algosdk.OnApplicationComplete.NoOpOC,
-    approvalProgram: new Uint8Array(Buffer.from(APP_SPEC.byteCode.approval, 'base64')),
-    clearProgram: new Uint8Array(Buffer.from(APP_SPEC.byteCode.clear, 'base64')),
+    approvalProgram: programs.approval,
+    clearProgram: programs.clear,
     numGlobalInts: schema.global.ints,
     numGlobalByteSlices: schema.global.bytes,
     numLocalInts: schema.local.ints,
@@ -619,11 +663,14 @@ export async function deployMultisigCreate(): Promise<void> {
   const suggestedParams = await algorand.client.algod.getTransactionParams().do()
   assertNetworkMatchesGenesis(network, suggestedParams.genesisID ?? '')
 
+  const { compileBuiltPrograms } = await loadProgramCompiler()
+  const programs = await compileBuiltPrograms({ algod: algorand.client.algod, network })
   const txn = buildUnsignedCreateApplicationTxn(
     multisigAddress,
     payToAddress,
     USDC_ASSET_ID[network],
     suggestedParams,
+    programs,
   )
 
   const outPath = process.env.PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH ?? './payment-router-create.txn'
