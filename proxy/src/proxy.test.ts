@@ -100,4 +100,39 @@ describe('proxyToNpm', () => {
       await new Promise((resolve) => server.close(resolve))
     }
   })
+
+  test('forwards a POST body to the registry', async () => {
+    // npm install sends its audit request as a POST. A real fetch refuses a stream body
+    // without duplex: 'half' and throws "RequestInit: duplex option is required".
+    const sent = JSON.stringify({ ms: ['2.1.3'] })
+    let received = ''
+    const server = http.createServer((req, res) => {
+      req.setEncoding('utf8')
+      req.on('data', (chunk: string) => {
+        received += chunk
+      })
+      req.on('end', () => {
+        res.writeHead(200, { 'content-type': 'application/json' })
+        res.end('{}')
+      })
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const { port } = server.address() as AddressInfo
+    const localFetch: typeof fetch = (input, init) =>
+      fetch(String(input).replace('https://registry.npmjs.org', `http://127.0.0.1:${port}`), init)
+
+    try {
+      const app = appWith({ fetch: localFetch, timeoutMs: 30_000 })
+      const res = await app.request('/-/npm/v1/security/advisories/bulk', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: sent,
+      })
+
+      expect(res.status).toBe(200)
+      expect(received).toBe(sent)
+    } finally {
+      await new Promise((resolve) => server.close(resolve))
+    }
+  })
 })
