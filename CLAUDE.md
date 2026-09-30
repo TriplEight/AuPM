@@ -13,8 +13,9 @@ AuPM is an npm-compatible registry overlay for the Global x402 Challenge on Algo
 
 **Spec: `SPEC.md`.** Terms: `CONTEXT.md`. Decisions: `docs/adr/`.
 Next steps and work items: `docs/TASK.md` (local-only, untracked; agents in a local checkout still
-use it). Operator procedures: `docs/RUNBOOK-contract-build.md` and `docs/RUNBOOK-mainnet-launch.md`
-(the second is local-only, untracked). Session log: `NOTES.local.md` (local-only).
+use it). Operator procedures: `docs/RUNBOOK-contract-build.md` and `docs/DEPLOY-GUIDE.local.md`
+(the second is local-only, untracked). The MainNet operator scripts and the deployment log live in
+the separate operator repo `aupm-mainnet`. Session log: `NOTES.local.md` (local-only).
 `NOTES.md` is the public changelog.
 Generic Algorand and AlgoKit guidance: `AGENTS.md` (read only when you need it).
 

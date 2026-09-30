@@ -5,6 +5,17 @@ Newest first.
 
 ---
 
+## 2026-09-30 — Remove the dead MainNet runbook reference from `CLAUDE.md`
+
+**`CLAUDE.md` operator procedures line.**
+- What: replaced `docs/RUNBOOK-mainnet-launch.md` with `docs/DEPLOY-GUIDE.local.md`, and named
+  the separate operator repo `aupm-mainnet` for the MainNet scripts and the deployment log.
+- Why: `docs/RUNBOOK-mainnet-launch.md` never existed. The MainNet launch ran from the operator
+  repo's scripts, `RUN.md` and `DEPLOYMENT.md`.
+- Expected effect: an agent that looks for the MainNet procedure finds a file that exists.
+
+---
+
 ## 2026-09-29 — Bring the `aupm-payment-router` skill up to date (audit L3)
 
 **`.claude/skills/aupm-payment-router/SKILL.md` rewrite.**
