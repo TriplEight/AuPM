@@ -8,12 +8,41 @@
 // did that and was an authentication bypass; it is deleted, not repaired.
 
 import { registerExactAvmScheme } from '@x402-avm/avm/exact/server'
+import type { HTTPRequestContext, PaywallConfig } from '@x402-avm/core/http'
 import { x402HTTPResourceServer } from '@x402-avm/core/http'
 import type { FacilitatorClient } from '@x402-avm/core/server'
 import { HTTPFacilitatorClient, x402ResourceServer } from '@x402-avm/core/server'
-import { CAIP2_NETWORK, FACILITATOR_URL, resolveFeePayer } from '../config.js'
+import { CAIP2_NETWORK, FACILITATOR_URL, ISSUER, resolveFeePayer } from '../config.js'
 import { buildRoutes } from './routes.js'
 import { tarballFreeTierHook } from './tarball.js'
+
+/**
+ * The server runs behind a TLS-terminating tunnel, so the request URL that
+ * the Hono adapter sees is `http://`. The x402 core builds `resource.url`
+ * from `adapter.getUrl()`, and `RouteConfig.resource` is a static string
+ * that cannot carry a path or a query. This subclass gives the core an
+ * adapter whose `getUrl()` uses the public origin and keeps the request's
+ * own path and query.
+ */
+class PublicOriginHttpServer extends x402HTTPResourceServer {
+  constructor(
+    resourceServer: x402ResourceServer,
+    routes: ReturnType<typeof buildRoutes>,
+    private readonly publicOrigin: string,
+  ) {
+    super(resourceServer, routes)
+  }
+
+  override processHTTPRequest(context: HTTPRequestContext, paywallConfig?: PaywallConfig) {
+    const adapter = Object.create(context.adapter) as HTTPRequestContext['adapter']
+    const originalUrl = context.adapter.getUrl()
+    adapter.getUrl = () => {
+      const url = new URL(originalUrl)
+      return `${this.publicOrigin}${url.pathname}${url.search}`
+    }
+    return super.processHTTPRequest({ ...context, adapter }, paywallConfig)
+  }
+}
 
 export type BootResult = {
   httpServer: x402HTTPResourceServer
@@ -29,12 +58,13 @@ export type BootResult = {
 export function buildHttpServer(
   facilitatorClient: FacilitatorClient,
   feePayer: string,
+  publicOrigin: string = ISSUER,
 ): { httpServer: x402HTTPResourceServer; resourceServer: x402ResourceServer } {
   const resourceServer = new x402ResourceServer(facilitatorClient)
   registerExactAvmScheme(resourceServer)
 
   const routes = buildRoutes(feePayer)
-  const httpServer = new x402HTTPResourceServer(resourceServer, routes)
+  const httpServer = new PublicOriginHttpServer(resourceServer, routes, publicOrigin)
   httpServer.onProtectedRequest(tarballFreeTierHook)
 
   return { httpServer, resourceServer }

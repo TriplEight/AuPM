@@ -154,6 +154,30 @@ export function createApp(
   app.post('/v1/attest/lockfile', attest.lockfileHandler)
   app.get('/v1/attest', attest.singleAttestHandler)
 
+  // AuPM's own namespaces never fall through to npm. The lockfile route is
+  // POST-only; any other method gets a 405 that says what the route does.
+  // Any other unmatched /v1/ or /api/ path gets AuPM's own 404. A tarball
+  // path stays with the passthrough below: "v1" and "api" are npm package
+  // names, so /v1/-/v1-1.0.0.tgz is a real npm path.
+  app.all('/v1/attest/lockfile', (c) => {
+    c.header('Allow', 'POST')
+    return c.json(
+      {
+        error: 'method not allowed',
+        message:
+          'POST a package-lock.json body to this route. It returns one signed attestation ' +
+          'for every package in the lockfile. See SPEC.md section 11.2.',
+      },
+      405,
+    )
+  })
+  app.all('*', async (c, next) => {
+    const path = c.req.path
+    const inOwnNamespace = path.startsWith('/v1/') || path.startsWith('/api/')
+    if (inOwnNamespace && !isTarballPath(path)) return c.json({ error: 'not found' }, 404)
+    return next()
+  })
+
   // npm passthrough — reached only once payment (or the free-tier grant)
   // clears. A tarball path reaching here is either the free-tier grant (an
   // unreviewed version, or a reviewed version the request did not opt in to
