@@ -5,6 +5,18 @@ Newest first.
 
 ---
 
+## 2026-09-30 — `CLAUDE.md` names only files in the repository
+
+**`CLAUDE.md` pointers.**
+- What: removed the pointers to files that are not in the repository, including a runbook that
+  never existed. `CLAUDE.md` now names only tracked files. Pointers to a developer's own notes go
+  in `CLAUDE.local.md`, which Claude Code loads next to `CLAUDE.md`.
+- Why: a public file must not describe files that the public cannot read. One pointer also named
+  a file that did not exist.
+- Expected effect: every file that `CLAUDE.md` names exists in a clone.
+
+---
+
 ## 2026-09-29 — Bring the `aupm-payment-router` skill up to date (audit L3)
 
 **`.claude/skills/aupm-payment-router/SKILL.md` rewrite.**
