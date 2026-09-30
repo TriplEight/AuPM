@@ -47,9 +47,32 @@ This runs two steps, both defined in `contracts/package.json`:
 ```bash
 node -e "const j=require('./contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json'); console.log(j.methods.map(m=>m.name).join(' '))"
 ```
-Check: prints exactly `createApplication setCrediter setIdentity credit claim
-releaseAuthority`. Order may differ. The set must not. If any other method name appears, the
+Check: prints exactly `createApplication setCrediter setIdentity credit claim announceRelease
+executeRelease`. Order may differ. The set must not. If any other method name appears, the
 build did not run against the current source — stop and repeat step 3.
+
+### Release timing template values
+
+`executeRelease()` reads two template variables: `TMPL_RELEASE_DELAY_ROUNDS` and
+`TMPL_RELEASE_WINDOW_ROUNDS` (ADR 0010, amendment 2026-10-01). The built TEAL keeps them as
+names. The deploy step substitutes the values and compiles the TEAL with algod.
+```bash
+grep -c "TMPL_RELEASE" contracts/smart_contracts/artifacts/payment_router/PaymentRouter.approval.teal
+node -e "const j=require('./contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json'); console.log(Object.keys(j.templateVariables).join(' '))"
+```
+Check: the first command prints 3 or more. The second prints `RELEASE_DELAY_ROUNDS
+RELEASE_WINDOW_ROUNDS`. If either check fails, the artifacts are stale: repeat step 3.
+
+| Network | Delay | Window | How the value is set |
+|---|---|---|---|
+| MainNet | 216,000 | 216,000 | Fixed. The deploy config refuses any other value. |
+| TestNet | 20 | 200 | Default. `RELEASE_DELAY_ROUNDS` and `RELEASE_WINDOW_ROUNDS` override it. |
+
+- On TestNet, use the same `RELEASE_*` values for the deploy and for `scripts/rekey-payto.mjs`.
+  The audited-build check compiles the TEAL with the values in its own environment.
+- On MainNet, leave both variables unset. A different value stops the deploy and the rekey.
+- `scripts/rekey-payto.mjs` and `deployMultisigCreate()` call algod to compile. They need a
+  reachable algod for the selected network.
 
 ## 5. Run the checks
 
@@ -81,8 +104,9 @@ each of these on TestNet before any MainNet deploy (`SPEC.md` §17, item R0):
 - `claim()` on a balance of 99,999 microUSDC fails. On 100,000 it succeeds.
 - `claim()` with an outer fee below 2,000 microALGO fails.
 - Only the admin can call `announceRelease()` and `executeRelease()` (ADR 0010).
-- `executeRelease()` fails before `announcedRound + 216,000` and from `announcedRound + 432,000`.
-  In between, it sweeps `creditedUnclaimed` to `"treasury"`, retires the app, and rekeys
+- `executeRelease()` fails before `announcedRound + delay` and from `announcedRound + delay +
+  window`. On TestNet the defaults are delay 20 and window 200, so the full path takes minutes.
+  On MainNet the values are 216,000 and 216,000. In between, it sweeps `creditedUnclaimed` to `"treasury"`, retires the app, and rekeys
   `payTo` to the announced address.
 
 Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):

@@ -25,7 +25,17 @@ describe('PaymentRouter', () => {
     return ctx.txn.createScope([txn], 0).execute(fn)
   }
 
+  // MainNet release timing (ADR 0010). deploy-config.ts enforces the same pair.
+  const MAINNET_DELAY = 216_000n
+  const MAINNET_WINDOW = 216_000n
+
+  const setReleaseRounds = (delay: bigint, window: bigint) => {
+    ctx.setTemplateVar('RELEASE_DELAY_ROUNDS', delay)
+    ctx.setTemplateVar('RELEASE_WINDOW_ROUNDS', window)
+  }
+
   const setup = (payToBalance = 0n) => {
+    setReleaseRounds(MAINNET_DELAY, MAINNET_WINDOW)
     const contract = ctx.contract.create(PaymentRouter)
     const admin = ctx.defaultSender
     const crediter = ctx.any.account()
@@ -378,6 +388,60 @@ describe('PaymentRouter', () => {
       callInScope(contract, () => contract.executeRelease(), { sender: admin })
       const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
       expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+    })
+
+    describe('TestNet release timing (template values 20 and 200)', () => {
+      const DELAY = 20n
+      const WINDOW = 200n
+
+      const announced = () => {
+        const fixture = setup(0n)
+        setReleaseRounds(DELAY, WINDOW)
+        const releaseTo = ctx.any.account()
+        ctx.ledger.patchGlobalData({ round: 1_000n })
+        callInScope(fixture.contract, () => fixture.contract.announceRelease(releaseTo), {
+          sender: fixture.admin,
+        })
+        callInScope(fixture.contract, () => fixture.contract.setIdentity('treasury', fixture.ops), {
+          sender: fixture.admin,
+        })
+        return { ...fixture, releaseTo }
+      }
+
+      test('fails one round before the delay', () => {
+        const { contract, admin } = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + DELAY - 1n })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release delay has not passed')
+      })
+
+      test('succeeds on the first and on the last round of the window', () => {
+        for (const round of [1_000n + DELAY, 1_000n + DELAY + WINDOW - 1n]) {
+          const { contract, admin, releaseTo } = announced()
+          ctx.ledger.patchGlobalData({ round })
+          callInScope(contract, () => contract.executeRelease(), { sender: admin })
+          const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
+          expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+        }
+      })
+
+      test('fails when the window has expired', () => {
+        const { contract, admin } = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + DELAY + WINDOW })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release window has expired')
+      })
+
+      test('the MainNet values still block a round that the TestNet values allow', () => {
+        const { contract, admin } = announced()
+        setReleaseRounds(MAINNET_DELAY, MAINNET_WINDOW)
+        ctx.ledger.patchGlobalData({ round: 1_000n + DELAY })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release delay has not passed')
+      })
     })
 
     test('executeRelease(): without "treasury" mapped fails, even after the delay', () => {
