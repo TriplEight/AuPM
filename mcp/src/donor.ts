@@ -10,6 +10,8 @@ import {
   ALGORAND_MAINNET_CAIP2,
   ALGORAND_TESTNET_CAIP2,
   type ClientAvmSigner,
+  DEFAULT_ALGOD_MAINNET,
+  DEFAULT_ALGOD_TESTNET,
   USDC_MAINNET_ASA_ID,
   USDC_TESTNET_ASA_ID,
 } from '@x402-avm/avm'
@@ -26,6 +28,12 @@ export const IS_TESTNET = NETWORK === 'testnet'
 export const CAIP2_NETWORK = IS_TESTNET ? ALGORAND_TESTNET_CAIP2 : ALGORAND_MAINNET_CAIP2
 export const USDC_ASSET_ID = IS_TESTNET ? USDC_TESTNET_ASA_ID : USDC_MAINNET_ASA_ID
 export const EXPLORER_NETWORK = IS_TESTNET ? 'testnet' : 'mainnet'
+
+// The exact scheme falls back to the TestNet algod when no algod is set, whatever the payment's
+// network is (@x402-avm/avm 2.6.1). A MainNet payment built from TestNet params carries the
+// TestNet genesis hash, and the facilitator rejects it. The library reads ALGOD_MAINNET_URL
+// and ALGOD_TESTNET_URL for these defaults.
+const DONOR_ALGOD_URL = IS_TESTNET ? DEFAULT_ALGOD_TESTNET : DEFAULT_ALGOD_MAINNET
 
 /** Env var holding the donor's 25-word Algorand mnemonic. */
 export const AUPM_DONOR_MNEMONIC_ENV = 'AUPM_DONOR_MNEMONIC'
@@ -132,6 +140,7 @@ function buildDonationClient(
   const client = new x402Client()
   registerExactAvmScheme(client, {
     signer: lazyDonorSigner(),
+    algodConfig: { algodUrl: DONOR_ALGOD_URL },
     networks: [CAIP2_NETWORK],
     policies: [donationCapPolicy(capMicro, onApproved)],
   })
