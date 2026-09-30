@@ -985,3 +985,92 @@ describe('.well-known/aupm-keys.json', () => {
     expect(verified).toBe(true)
   })
 })
+describe('x402 resource URL', () => {
+  const ISSUER_ORIGIN = 'https://aupm-verify.invalid'
+
+  function resourceUrl(res: Response): string {
+    expect(res.status).toBe(402)
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    const decoded = decodePaymentRequiredHeader(header as string) as unknown as {
+      resource: { url: string }
+    }
+    return decoded.resource.url
+  }
+
+  test('lockfile route: resource URL uses the issuer origin for an http:// request', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('http://aupm-verify.invalid/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '2.1.3',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-2.1.3.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    })
+    expect(resourceUrl(res)).toBe(`${ISSUER_ORIGIN}/v1/attest/lockfile`)
+  })
+
+  test('single attest route: resource URL keeps the query and uses the issuer origin', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    const res = await app.request('http://internal.invalid:8080/v1/attest?name=ms&version=2.1.3')
+    expect(resourceUrl(res)).toBe(`${ISSUER_ORIGIN}/v1/attest?name=ms&version=2.1.3`)
+  })
+
+  test('tarball route: resource URL uses the issuer origin', async () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request('http://aupm-verify.invalid/lodash/-/lodash-4.17.21.tgz', {
+      headers: { 'X-AuPM-Donate': '1' },
+    })
+    expect(resourceUrl(res)).toBe(`${ISSUER_ORIGIN}/lodash/-/lodash-4.17.21.tgz`)
+  })
+})
+
+describe('unmatched AuPM paths', () => {
+  test('GET /v1/attest/lockfile answers 405 with Allow: POST', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const res = await app.request('/v1/attest/lockfile')
+      expect(res.status).toBe(405)
+      expect(res.headers.get('Allow')).toBe('POST')
+      const body = (await res.json()) as { error: string; message: string }
+      expect(body.error).toBe('method not allowed')
+      expect(body.message).toContain('package-lock.json')
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test.each(['/v1/nope', '/api/nope', '/v1/attest/nope', '/api/v1/nope'])(
+    '%s answers AuPM JSON 404 and never reaches npm',
+    async (path) => {
+      const spy = vi.spyOn(globalThis, 'fetch')
+      try {
+        const res = await app.request(path)
+        expect(res.status).toBe(404)
+        expect(res.headers.get('content-type')).toContain('application/json')
+        expect(await res.json()).toEqual({ error: 'not found' })
+        expect(spy).not.toHaveBeenCalled()
+      } finally {
+        spy.mockRestore()
+      }
+    },
+  )
+
+  test('a packument still passes through to npm', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }))
+    try {
+      const res = await app.request('/ms')
+      expect(res.status).toBe(200)
+      expect(spy).toHaveBeenCalledTimes(1)
+    } finally {
+      spy.mockRestore()
+    }
+  })
+})
