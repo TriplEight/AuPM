@@ -22,6 +22,9 @@ export function buildFrontPage(issuer: string, description: string): string {
   const image = escapeHtml(`${issuer}/.well-known/aupm-og.png`)
   const url = escapeHtml(`${issuer}/`)
   const keys = escapeHtml(`${issuer}/.well-known/aupm-keys.json`)
+  const favicon = escapeHtml(`${issuer}/favicon.ico`)
+  const svgIcon = escapeHtml(`${issuer}/.well-known/aupm-icon.svg`)
+  const touchIcon = escapeHtml(`${issuer}/.well-known/aupm-apple-touch-icon.png`)
   const desc = escapeHtml(description)
   const title = escapeHtml(TITLE)
   return `<!doctype html>
@@ -36,6 +39,9 @@ export function buildFrontPage(issuer: string, description: string): string {
 <meta property="og:image" content="${image}">
 <meta property="og:url" content="${url}">
 <meta property="og:type" content="website">
+<link rel="icon" href="${favicon}" sizes="48x48">
+<link rel="icon" type="image/svg+xml" href="${svgIcon}">
+<link rel="apple-touch-icon" href="${touchIcon}">
 </head>
 <body>
 <h1>${escapeHtml(SITE_NAME)}</h1>
