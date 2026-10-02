@@ -8,7 +8,7 @@ import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { mvpSplit, targetSplitRow } from '../claims/attribution-rules.js'
-import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
+import { CAIP2_NETWORK, ISSUER, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
 import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
@@ -41,6 +41,34 @@ const SPLIT_DISCLOSURE =
 export const OG_DESCRIPTION =
   'AuPM turns human code review into a paid, verifiable, on-chain-anchored ' +
   `public good on Algorand. ${PRICE_TEXT} per reviewed package. ${SPLIT_DISCLOSURE}`
+
+// The facilitator copies `info` of the `x402-merchant` extension into the
+// merchant record: the name, website and logo of the Bazaar merchant card.
+// The logo is the icon that the front page serves (proxy/src/app.ts).
+// @x402-avm/core passes a declared route extension into the 402 unchanged.
+function merchantExtension(): Record<string, unknown> {
+  return {
+    'x402-merchant': {
+      info: {
+        name: 'AuPM',
+        website: ISSUER,
+        logo: `${ISSUER}/.well-known/aupm-apple-touch-icon.png`,
+        categories: ['npm', 'security', 'supply-chain', 'code-review'],
+      },
+      schema: {
+        $schema: 'https://json-schema.org/draft/2020-12/schema',
+        type: 'object',
+        required: ['name'],
+        properties: {
+          name: { type: 'string' },
+          website: { type: 'string' },
+          logo: { type: 'string' },
+          categories: { type: 'array', items: { type: 'string' } },
+        },
+      },
+    },
+  }
+}
 
 export type AupmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
@@ -78,6 +106,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
         `is reviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
+        ...merchantExtension(),
         ...declareDiscoveryExtension({
           bodyType: 'json',
           input: {
@@ -113,6 +142,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
         `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/json',
       extensions: {
+        ...merchantExtension(),
         ...declareDiscoveryExtension({
           input: { name: 'ms', version: '2.1.3' },
           inputSchema: {
@@ -130,6 +160,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
         `${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/octet-stream',
       extensions: {
+        ...merchantExtension(),
         ...declareDiscoveryExtension({
           output: { example: { note: 'binary tarball body' } },
         }),
