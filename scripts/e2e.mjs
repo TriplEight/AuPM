@@ -979,9 +979,10 @@ async function runOnChainRehearsal(loraUrl) {
         try {
           batchRow = rehearsalDb
             .prepare(
-              'SELECT attributed_micro, unattributed_micro, credit_txid FROM batches WHERE batch_seq = ?',
+              'SELECT attributed_micro, unattributed_micro, credit_txid FROM batches ' +
+                'WHERE app_id = ? AND batch_seq = ?',
             )
-            .get(batchSeq)
+            .get(Number(appId), batchSeq)
         } finally {
           rehearsalDb.close()
         }

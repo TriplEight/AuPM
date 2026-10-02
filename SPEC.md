@@ -930,10 +930,11 @@ at payment time, and unreviewed packages never trigger a fetch.
 
 ```sql
 accruals(settle_txid, route, pkg, version, repo, role, identity, amount_micro INTEGER,
-         batch_seq, created_at,
+         batch_app_id, batch_seq, created_at,
          PRIMARY KEY (settle_txid, role, pkg, version))   -- idempotent
-batches(batch_seq PRIMARY KEY, attributed_micro INTEGER, unattributed_micro INTEGER,
-        credit_txid, created_at)
+batches(app_id INTEGER, batch_seq INTEGER, attributed_micro INTEGER,
+        unattributed_micro INTEGER, credit_txid, created_at,
+        PRIMARY KEY (app_id, batch_seq))   -- one sequence per app (ADR 0014)
 ```
 
 The ledger is the crediter's input queue and the audit trail. PaymentRouter holds the balances.

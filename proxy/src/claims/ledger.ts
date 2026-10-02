@@ -215,8 +215,8 @@ export function listUncreditedAccruals(): AccrualRow[] {
   return listUncreditedRows.all()
 }
 
-const listRowsForBatch = db.prepare<[number], AccrualRow>(
-  'SELECT * FROM accruals WHERE batch_seq = ?',
+const listRowsForBatch = db.prepare<[number, number], AccrualRow>(
+  'SELECT * FROM accruals WHERE batch_app_id = ? AND batch_seq = ?',
 )
 
 /**
@@ -225,58 +225,60 @@ const listRowsForBatch = db.prepare<[number], AccrualRow>(
  * resend uses exactly the rows the first attempt assigned (see
  * `getPendingBatch`), never a fresh snapshot of "uncredited".
  */
-export function summarizeBatch(batchSeq: number): UncreditedTotals {
-  return groupForCredit(listRowsForBatch.all(batchSeq))
+export function summarizeBatch(appId: number, batchSeq: number): UncreditedTotals {
+  return groupForCredit(listRowsForBatch.all(appId, batchSeq))
 }
 
-const assignRowBatchSeq = db.prepare<[number, string, string, string, string]>(
-  'UPDATE accruals SET batch_seq = ? ' +
+const assignRowBatch = db.prepare<[number, number, string, string, string, string]>(
+  'UPDATE accruals SET batch_app_id = ?, batch_seq = ? ' +
     'WHERE settle_txid = ? AND role = ? AND pkg = ? AND version = ? AND batch_seq IS NULL',
 )
 
-const getLastBatchRow = db.prepare<[], { batch_seq: number }>(
-  'SELECT batch_seq FROM batches ORDER BY batch_seq DESC LIMIT 1',
+const getLastBatchRow = db.prepare<[number], { batch_seq: number }>(
+  'SELECT batch_seq FROM batches WHERE app_id = ? ORDER BY batch_seq DESC LIMIT 1',
 )
 
-/** The last batch number a row exists for, or 0 before the first batch. */
-export function getLastBatchSeq(): number {
-  return getLastBatchRow.get()?.batch_seq ?? 0
+/** The last batch number `appId` has a row for, or 0 before its first batch. */
+export function getLastBatchSeq(appId: number): number {
+  return getLastBatchRow.get(appId)?.batch_seq ?? 0
 }
 
-const getPendingBatchRow = db.prepare<[], BatchRow>(
-  'SELECT * FROM batches WHERE credit_txid IS NULL ORDER BY batch_seq DESC LIMIT 1',
+const getPendingBatchRow = db.prepare<[number], BatchRow>(
+  'SELECT * FROM batches WHERE app_id = ? AND credit_txid IS NULL ' +
+    'ORDER BY batch_seq DESC LIMIT 1',
 )
 
 /**
- * The one batch row with an assigned `batch_seq` but no recorded credit
- * txid — a crash between "assign rows to a batch" and "record the credit
- * txid". Resend exactly this batch; never open a new one while it exists
- * (SPEC.md §13.2).
+ * The one batch row of `appId` with an assigned `batch_seq` but no recorded
+ * credit txid — a crash between "assign rows to a batch" and "record the
+ * credit txid". Resend exactly this batch; never open a new one while it
+ * exists (SPEC.md §13.2).
  */
-export function getPendingBatch(): BatchRow | null {
-  return getPendingBatchRow.get() ?? null
+export function getPendingBatch(appId: number): BatchRow | null {
+  return getPendingBatchRow.get(appId) ?? null
 }
 
-const insertBatch = db.prepare<[number, number, number, number]>(
-  `INSERT INTO batches (batch_seq, attributed_micro, unattributed_micro, created_at)
-   VALUES (?, ?, ?, ?)`,
+const insertBatch = db.prepare<[number, number, number, number, number]>(
+  `INSERT INTO batches (app_id, batch_seq, attributed_micro, unattributed_micro, created_at)
+   VALUES (?, ?, ?, ?, ?)`,
 )
 
 /**
- * Opens batch `batchSeq` for exactly `rows` (still uncredited), before
- * `credit()` is called: inserts the batch row with the totals of `rows` and
- * stamps each row with `batchSeq`, in one SQLite transaction. `credit_txid`
- * starts NULL. Throws, and writes nothing, when a row is missing or already
- * in a batch.
+ * Opens batch `batchSeq` of `appId` for exactly `rows` (still uncredited),
+ * before `credit()` is called: inserts the batch row with the totals of
+ * `rows` and stamps each row with the batch, in one SQLite transaction.
+ * `credit_txid` starts NULL. Throws, and writes nothing, when a row is
+ * missing or already in a batch.
  *
  * @returns the totals and entries of `rows` — what `credit()` must send.
  */
 export const openBatch = db.transaction(
-  (batchSeq: number, rows: AccrualRow[]): UncreditedTotals => {
+  (appId: number, batchSeq: number, rows: AccrualRow[]): UncreditedTotals => {
     const totals = groupForCredit(rows)
-    insertBatch.run(batchSeq, totals.attributedMicro, totals.unattributedMicro, Date.now())
+    insertBatch.run(appId, batchSeq, totals.attributedMicro, totals.unattributedMicro, Date.now())
     for (const row of rows) {
-      const { changes } = assignRowBatchSeq.run(
+      const { changes } = assignRowBatch.run(
+        appId,
         batchSeq,
         row.settle_txid,
         row.role,
@@ -286,7 +288,7 @@ export const openBatch = db.transaction(
       if (changes !== 1) {
         throw new Error(
           `openBatch: accrual (${row.settle_txid}, ${row.role}, ${row.pkg}@${row.version}) ` +
-            `is missing or already in a batch; batch ${batchSeq} was not opened`,
+            `is missing or already in a batch; batch ${batchSeq} was not opened (app ${appId})`,
         )
       }
     }
@@ -294,11 +296,12 @@ export const openBatch = db.transaction(
   },
 )
 
-const unassignRowsFromBatch = db.prepare<[number]>(
-  'UPDATE accruals SET batch_seq = NULL WHERE batch_seq = ?',
+const unassignRowsFromBatch = db.prepare<[number, number]>(
+  'UPDATE accruals SET batch_app_id = NULL, batch_seq = NULL ' +
+    'WHERE batch_app_id = ? AND batch_seq = ?',
 )
-const deletePendingBatchRow = db.prepare<[number]>(
-  'DELETE FROM batches WHERE batch_seq = ? AND credit_txid IS NULL',
+const deletePendingBatchRow = db.prepare<[number, number]>(
+  'DELETE FROM batches WHERE app_id = ? AND batch_seq = ? AND credit_txid IS NULL',
 )
 
 /**
@@ -308,24 +311,25 @@ const deletePendingBatchRow = db.prepare<[number]>(
  * this batch (see `runCreditStep`). Throws, and writes nothing, when the
  * batch is missing or already has a credit txid.
  */
-export const releaseBatch = db.transaction((batchSeq: number): void => {
-  unassignRowsFromBatch.run(batchSeq)
-  const { changes } = deletePendingBatchRow.run(batchSeq)
+export const releaseBatch = db.transaction((appId: number, batchSeq: number): void => {
+  unassignRowsFromBatch.run(appId, batchSeq)
+  const { changes } = deletePendingBatchRow.run(appId, batchSeq)
   if (changes !== 1) {
     throw new Error(
-      `releaseBatch: batch ${batchSeq} is missing or already credited; nothing was released`,
+      `releaseBatch: batch ${batchSeq} is missing or already credited (app ${appId}); ` +
+        'nothing was released',
     )
   }
 })
 
-const recordCreditTxidStmt = db.prepare<[string, number]>(
-  'UPDATE batches SET credit_txid = ? WHERE batch_seq = ?',
+const recordCreditTxidStmt = db.prepare<[string, number, number]>(
+  'UPDATE batches SET credit_txid = ? WHERE app_id = ? AND batch_seq = ?',
 )
 
-/** Records the confirmed credit() txid on `batchSeq`. A batch row whose
- * txid is recorded is never sent again (SPEC.md §13.2). */
-export function recordBatchCreditTxid(batchSeq: number, txid: string): void {
-  recordCreditTxidStmt.run(txid, batchSeq)
+/** Records the confirmed credit() txid on batch `batchSeq` of `appId`. A
+ * batch row whose txid is recorded is never sent again (SPEC.md §13.2). */
+export function recordBatchCreditTxid(appId: number, batchSeq: number, txid: string): void {
+  recordCreditTxidStmt.run(txid, appId, batchSeq)
 }
 
 // ---------------------------------------------------------------------------

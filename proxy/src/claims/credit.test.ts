@@ -13,7 +13,9 @@ import { beforeEach, describe, expect, test, vi } from 'vitest'
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-credit-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
-const { writeAccruals, openBatch, listUncreditedAccruals } = await import('./ledger.js')
+const { writeAccruals, openBatch, listUncreditedAccruals, recordBatchCreditTxid } = await import(
+  './ledger.js'
+)
 const { setStatus } = await import('../status.js')
 const { runCreditStep, buildCreditCallRefs, planCreditChunk, MAX_CREDIT_ENTRIES } = await import(
   './credit.js'
@@ -149,7 +151,9 @@ describe('runCreditStep: batch totals and entries', () => {
     expect(byKey.get('acme/lodash:github:bob')).toBe(300)
     expect(entries).toHaveLength(2) // never merged across different (repo, identity) pairs
 
-    const batchRow = db.prepare('SELECT * FROM batches WHERE batch_seq = 1').get() as {
+    const batchRow = db
+      .prepare('SELECT * FROM batches WHERE app_id = 123 AND batch_seq = 1')
+      .get() as {
       credit_txid: string | null
       attributed_micro: number
       unattributed_micro: number
@@ -278,7 +282,9 @@ describe('runCreditStep: batch resend after a crash', () => {
     expect(recoveryClient.getOnChainLastBatchSeq).toHaveBeenCalledWith(BigInt(APP_ID))
     expect(recoveryClient.findCreditTxidByNote).toHaveBeenCalledWith(BigInt(APP_ID), 1)
 
-    const batchRow = db.prepare('SELECT credit_txid FROM batches WHERE batch_seq = 1').get() as {
+    const batchRow = db
+      .prepare('SELECT credit_txid FROM batches WHERE app_id = 123 AND batch_seq = 1')
+      .get() as {
       credit_txid: string | null
     }
     expect(batchRow.credit_txid).toBe('RECOVERED-TXID')
@@ -301,10 +307,66 @@ describe('runCreditStep: batch resend after a crash', () => {
     )
     expect(unrecoverableSubmit).not.toHaveBeenCalled()
 
-    const batchRow = db.prepare('SELECT credit_txid FROM batches WHERE batch_seq = 1').get() as {
+    const batchRow = db
+      .prepare('SELECT credit_txid FROM batches WHERE app_id = 123 AND batch_seq = 1')
+      .get() as {
       credit_txid: string | null
     }
     expect(batchRow.credit_txid).toBeNull() // still pending, not silently marked done
+  })
+})
+
+describe('runCreditStep: batch numbers follow the configured app', () => {
+  const OTHER_APP = 999
+
+  function creditedBatchOfOtherApp(seq: number, txid: string): void {
+    writeAccruals(LOCKFILE_ATTRIBUTION, txid)
+    openBatch(OTHER_APP, seq, listUncreditedAccruals())
+    recordBatchCreditTxid(OTHER_APP, seq, `CREDIT-${txid}`)
+  }
+
+  test('a fresh app starts at batch 1 although another app has a longer history', async () => {
+    creditedBatchOfOtherApp(6, 'TXID-OTHER-1')
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-NEW-APP')
+    const submit = makeSubmitMock('CREDIT-NEW-APP')
+
+    const outcome = await runCreditStep(stubClient(true, submit, 0), envWithApp())
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 1, creditTxid: 'CREDIT-NEW-APP' })
+    expect(firstCallArgs(submit)[1]).toBe(1)
+    const rows = db.prepare('SELECT app_id, batch_seq FROM batches ORDER BY app_id').all()
+    expect(rows).toEqual([
+      { app_id: Number(APP_ID), batch_seq: 1 },
+      { app_id: OTHER_APP, batch_seq: 6 },
+    ])
+  })
+
+  test('switching back to the earlier app continues its own sequence', async () => {
+    creditedBatchOfOtherApp(6, 'TXID-OTHER-1')
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-NEW-APP')
+    await runCreditStep(stubClient(true, makeSubmitMock('CREDIT-NEW-APP'), 0), envWithApp())
+
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-BACK')
+    const submit = makeSubmitMock('CREDIT-BACK')
+    const outcome = await runCreditStep(
+      stubClient(true, submit, 6),
+      envWithApp({ PAYMENT_ROUTER_APP_ID: String(OTHER_APP) }),
+    )
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 7, creditTxid: 'CREDIT-BACK' })
+  })
+
+  test('a pending batch of another app is not resent to the configured app', async () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-OTHER-PENDING')
+    openBatch(OTHER_APP, 4, listUncreditedAccruals())
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-NEW-APP')
+    const submit = makeSubmitMock('CREDIT-NEW-APP')
+
+    const outcome = await runCreditStep(stubClient(true, submit, 0), envWithApp())
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 1, creditTxid: 'CREDIT-NEW-APP' })
+    const [, , attributed] = firstCallArgs(submit)
+    expect(attributed).toBe(2000)
   })
 })
 
@@ -322,7 +384,7 @@ describe('runCreditStep: a pending batch over the entry limit', () => {
   // What the planner before the entry limit did: one batch with 5 entries.
   function openOversizedBatch(): void {
     writeAccruals(FIVE_AUDITORS, 'TXID-FIVE')
-    openBatch(1, listUncreditedAccruals())
+    openBatch(Number(APP_ID), 1, listUncreditedAccruals())
   }
 
   test('not credited on chain: released, then re-planned within the limit and sent', async () => {
@@ -355,7 +417,7 @@ describe('runCreditStep: a pending batch over the entry limit', () => {
 
   test('a pending batch within the limit is resent as-is, never released', async () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-SMALL')
-    openBatch(1, listUncreditedAccruals())
+    openBatch(Number(APP_ID), 1, listUncreditedAccruals())
     const submit = makeSubmitMock('CREDIT-RESENT')
     await runCreditStep(stubClient(true, submit, 0), envWithApp())
 
@@ -427,6 +489,7 @@ function packageRows(txid: string, pkg: string, auditor: string): AccrualRow[] {
     pkg,
     version: '1.0.0',
     repo: `acme/${pkg}`,
+    batch_app_id: null,
     batch_seq: null,
     created_at: 1,
   }
@@ -446,6 +509,7 @@ function unassignedRow(txid: string, amount: number): AccrualRow {
     role: 'ops',
     identity: 'ops',
     amount_micro: amount,
+    batch_app_id: null,
     batch_seq: null,
     created_at: 1,
   }
