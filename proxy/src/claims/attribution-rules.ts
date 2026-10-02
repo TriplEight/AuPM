@@ -19,7 +19,7 @@ export const OPS_IDENTITY = 'ops'
 
 /**
  * All six target roles' share of every 1,000 micro-USDC paid for one
- * reviewed package (ADR 0011, docs/TASK.md P8d) — one split on every
+ * reviewed package (ADR 0011) — one split on every
  * network. The ledger records all six roles for every payment, so Phase 2
  * can add attributed identities for contributor, treasury, and ops with no
  * data loss, even though the MVP resolves all three (plus maintainer and

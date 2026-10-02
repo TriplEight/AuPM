@@ -232,7 +232,7 @@ export type CreditOutcome =
 /**
  * Asserts `entries` sum to exactly `auditorShareMicro(attributedMicro)` —
  * the same check the contract itself makes, for the one split every network
- * uses (ADR 0005, ADR 0011, docs/TASK.md P8d). Defence in depth: a ledger
+ * uses (ADR 0005, ADR 0011). Defence in depth: a ledger
  * bug here must fail loudly before it ever reaches the chain, not surface
  * only as a rejected transaction.
  */
