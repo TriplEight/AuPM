@@ -1117,3 +1117,84 @@ describe('unmatched AuPM paths', () => {
     }
   })
 })
+// ADR 0013, SPEC §10.5: an empty request gets the 402 challenge for one
+// reviewed package. Every other invalid request still gets 400 first.
+describe('empty attestation request (402 first)', () => {
+  type Challenge = {
+    accepts: Array<{ amount?: string; asset?: string; extra?: Record<string, string> }>
+    extensions?: Record<string, { info?: { name?: string } }>
+  }
+
+  const emptyRequests = [
+    ['POST /v1/attest/lockfile', '/v1/attest/lockfile', { method: 'POST' }],
+    ['GET /v1/attest', '/v1/attest', {}],
+  ] as const
+
+  test.each(emptyRequests)(
+    '%s with no input: 402 for one reviewed package',
+    async (_n, url, init) => {
+      const res = await app.request(url, init)
+      expect(res.status).toBe(402)
+      const challenge = decodePaymentRequiredHeader(
+        res.headers.get('PAYMENT-REQUIRED') as string,
+      ) as unknown as Challenge
+      const option = challenge.accepts[0]
+      expect(option?.amount).toBe('1000')
+      expect(option?.asset).toBe(USDC_ASA_ID)
+      expect(option?.extra?.asset).toBe(USDC_ASA_ID)
+      expect(option?.extra?.feePayer).toBe(FEE_PAYER)
+      expect(option?.extra?.tag).toBe(TAG)
+      expect(challenge.extensions?.['x402-merchant']?.info?.name).toBe('AuPM')
+    },
+  )
+
+  test.each(emptyRequests)('%s with X-AuPM-Donate: 0: 400, never 402', async (_n, url, init) => {
+    const res = await app.request(url, { ...init, headers: { 'X-AuPM-Donate': '0' } })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('a non-empty malformed lockfile body: 400, never 402', async () => {
+    const res = await app.request('/v1/attest/lockfile', { method: 'POST', body: '{ not json' })
+    expect(res.status).toBe(400)
+  })
+
+  test.each(['?name=ms', '?version=2.1.3'])('GET /v1/attest%s: 400, never 402', async (query) => {
+    const res = await app.request(`/v1/attest${query}`)
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('a zero-coverage lockfile stays free', async () => {
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      body: JSON.stringify({ lockfileVersion: 3, packages: {} }),
+    })
+    expect(res.status).toBe(200)
+  })
+
+  test.each(emptyRequests)('%s paid retry: 400 and never settled', async (_n, url, init) => {
+    const settle = vi.fn(stubSuccessFacilitatorClient().settle)
+    const client = { ...stubSuccessFacilitatorClient(), settle }
+    const { httpServer: paidHttpServer } = buildHttpServer(client, FEE_PAYER)
+    const paidApp = createApp(paidHttpServer)
+
+    const unpaid = await paidApp.request(url, init)
+    expect(unpaid.status).toBe(402)
+    const challenge = decodePaymentRequiredHeader(
+      unpaid.headers.get('PAYMENT-REQUIRED') as string,
+    ) as unknown as Challenge
+    const paymentSignature = encodePaymentSignatureHeader({
+      x402Version: 2,
+      accepted: challenge.accepts[0],
+      payload: {},
+    } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
+
+    const paid = await paidApp.request(url, {
+      ...init,
+      headers: { 'PAYMENT-SIGNATURE': paymentSignature },
+    })
+    expect(paid.status).toBe(400)
+    expect(settle).not.toHaveBeenCalled()
+  })
+})
