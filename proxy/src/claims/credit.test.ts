@@ -143,7 +143,7 @@ describe('runCreditStep: batch totals and entries', () => {
     expect(attributedMicro).toBe(2000) // 2 packages x 1,000 microUSDC each
     expect(unattributedMicro).toBe(0)
 
-    // 300 per package, ADR 0011's auditor share (docs/TASK.md P8d: one split everywhere).
+    // 300 per package, ADR 0011's auditor share (one split everywhere).
     const byKey = new Map(entries.map((e) => [`${e.repo}:${e.identity}`, e.amountMicro]))
     expect(byKey.get('acme/ms:github:alice')).toBe(300)
     expect(byKey.get('acme/lodash:github:bob')).toBe(300)

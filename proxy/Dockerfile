@@ -14,8 +14,8 @@
 # toolchain, and runs as a non-root user.
 #
 # proxy/src/x402/routes.ts imports the dollar-formatting helper from
-# aupm-mcp's `./money` export (docs/TASK.md P3: one helper, no duplicate;
-# P9: package import through the workspace, not a relative path). Declaring
+# aupm-mcp's `./money` export (one helper, no duplicate;
+# package import through the workspace, not a relative path). Declaring
 # the dependency pulls in aupm-mcp's own dependencies too (pnpm installs a
 # package's full dependency graph, not just the files a consumer imports),
 # even though money.ts itself has none.

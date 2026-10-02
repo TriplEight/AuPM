@@ -350,8 +350,8 @@ export async function assertExistingAppSafeToReuse(
 
 /**
  * Deploys PaymentRouter, funds the app account for box MBR, sets the
- * crediter key, and maps every identity in `identityMap` (docs/TASK.md
- * R2). Does not rekey payTo — that is scripts/rekey-payto.mjs, run
+ * crediter key, and maps every identity in `identityMap`.
+ * Does not rekey payTo — that is scripts/rekey-payto.mjs, run
  * separately with the payTo key, after payTo already holds USDC (SPEC
  * §10.2 order).
  *
@@ -633,7 +633,7 @@ export async function deployMultisigCreate(): Promise<void> {
   printMultisigSigningInstructions('createApplication', outPath)
 }
 
-// --- 2-of-3 admin multisig: post-creation admin calls (ADR 0010, docs/TASK.md P8b) ----------
+// --- 2-of-3 admin multisig: post-creation admin calls (ADR 0010) ------------------------------
 //
 // setCrediter, setIdentity, announceRelease and executeRelease are admin-only
 // (contract.algo.ts: each asserts `Txn.sender.bytes === Global.creatorAddress.bytes`), so each
@@ -657,7 +657,7 @@ const TREASURY_IDENTITY = 'treasury'
  * The flat outer fee executeRelease() needs: it submits up to two inner transactions (the
  * treasury sweep axfer and the payTo rekey payment, contract.algo.ts's executeRelease), each
  * needing the network's own minimum fee pooled through the outer call, on top of the outer
- * call's own fee (docs/TASK.md P8b: "at least 3,000 microALGO"). Never read from the
+ * call's own fee (at least 3,000 microALGO). Never read from the
  * environment — a smaller fee would leave a real inner transaction unfunded on-chain.
  */
 export const EXECUTE_RELEASE_MIN_FEE = 3_000
@@ -1009,7 +1009,7 @@ export function assertSingleKeyDeployNotMainnet(network: 'mainnet' | 'testnet'):
 }
 
 /**
- * `algokit project deploy`'s entry point (docs/TASK.md R2): reads every
+ * `algokit project deploy`'s entry point: reads every
  * role's address from the environment and calls `deployPaymentRouter()`
  * with them. Behavior unchanged from before the R3a refactor. Single-key
  * (DEPLOYER_MNEMONIC): kept for TestNet/LocalNet rehearsal (R3d's hermetic

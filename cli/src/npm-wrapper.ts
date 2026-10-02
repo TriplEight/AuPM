@@ -2,7 +2,7 @@
 //
 // `aupm <npm args>` is a drop-in for `npm <npm args>`: it runs the real npm
 // against the AuPM registry, passes every npm argument and npm's own exit
-// code through unchanged, and inherits stdio (docs/TASK.md P2). AuPM adds
+// code through unchanged, and inherits stdio. AuPM adds
 // only its own flags (`--donate`, `--attest-out <path>`), stripped before
 // npm ever sees argv, and — after a successful install-like command — one
 // free lockfile summary line, using the same `attest_lockfile` MCP handler
@@ -20,7 +20,7 @@ const LOCKFILE_NAME = 'package-lock.json'
 
 // npm subcommands that can add or change a reviewed package in
 // package-lock.json, so a post-run donation summary is worth showing.
-// pnpm and npx are planned (SPEC.md §11, docs/TASK.md "After the MVP"):
+// pnpm and npx are planned (SPEC.md §11):
 // the attestation server does not parse pnpm-lock.yaml yet.
 const INSTALL_LIKE_COMMANDS = new Set(['install', 'i', 'ci', 'add'])
 
@@ -113,7 +113,7 @@ function reviewedCount(outcome: AttestLockfileOutcome): number {
  * command and prints one summary line: how many entries are
  * COMMUNITY_REVIEWED and the donation amount in dollars. Without
  * `allowDonation`, adds one hint line on how to donate; with zero reviewed
- * entries, no hint line (docs/TASK.md P2). Never throws: a failed donation
+ * entries, no hint line. Never throws: a failed donation
  * or a failed summary request logs one line here and lets the caller keep
  * npm's own exit code.
  */

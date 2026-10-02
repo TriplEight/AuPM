@@ -11,6 +11,6 @@ stack.env
 dist/
 .DS_Store
 .rtk/
-# mcp/src ships to the proxy runtime image (aupm-mcp workspace dependency,
-# docs/TASK.md P9) without its tests.
+# mcp/src ships to the proxy runtime image (aupm-mcp workspace dependency)
+# without its tests.
 mcp/src/**/*.test.ts

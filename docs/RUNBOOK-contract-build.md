@@ -48,7 +48,7 @@ This runs two steps, both defined in `contracts/package.json`:
 node -e "const j=require('./contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json'); console.log(j.methods.map(m=>m.name).join(' '))"
 ```
 Check: prints exactly `createApplication setCrediter setIdentity credit claim
-releaseAuthority`. Order may differ. The set must not. If any other method name appears, the
+announceRelease executeRelease`. Order may differ. The set must not. If any other method name appears, the
 build did not run against the current source — stop and repeat step 3.
 
 ## 5. Run the checks
@@ -115,7 +115,7 @@ Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
    Check: the script prints a claim txid.
 
 `NETWORK=testnet bash scripts/demo.sh` drives steps 1, 3, 4 and part of 5 end to end against a
-real `.env` (`docs/DEPLOY-GUIDE.local.md` covers the full rehearsal). Check: it prints `DEMO:
+real `.env`. Check: it prints `DEMO:
 PASS`.
 
 ## 7. After a successful build

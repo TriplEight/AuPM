@@ -17,14 +17,14 @@ export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 
 // Dollar text for the description strings below, derived from the one
 // integer micro-unit price (never a second hand-typed "$0.001" to drift
-// out of sync — CLAUDE.md invariant 7, docs/TASK.md P3). The `accepts`
+// out of sync — CLAUDE.md invariant 7). The `accepts`
 // price field stays a literal dollar string: that one is x402 protocol
 // data the facilitator parses, not display text.
 const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 
 // SPEC §6.2 disclosure rule: every public text (README, `og:description`,
 // Bazaar descriptions) shows both the target split and the MVP split — one
-// split on every network (ADR 0011, docs/TASK.md P8d), never a literal, so
+// split on every network (ADR 0011), never a literal, so
 // the disclosed split can never drift from the one the ledger actually uses.
 // Never claim the maintainer's target share is paid out today: in the MVP
 // it is unclaimed ops income until that role onboards (CLAUDE.md invariant 8).
