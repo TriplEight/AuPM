@@ -31,6 +31,7 @@ export function buildFrontPage(issuer: string, description: string): string {
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="theme-color" content="#be8923">
 <title>${title}</title>
 <meta name="description" content="${desc}">
 <meta property="og:site_name" content="${escapeHtml(SITE_NAME)}">
