@@ -12,6 +12,7 @@ import { validateDiscoveryExtension } from '@x402-avm/extensions'
 import { describe, expect, test } from 'vitest'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-x402-routes-test-${randomUUID()}.db`)
+process.env.AUPM_ISSUER_URL = 'https://issuer.invalid'
 
 const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY, OG_DESCRIPTION } = await import(
   './routes.js'
@@ -32,6 +33,22 @@ describe('buildRoutes', () => {
       expect(option?.extra?.asset).toBeTruthy()
       expect(option?.extra?.feePayer).toBe(FEE_PAYER)
       expect(option?.extra?.tag).toBe('x402-global-challenge')
+    }
+  })
+
+  test('every paid route declares the x402-merchant extension for the merchant card', () => {
+    for (const key of [LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY, TARBALL_ROUTE_KEY] as const) {
+      const merchant = routes[key].extensions?.['x402-merchant'] as
+        | { info: Record<string, unknown>; schema: { required: string[] } }
+        | undefined
+      expect(merchant?.info).toEqual({
+        name: 'AuPM',
+        website: 'https://issuer.invalid',
+        logo: 'https://issuer.invalid/.well-known/aupm-apple-touch-icon.png',
+        categories: ['npm', 'security', 'supply-chain', 'code-review'],
+      })
+      expect(merchant?.schema.required).toEqual(['name'])
+      expect(routes[key].extensions?.bazaar).toBeDefined()
     }
   })
 
