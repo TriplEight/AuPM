@@ -35,6 +35,8 @@ export type AppVariables = {
   // to the paid handler once payment clears, so the request body — already
   // consumed while computing this — is never re-read or re-parsed.
   aupmLockfileAnalysis?: LockfileAnalysis
+  // Internal: set on an empty lockfile body so the gate prices the 402 (ADR 0013).
+  aupmEmptyRequest?: boolean
 }
 
 export interface CreateAppOptions {
