@@ -70,7 +70,7 @@ function settleResponseHeader(transaction: string, success = true): string {
 }
 
 describe('install_audited_package', () => {
-  // docs/TASK.md P3: user-facing text shows dollars, never a raw microUSDC
+  // User-facing text shows dollars, never a raw microUSDC
   // count, but keeps naming USDC on Algorand as the settlement asset.
   it('describes the donation amount in dollars, not microUSDC', () => {
     expect(installTool.description).toContain('$0.001')

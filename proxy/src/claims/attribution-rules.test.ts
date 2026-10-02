@@ -20,7 +20,7 @@ import {
   UNASSIGNED,
 } from './attribution-rules.js'
 
-// One split on every network (ADR 0011, docs/TASK.md P8d).
+// One split on every network (ADR 0011).
 describe('role shares', () => {
   test('300/100/200/250/100/50 of 20000 microUSDC scale exactly (ADR 0011)', () => {
     expect(computeRoleShareMicro(20000, 'auditor')).toBe(6000)
@@ -42,14 +42,14 @@ describe('role shares', () => {
   })
 })
 
-describe('targetSplitRow and mvpSplit (docs/TASK.md P8d)', () => {
+describe('targetSplitRow and mvpSplit', () => {
   test('target row and MVP split (ADR 0011)', () => {
     expect(targetSplitRow()).toBe('30/10/20/25/10/5')
     expect(mvpSplit()).toEqual({ auditorPercent: 30, opsPercent: 70 })
   })
 })
 
-describe('auditorShareMicro rounds like the contract (docs/TASK.md P8d)', () => {
+describe('auditorShareMicro rounds like the contract', () => {
   // contract.algo.ts: auditorShare = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN,
   // uint64 (floor) division. An attributedMicro that is not a multiple of 1,000
   // never occurs in production (every price is a multiple of 1,000), but this

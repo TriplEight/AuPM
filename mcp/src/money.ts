@@ -1,7 +1,7 @@
 // mcp/src/money.ts
 //
 // Formats an integer microUSDC amount as a dollar string for user-facing
-// text (CLI and MCP output, docs/TASK.md "P3"). Money math itself always
+// text (CLI and MCP output). Money math itself always
 // stays in integer micro-units (CLAUDE.md invariant 7) — this only formats
 // an already-computed amount for display, never the other way round.
 
