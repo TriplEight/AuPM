@@ -67,6 +67,14 @@ const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 // the request body (see lockfileDynamicPrice's docstring).
 export const ANALYSIS_KEY = 'aupmLockfileAnalysis' as const
 
+// Set by the lockfile pre-middleware on an empty (0-byte) body so the gate
+// can price the 402 challenge at one reviewed package (SPEC §10.5, ADR 0013).
+// The handler answers such a request with 400, so it is never settled.
+export const EMPTY_REQUEST_KEY = 'aupmEmptyRequest' as const
+
+const EMPTY_LOCKFILE_ERROR = 'request body is empty: send a package-lock.json'
+const EMPTY_SINGLE_ERROR = 'query parameters "name" and "version" are required'
+
 /**
  * True only when TRUST_PROXY says this server runs behind a known reverse
  * proxy. Read fresh on every call, never cached — tests toggle it per case.
@@ -331,7 +339,11 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
  * (CLAUDE.md invariant 3 — an omitted asset can resolve to ALGO).
  */
 export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
-  const analysis = honoContextFrom(context)?.get(ANALYSIS_KEY)
+  const honoContext = honoContextFrom(context)
+  if (honoContext?.get(EMPTY_REQUEST_KEY)) {
+    return { asset: USDC_ASA_ID, amount: String(PRICE_PER_REVIEWED_PACKAGE_MICRO) }
+  }
+  const analysis = honoContext?.get(ANALYSIS_KEY)
   if (!analysis) {
     throw new Error(
       'internal error: lockfile analysis missing when the x402 gate resolved the price',
@@ -494,6 +506,14 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (!limited.ok) {
       return limited.response
     }
+    if (limited.bytes.length === 0) {
+      // ADR 0013: a bodyless probe gets the 402 challenge, unless the
+      // caller asked for the free path, which never returns 402.
+      if (requestedPartial(c)) return c.json({ error: EMPTY_LOCKFILE_ERROR }, 400)
+      c.set(EMPTY_REQUEST_KEY, true)
+      await next()
+      return
+    }
     const result = analyzeLockfile(limited.bytes, options.integrityLookup)
 
     if (!result.ok) {
@@ -530,6 +550,9 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
   }
 
   const lockfileHandler = async (c: AttestContext): Promise<Response> => {
+    if (c.get(EMPTY_REQUEST_KEY)) {
+      return c.json({ error: EMPTY_LOCKFILE_ERROR }, 400)
+    }
     const analysis = c.get(ANALYSIS_KEY)
     if (!analysis) {
       // Defensive: the pre-middleware always sets this on the paid path.
@@ -557,8 +580,14 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
   ) => {
     const name = c.req.query('name')
     const version = c.req.query('version')
+    if (!name && !version && !requestedPartial(c)) {
+      // ADR 0013: a probe with no input gets the 402 challenge. The
+      // handler answers it with 400, so a paid retry is never settled.
+      await next()
+      return
+    }
     if (!name || !version) {
-      return c.json({ error: 'query parameters "name" and "version" are required' }, 400)
+      return c.json({ error: EMPTY_SINGLE_ERROR }, 400)
     }
 
     const status = getStatusOrUnreviewed(name, version)
@@ -621,6 +650,9 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
   }
 
   const singleAttestHandler = async (c: AttestContext): Promise<Response> => {
+    if (!c.req.query('name') && !c.req.query('version')) {
+      return c.json({ error: EMPTY_SINGLE_ERROR }, 400)
+    }
     // Presence and the free-tier decision are already made by
     // singleAttestPreMiddleware, which always runs first in the registered
     // chain (see app.ts) — reaching this handler means the package resolved
