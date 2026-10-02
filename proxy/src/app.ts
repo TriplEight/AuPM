@@ -105,17 +105,27 @@ export function createApp(
     return c.json(keys)
   })
 
-  // Free, never gated, never ledgered: the front page and its image carry
-  // the og: tags for the Bazaar merchant card. WARNING: these routes must
-  // never return 402. Hono answers HEAD from the GET handler. The image
-  // path starts with a dot, so no npm package name can collide with it.
+  // Free, never gated, never ledgered: the front page, its og image and its
+  // site icons carry the tags for the Bazaar merchant card. WARNING: these
+  // routes must never return 402 and never reach the npm passthrough. Hono
+  // answers HEAD from the GET handler. The image and icon paths under
+  // /.well-known start with a dot, so no npm package name can collide with
+  // them. favicon.ico is on the npm package-name blocklist.
   const frontPage = buildFrontPage(ISSUER, OG_DESCRIPTION)
-  const ogImage = readFileSync(new URL('./assets/og-image.png', import.meta.url))
   app.get('/', (c) => c.html(frontPage))
-  app.get('/.well-known/aupm-og.png', (c) => {
-    c.header('cache-control', 'public, max-age=86400')
-    return c.body(ogImage, 200, { 'content-type': 'image/png' })
-  })
+  const staticAssets = [
+    ['/.well-known/aupm-og.png', 'og-image.png', 'image/png'],
+    ['/favicon.ico', 'favicon.ico', 'image/x-icon'],
+    ['/.well-known/aupm-icon.svg', 'icon.svg', 'image/svg+xml'],
+    ['/.well-known/aupm-apple-touch-icon.png', 'apple-touch-icon.png', 'image/png'],
+  ] as const
+  for (const [route, file, contentType] of staticAssets) {
+    const bytes = readFileSync(new URL(`./assets/${file}`, import.meta.url))
+    app.get(route, (c) => {
+      c.header('cache-control', 'public, max-age=86400')
+      return c.body(bytes, 200, { 'content-type': contentType })
+    })
+  }
 
   // Claims ledger write path (SPEC.md 5.2), registered *before* the
   // payment middleware below so it wraps that middleware's next() call and

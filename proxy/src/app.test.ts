@@ -12,6 +12,7 @@
 // one file can be wiped by another file's beforeEach mid-test.
 
 import { randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { decodePaymentRequiredHeader, encodePaymentSignatureHeader } from '@x402-avm/core/http'
@@ -115,6 +116,13 @@ describe('front page', () => {
       `<meta property="og:image" content="${ISSUER_URL}/.well-known/aupm-og.png">`,
     )
     expect(html).toContain(`<meta property="og:url" content="${ISSUER_URL}/">`)
+    expect(html).toContain(`<link rel="icon" href="${ISSUER_URL}/favicon.ico" sizes="48x48">`)
+    expect(html).toContain(
+      `<link rel="icon" type="image/svg+xml" href="${ISSUER_URL}/.well-known/aupm-icon.svg">`,
+    )
+    expect(html).toContain(
+      `<link rel="apple-touch-icon" href="${ISSUER_URL}/.well-known/aupm-apple-touch-icon.png">`,
+    )
     expect(html).toContain(`<a href="${ISSUER_URL}/.well-known/aupm-keys.json">`)
     expect(html).toContain('https://github.com/TriplEight/AuPM#readme')
   })
@@ -140,6 +148,36 @@ describe('front page', () => {
     expect(res.headers.get('cache-control')).toBe('public, max-age=86400')
     const bytes = new Uint8Array(await res.arrayBuffer())
     expect(Array.from(bytes.slice(0, 8))).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+  })
+
+  test.each([
+    ['/favicon.ico', 'favicon.ico', 'image/x-icon'],
+    ['/.well-known/aupm-icon.svg', 'icon.svg', 'image/svg+xml'],
+    ['/.well-known/aupm-apple-touch-icon.png', 'apple-touch-icon.png', 'image/png'],
+  ])('GET %s serves the icon bytes for free', async (route, file, contentType) => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const res = await app.request(route)
+      expect(res.status).toBe(200)
+      expect(res.headers.get('content-type')).toBe(contentType)
+      expect(res.headers.get('cache-control')).toBe('public, max-age=86400')
+      const expected = readFileSync(new URL(`./assets/${file}`, import.meta.url))
+      expect(Buffer.from(await res.arrayBuffer()).equals(expected)).toBe(true)
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  test('HEAD /favicon.ico returns 200 and does not call npm', async () => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+    try {
+      const res = await app.request('/favicon.ico', { method: 'HEAD' })
+      expect(res.status).toBe(200)
+      expect(spy).not.toHaveBeenCalled()
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   test.each(['/ms', '/lodash'])('%s still passes through to npm', async (path) => {
