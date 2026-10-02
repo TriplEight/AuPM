@@ -1,6 +1,6 @@
 # AuPM changelog
 
-The session log is local-only (`NOTES.local.md`, untracked). This file lists merged changes.
+This file lists merged changes. The session log is not in this repository.
 
 ## 2026-09-29
 - #38 `5e9d315`: multisig submit instructions POST to algod, not `algokit goal clerk rawsend`.

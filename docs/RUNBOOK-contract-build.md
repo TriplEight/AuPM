@@ -115,7 +115,7 @@ Rehearse the full sequence on TestNet, in this order (`SPEC.md` §10.2):
    Check: the script prints a claim txid.
 
 `NETWORK=testnet bash scripts/demo.sh` drives steps 1, 3, 4 and part of 5 end to end against a
-real `.env` (`docs/DEPLOY-GUIDE.local.md` covers the full rehearsal). Check: it prints `DEMO:
+real `.env`. Check: it prints `DEMO:
 PASS`.
 
 ## 7. After a successful build

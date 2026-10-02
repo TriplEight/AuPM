@@ -7,7 +7,7 @@ Part I is the product: the problem, the model, the roles and the phases. Part II
 the MVP for the Global x402 Challenge on Algorand MainNet. Read the whole document before you
 write code. §10 lists the constraints that invalidate parts of the built code.
 
-Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items are tracked in a local-only file.
+Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items are not tracked in this repository.
 
 **Version history**
 - **v2 (2026-09-19):** open questions resolved, claims ledger added, Bazaar config confirmed,
@@ -1070,7 +1070,7 @@ Use the `scope-sentinel` subagent before anything sizable.
 
 ## 17. Work sequence
 
-The work items with acceptance checks are in a local-only file. This section fixes the order and
+The work items with acceptance checks are not in this repository. This section fixes the order and
 the gates.
 
 **P0. Recruit third-party donors (spans the whole plan; owner: the team).** Line up 3–10

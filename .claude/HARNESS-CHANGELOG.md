@@ -5,6 +5,18 @@ Newest first.
 
 ---
 
+## 2026-10-02 — Tracked files name only tracked files
+
+**`/next`, `/handoff`, code comments, older entries of this log.**
+- What: `/next` and `/handoff` now find the work-items file and the session log through
+  `CLAUDE.local.md`. `/handoff` wrote to the public `NOTES.md` by mistake; it now writes to the
+  session log. Code comments no longer cite work-item ids. Older entries of this log name the
+  work-items file by its role.
+- Why: the same rule as the 2026-09-30 entry, applied to every tracked file.
+- Expected effect: `git grep` finds no name of a file that is not in the repository.
+
+---
+
 ## 2026-09-30 — `CLAUDE.md` names only files in the repository
 
 **`CLAUDE.md` pointers.**
@@ -190,10 +202,10 @@ longer hides a CI failure.
 **What.** Updated the agents `x402-proxy-engineer`, `algorand-contract-engineer`,
 `scope-sentinel` and `mcp-payer-engineer`, and the skills `spm-payment-router`,
 `spm-audit-status`, `spm-x402-flow` and `spm-testing` to SPEC v6. Deleted
-`docs/HANDOFF-next-session.md`. The untracked `docs/TASK-testnet-readiness.local.md`
-became the tracked `docs/TASK.md`. `CLAUDE.md` now points at `docs/TASK.md` and lists
+`docs/HANDOFF-next-session.md`. The untracked task file became a tracked work-items file.
+`CLAUDE.md` now points at the work-items file and lists
 the correct worktree sync rule (`git merge --ff-only`, not `git reset --hard`).
-Planned in `docs/TASK.md`: prek (H1), Claude Code hooks (H2), removal of five unused
+Planned in the work-items file: prek (H1), Claude Code hooks (H2), removal of five unused
 Algorand skills (H3).
 
 **Why.** Three agents still described SQLite-as-replaced, SplitRouter and
@@ -209,14 +221,14 @@ one "what next" document, and every developer sees it.
 
 **What.** Added `.claude/commands/next.md`. It holds the session protocol: scope, index-level
 read, plan approval gate, one Sonnet subagent per item, acceptance against the definition of
-done. `docs/TASK.md` § Done became § Definition of done, with per-item and per-session lists
+done. The work-items file § Done became § Definition of done, with per-item and per-session lists
 and the two-fix-attempts escalation rule. Accepted items get `— DONE <sha>` on the heading.
 
 **Why.** The user pasted a long orchestration prompt at the start of each session. Most of it
 duplicated `CLAUDE.md`. The rest (plan gate, fix limit, per-item done criteria) lived nowhere.
 
 **Expected effect.** A session starts with `/next` or `/next Q1 Q5`. Item status survives
-across sessions in `docs/TASK.md`, so no item is done twice.
+across sessions in the work-items file, so no item is done twice.
 
 ## 2026-09-22 — Claude Code hooks (H2) and unused skills removed (H3)
 

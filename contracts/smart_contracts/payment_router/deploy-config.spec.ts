@@ -453,7 +453,7 @@ describe('writeUnsignedTxnFile', () => {
   })
 })
 
-// --- Admin-call multisig builders (ADR 0010, SPEC §10.2a, docs/TASK.md P8b) -------------------
+// --- Admin-call multisig builders (ADR 0010, SPEC §10.2a) -------------------------------------
 
 describe('parseAppId', () => {
   test('refuses an unset value', () => {

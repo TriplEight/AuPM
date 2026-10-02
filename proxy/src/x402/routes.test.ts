@@ -69,7 +69,7 @@ describe('buildRoutes', () => {
   })
 
   // Composed, not a literal, so this regression guard itself never trips
-  // docs/TASK.md Q11's stale-price grep over proxy/src.
+  // a stale-price grep over proxy/src.
   const STALE_FLAT_LOCKFILE_PRICE = ['$', '0.0', '2'].join('')
 
   test("the lockfile route's description states the per-package price, never the old flat rate", () => {
