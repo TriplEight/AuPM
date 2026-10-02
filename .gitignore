@@ -1,15 +1,33 @@
 node_modules/
 dist/
+build/
+coverage/
+logs/
 *.db
+*.log
+*.tsbuildinfo
+.eslintcache
+.DS_Store
+.idea/
+.rtk/cache
+
+# dotenv files. Only .env.example and the AlgoKit templates are tracked.
 .env
 .env.local
+.env.development.*
+.env.test.*
+.env.production.*
 stack.env
-.DS_Store
-*.log
-.rtk/cache
 
 # Personal Claude Code settings. Biome reads only this file, not the global git ignore.
 .claude/settings.local.json
 
 # Subagent git worktrees.
 .claude/worktrees/
+
+# AlgoKit (contracts/)
+*.received.*
+contracts/debug_traces/
+# Use contracts/.algokit/static-analysis/tealer/ instead to enable snapshot checks in CI.
+contracts/.algokit/static-analysis/
+contracts/.algokit/sources
