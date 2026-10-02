@@ -210,6 +210,12 @@ describe('POST /v1/attest/lockfile', () => {
     expect(res.status).toBe(400)
   })
 
+  test('an empty body reaches the handler, which answers 400', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', { method: 'POST' })
+    expect(res.status).toBe(400)
+  })
+
   test('lockfileVersion 1 returns 400', async () => {
     const { app } = buildTestApp()
     const res = await app.request('/v1/attest/lockfile', {
@@ -722,6 +728,12 @@ describe('GET /v1/attest', () => {
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
     expect(statement.subject[0]?.name).toBe('pkg:npm/@babel/core@7.25.2')
+  })
+
+  test('an empty request reaches the handler, which answers 400', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest')
+    expect(res.status).toBe(400)
   })
 
   test('missing query params return 400', async () => {
