@@ -93,7 +93,8 @@ export function upgradeBatchSchema(handle: Database.Database, legacyAppId: numbe
     if (legacy.n > 0 && legacyAppId === null) {
       throw new Error(
         'upgradeBatchSchema: batches has rows from before per-app numbering (ADR 0014) but ' +
-          'PAYMENT_ROUTER_APP_ID is unset. Set it to the app that received those credits, then boot.',
+          'PAYMENT_ROUTER_APP_ID is unset. Set it to the app that received those credits, ' +
+          'then boot.',
       )
     }
     handle.exec('ALTER TABLE batches RENAME TO batches_old')
