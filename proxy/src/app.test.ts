@@ -313,11 +313,16 @@ describe('x402 gate', () => {
     expect(header).toBeTruthy()
     const paymentRequired = decodePaymentRequiredHeader(header as string) as unknown as {
       accepts: Array<{ extra?: { asset?: string; feePayer?: string; tag?: string } }>
+      extensions?: Record<string, { info?: { name?: string; logo?: string } }>
     }
     const option = paymentRequired.accepts[0]
     expect(option?.extra?.asset).toBe(USDC_ASA_ID)
     expect(option?.extra?.feePayer).toBe(FEE_PAYER)
     expect(option?.extra?.tag).toBe(TAG)
+    // The facilitator reads the merchant card name and logo from this extension.
+    const merchant = paymentRequired.extensions?.['x402-merchant']?.info
+    expect(merchant?.name).toBe('AuPM')
+    expect(merchant?.logo).toBe('https://aupm-verify.invalid/.well-known/aupm-apple-touch-icon.png')
   })
 
   test('reviewed scoped package tarball, X-AuPM-Donate: 1: returns 402', async () => {
