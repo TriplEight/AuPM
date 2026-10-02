@@ -48,7 +48,7 @@ This runs two steps, both defined in `contracts/package.json`:
 node -e "const j=require('./contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json'); console.log(j.methods.map(m=>m.name).join(' '))"
 ```
 Check: prints exactly `createApplication setCrediter setIdentity credit claim
-releaseAuthority`. Order may differ. The set must not. If any other method name appears, the
+announceRelease executeRelease`. Order may differ. The set must not. If any other method name appears, the
 build did not run against the current source — stop and repeat step 3.
 
 ## 5. Run the checks
