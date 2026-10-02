@@ -274,13 +274,14 @@ export async function runCreditStep(
   const appIdRaw = env.PAYMENT_ROUTER_APP_ID
   if (!appIdRaw) return { ran: false, reason: 'app-id-unset' }
   const appId = BigInt(appIdRaw)
+  const ledgerApp = Number(appId)
 
   const payTo = env.PAY_TO_ADDRESS ?? ''
   if (!payTo || !(await client.isPayToRekeyed(appId, payTo))) {
     return { ran: false, reason: 'payto-not-rekeyed' }
   }
 
-  const pending = getPendingBatch()
+  const pending = getPendingBatch(ledgerApp)
   if (pending) {
     const onChainLastBatchSeq = await client.getOnChainLastBatchSeq(appId)
     if (onChainLastBatchSeq >= pending.batch_seq) {
@@ -295,16 +296,16 @@ export async function runCreditStep(
             'its txid with recordBatchCreditTxid before the next nightly run.',
         )
       }
-      recordBatchCreditTxid(pending.batch_seq, creditTxid)
+      recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
       return { ran: true, batchSeq: pending.batch_seq, creditTxid }
     }
 
-    const { entries } = summarizeBatch(pending.batch_seq)
+    const { entries } = summarizeBatch(ledgerApp, pending.batch_seq)
     if (entries.length > MAX_CREDIT_ENTRIES) {
       // The chain has not credited this batch (checked above), and a credit()
       // call with this many entries exceeds the opcode budget, so no earlier
       // attempt can ever confirm. Release its rows and plan within the limit.
-      releaseBatch(pending.batch_seq)
+      releaseBatch(ledgerApp, pending.batch_seq)
     } else {
       assertEntriesMatchAuditorShare(pending.attributed_micro, entries)
       const creditTxid = await client.submitCredit(
@@ -314,7 +315,7 @@ export async function runCreditStep(
         pending.unattributed_micro,
         entries,
       )
-      recordBatchCreditTxid(pending.batch_seq, creditTxid)
+      recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
       return { ran: true, batchSeq: pending.batch_seq, creditTxid }
     }
   }
@@ -328,8 +329,8 @@ export async function runCreditStep(
   const planned = groupForCredit(chunk)
   assertEntriesMatchAuditorShare(planned.attributedMicro, planned.entries)
 
-  const batchSeq = getLastBatchSeq() + 1
-  const totals = openBatch(batchSeq, chunk)
+  const batchSeq = getLastBatchSeq(ledgerApp) + 1
+  const totals = openBatch(ledgerApp, batchSeq, chunk)
 
   const creditTxid = await client.submitCredit(
     appId,
@@ -338,7 +339,7 @@ export async function runCreditStep(
     totals.unattributedMicro,
     totals.entries,
   )
-  recordBatchCreditTxid(batchSeq, creditTxid)
+  recordBatchCreditTxid(ledgerApp, batchSeq, creditTxid)
   return { ran: true, batchSeq, creditTxid }
 }
 

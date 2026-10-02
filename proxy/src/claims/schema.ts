@@ -7,6 +7,7 @@
 // creates its own tables on it.
 
 import { randomUUID } from 'node:crypto'
+import type Database from 'better-sqlite3'
 import db from '../db.js'
 
 db.exec(`
@@ -23,16 +24,16 @@ db.exec(`
   )
 `)
 
-// Upgrade guard: an existing audit.db predates the `repo` and `batch_seq`
-// columns (SPEC.md §13.2). Add them in place rather than recreating the
-// table, so a deployed database upgrades without losing its rows. Safe to
-// run on every boot — it only runs an ALTER when the column is still
-// missing. `repo` is the GitHub `owner/repo` (or `npm:<name>`) key the
-// accrual's package was reviewed under, resolved from `audit_status` at
-// write time (see ledger.ts's resolveRepoForPackage); an unassigned row
-// (no package) carries `''`. `batch_seq` is NULL until the nightly credit
-// step assigns the row to a numbered batch (ADR 0005) — it is never set at
-// write time.
+// Upgrade guard: an existing audit.db predates the `repo`, `batch_seq` and
+// `batch_app_id` columns (SPEC.md §13.2). Add them in place rather than
+// recreating the table, so a deployed database upgrades without losing its
+// rows. Each ALTER runs only when its column is still missing. `repo` is the
+// GitHub `owner/repo` (or `npm:<name>`) key the accrual's package was
+// reviewed under, resolved from `audit_status` at write time (see ledger.ts's
+// resolveRepoForPackage); an unassigned row (no package) carries `''`.
+// `batch_app_id` and `batch_seq` are NULL until the nightly credit step
+// assigns the row to a numbered batch of one PaymentRouter app (ADR 0005,
+// ADR 0014) — they are never set at write time.
 const accrualColumns = db.prepare('PRAGMA table_info(accruals)').all() as { name: string }[]
 if (!accrualColumns.some((column) => column.name === 'repo')) {
   db.exec('ALTER TABLE accruals ADD COLUMN repo TEXT')
@@ -41,20 +42,81 @@ if (!accrualColumns.some((column) => column.name === 'batch_seq')) {
   db.exec('ALTER TABLE accruals ADD COLUMN batch_seq INTEGER')
 }
 
-// One row per numbered credit() batch (SPEC.md §13.2, ADR 0005). A row
-// with `credit_txid` still NULL means the crediter assigned accrual rows
-// to this batch but the on-chain call has not yet confirmed — a crash in
-// that window. The nightly credit step resends exactly that batch; it
-// never opens a new one while one is pending (see credit.ts).
-db.exec(`
-  CREATE TABLE IF NOT EXISTS batches (
-    batch_seq          INTEGER PRIMARY KEY,
+// One row per numbered credit() batch of one PaymentRouter app (SPEC.md
+// §13.2, ADR 0005, ADR 0014). A row with `credit_txid` still NULL means the
+// crediter assigned accrual rows to this batch but the on-chain call has not
+// yet confirmed — a crash in that window. The nightly credit step resends
+// exactly that batch; it never opens a new one while one is pending (see
+// credit.ts).
+const BATCHES_DDL = `
+  CREATE TABLE batches (
+    app_id             INTEGER NOT NULL,
+    batch_seq          INTEGER NOT NULL,
     attributed_micro   INTEGER NOT NULL,
     unattributed_micro INTEGER NOT NULL,
     credit_txid        TEXT,
-    created_at         INTEGER NOT NULL
+    created_at         INTEGER NOT NULL,
+    PRIMARY KEY (app_id, batch_seq)
   )
-`)
+`
+
+/**
+ * Brings `batches` and the accrual batch columns to the per-app shape of
+ * ADR 0014: batches keyed by `(app_id, batch_seq)`, accruals pointing at
+ * their batch by `batch_app_id` and `batch_seq`. A database that has the old
+ * shape keeps every row, and every existing batch and batched accrual goes
+ * to `legacyAppId`, the one app that received every credit before this
+ * change. SQLite cannot change a primary key in place, so the old table is
+ * rebuilt inside one transaction. A database already in the new shape is
+ * not touched, so the upgrade is safe on every boot.
+ *
+ * A row in a batch with a NULL `batch_seq` never exists; rows still waiting
+ * for a batch keep `batch_app_id` NULL.
+ */
+export function upgradeBatchSchema(handle: Database.Database, legacyAppId: number | null): void {
+  const accrualNames = (
+    handle.prepare('PRAGMA table_info(accruals)').all() as { name: string }[]
+  ).map((column) => column.name)
+  const batchNames = (handle.prepare('PRAGMA table_info(batches)').all() as { name: string }[]).map(
+    (column) => column.name,
+  )
+  const upgrade = handle.transaction(() => {
+    if (!accrualNames.includes('batch_app_id')) {
+      handle.exec('ALTER TABLE accruals ADD COLUMN batch_app_id INTEGER')
+    }
+    if (batchNames.length === 0) {
+      handle.exec(BATCHES_DDL)
+      return
+    }
+    if (batchNames.includes('app_id')) return
+    const legacy = handle.prepare('SELECT COUNT(*) AS n FROM batches').get() as { n: number }
+    if (legacy.n > 0 && legacyAppId === null) {
+      throw new Error(
+        'upgradeBatchSchema: batches has rows from before per-app numbering (ADR 0014) but ' +
+          'PAYMENT_ROUTER_APP_ID is unset. Set it to the app that received those credits, ' +
+          'then boot.',
+      )
+    }
+    handle.exec('ALTER TABLE batches RENAME TO batches_old')
+    handle.exec(BATCHES_DDL)
+    handle
+      .prepare(
+        `INSERT INTO batches (app_id, batch_seq, attributed_micro, unattributed_micro,
+                              credit_txid, created_at)
+         SELECT ?, batch_seq, attributed_micro, unattributed_micro, credit_txid, created_at
+         FROM batches_old`,
+      )
+      .run(legacyAppId)
+    handle.exec('DROP TABLE batches_old')
+    handle
+      .prepare('UPDATE accruals SET batch_app_id = ? WHERE batch_seq IS NOT NULL')
+      .run(legacyAppId)
+  })
+  upgrade()
+}
+
+const configuredAppId = process.env.PAYMENT_ROUTER_APP_ID
+upgradeBatchSchema(db, configuredAppId ? Number(configuredAppId) : null)
 
 // One row per manual, human-checked payout (SPEC.md 5.3 step 5). Signed
 // locally from the cold pool key, never by the server.
@@ -80,11 +142,14 @@ export type AccrualRow = {
   identity: string
   amount_micro: number
   /** NULL until the nightly credit step assigns this row to a batch. */
+  batch_app_id: number | null
+  /** NULL until the nightly credit step assigns this row to a batch. */
   batch_seq: number | null
   created_at: number
 }
 
 export type BatchRow = {
+  app_id: number
   batch_seq: number
   attributed_micro: number
   unattributed_micro: number
