@@ -20,7 +20,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const PROXY_ROOT = path.resolve(__dirname, '..')
 const INDEX_ENTRY = path.join(__dirname, 'index.ts')
 
-const SUBPROCESS_TIMEOUT_MS = 10_000
+// A cold `node --import tsx/esm` start takes more than 10 s on a loaded host,
+// so the guard tests flaked there. The limit only caps a hanging child.
+const SUBPROCESS_TIMEOUT_MS = 30_000
 
 // A real, checksum-valid Algorand address, generated fresh (never funded,
 // never used on-chain) — used wherever a test needs PAY_TO_ADDRESS to
