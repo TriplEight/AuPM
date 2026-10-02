@@ -21,6 +21,11 @@ describe('buildFrontPage', () => {
     )
   })
 
+  test('declares the brand gold as the theme color', () => {
+    const html = buildFrontPage('https://x.invalid', 'desc')
+    expect(html).toContain('<meta name="theme-color" content="#be8923">')
+  })
+
   test('escapes the issuer in the icon links', () => {
     const html = buildFrontPage('https://x.invalid/"<&', 'desc')
     expect(html).toContain('href="https://x.invalid/&quot;&lt;&amp;/favicon.ico"')
