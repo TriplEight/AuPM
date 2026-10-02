@@ -28,6 +28,8 @@ const {
 const { setStatus } = await import('../status.js')
 type Attribution = import('./attribution-rules.js').Attribution
 
+const APP = 5
+
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
   db.exec('DELETE FROM batches')
@@ -223,12 +225,14 @@ describe('openBatch', () => {
     const rows = listUncreditedAccruals()
     const msRows = rows.filter((r) => r.pkg === 'ms')
 
-    const totals = openBatch(1, msRows)
+    const totals = openBatch(APP, 1, msRows)
 
     expect(totals.attributedMicro).toBe(1000)
     expect(totals.entries).toEqual([{ repo: '', identity: 'github:alice', amountMicro: 300 }])
     expect(listUncreditedAccruals()).toHaveLength(rows.length - msRows.length)
-    expect(db.prepare('SELECT attributed_micro FROM batches WHERE batch_seq = 1').get()).toEqual({
+    expect(
+      db.prepare('SELECT attributed_micro FROM batches WHERE app_id = 5 AND batch_seq = 1').get(),
+    ).toEqual({
       attributed_micro: 1000,
     })
   })
@@ -237,11 +241,12 @@ describe('openBatch', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-TWICE')
     const rows = listUncreditedAccruals()
     openBatch(
+      APP,
       1,
       rows.filter((r) => r.pkg === 'ms'),
     )
 
-    expect(() => openBatch(2, rows)).toThrow(/already in a batch; batch 2 was not opened/)
+    expect(() => openBatch(APP, 2, rows)).toThrow(/already in a batch; batch 2 was not opened/)
     expect(countBatches()).toEqual({ n: 1 })
     expect(listUncreditedAccruals()).toHaveLength(rows.filter((r) => r.pkg !== 'ms').length)
   })
@@ -253,9 +258,9 @@ describe('releaseBatch', () => {
   test('a pending batch: its rows return to uncredited and its batch row is deleted', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-RELEASE')
     const rows = listUncreditedAccruals()
-    openBatch(1, rows)
+    openBatch(APP, 1, rows)
 
-    releaseBatch(1)
+    releaseBatch(APP, 1)
 
     expect(countBatches()).toEqual({ n: 0 })
     expect(listUncreditedAccruals()).toHaveLength(rows.length)
@@ -263,15 +268,15 @@ describe('releaseBatch', () => {
 
   test('a credited batch: throws and changes nothing', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-CREDITED')
-    openBatch(1, listUncreditedAccruals())
-    recordBatchCreditTxid(1, 'CREDIT-TXID')
+    openBatch(APP, 1, listUncreditedAccruals())
+    recordBatchCreditTxid(APP, 1, 'CREDIT-TXID')
 
-    expect(() => releaseBatch(1)).toThrow(/batch 1 is missing or already credited/)
+    expect(() => releaseBatch(APP, 1)).toThrow(/batch 1 is missing or already credited/)
     expect(countBatches()).toEqual({ n: 1 })
     expect(listUncreditedAccruals()).toHaveLength(0)
   })
 
   test('a missing batch: throws', () => {
-    expect(() => releaseBatch(7)).toThrow(/batch 7 is missing or already credited/)
+    expect(() => releaseBatch(APP, 7)).toThrow(/batch 7 is missing or already credited/)
   })
 })
