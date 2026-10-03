@@ -20,7 +20,7 @@ export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 // out of sync — CLAUDE.md invariant 7). The `accepts`
 // price field stays a literal dollar string: that one is x402 protocol
 // data the facilitator parses, not display text.
-const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
+export const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 
 // SPEC §6.2 disclosure rule: every public text (README, `og:description`,
 // Bazaar descriptions) shows both the target split and the MVP split — one
@@ -29,7 +29,7 @@ const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 // Never claim the maintainer's target share is paid out today: in the MVP
 // it is unclaimed ops income until that role onboards (CLAUDE.md invariant 8).
 const { auditorPercent: MVP_AUDITOR_PERCENT, opsPercent: MVP_OPS_PERCENT } = mvpSplit()
-const SPLIT_DISCLOSURE =
+export const SPLIT_DISCLOSURE =
   `Target split ${targetSplitRow()}. In the MVP: ${MVP_AUDITOR_PERCENT}% to the auditor, ` +
   `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
 
@@ -50,10 +50,10 @@ function merchantExtension(): Record<string, unknown> {
   return {
     'x402-merchant': {
       info: {
-        name: 'AuPM',
+        name: MERCHANT_NAME,
         website: ISSUER,
-        logo: `${ISSUER}/.well-known/aupm-apple-touch-icon.png`,
-        categories: ['npm', 'security', 'supply-chain', 'code-review'],
+        logo: `${ISSUER}${MERCHANT_LOGO_PATH}`,
+        categories: MERCHANT_CATEGORIES,
       },
       schema: {
         $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -69,6 +69,22 @@ function merchantExtension(): Record<string, unknown> {
     },
   }
 }
+
+// Bazaar route descriptions. The discovery routes (proxy/src/discovery.ts)
+// read the same constants.
+export const LOCKFILE_DESCRIPTION =
+  'Signed in-toto attestation for every package in a package-lock.json: human ' +
+  'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
+  `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
+  `is reviewed. ${SPLIT_DISCLOSURE}`
+export const SINGLE_ATTEST_DESCRIPTION =
+  'Signed human-review attestation for one npm package version (query: name, ' +
+  `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`
+
+// Merchant card values. The descriptor at /.well-known/x402 reads them too.
+export const MERCHANT_NAME = 'AuPM'
+export const MERCHANT_CATEGORIES = ['npm', 'security', 'supply-chain', 'code-review']
+export const MERCHANT_LOGO_PATH = '/.well-known/aupm-apple-touch-icon.png'
 
 export type AupmRouteKey =
   | typeof LOCKFILE_ROUTE_KEY
@@ -99,11 +115,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
   return {
     [LOCKFILE_ROUTE_KEY]: {
       accepts: accepts(lockfileDynamicPrice, feePayer),
-      description:
-        'Signed in-toto attestation for every package in a package-lock.json: human ' +
-        'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-        `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
-        `is reviewed. ${SPLIT_DISCLOSURE}`,
+      description: LOCKFILE_DESCRIPTION,
       mimeType: 'application/json',
       extensions: {
         ...merchantExtension(),
@@ -137,9 +149,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
     },
     [SINGLE_ATTEST_ROUTE_KEY]: {
       accepts: accepts('$0.001', feePayer),
-      description:
-        'Signed human-review attestation for one npm package version (query: name, ' +
-        `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+      description: SINGLE_ATTEST_DESCRIPTION,
       mimeType: 'application/json',
       extensions: {
         ...merchantExtension(),
