@@ -603,6 +603,8 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 | `GET /api/v1/status/...` | free |
 | `GET /api/v1/earnings/github/:login` | free (ledger read) |
 | `GET /.well-known/aupm-keys.json` | free (attestation pubkeys) |
+| `GET /.well-known/x402` | free (x402 descriptor of the paid routes) |
+| `GET /llms.txt` | free (agent guide) |
 
 **Entry type: Composite.** All routes share one payTo → one merchant entry, each route listed in
 the Bazaar.
@@ -829,6 +831,9 @@ anchors, so it is signed by an **AuPM attestation key**:
 - Hot key on the server by necessity. Separate from payTo/admin/crediter keys.
 - Published at `/.well-known/aupm-keys.json`: `[{ keyid, publicKey, validFrom, validUntil }]`.
   Rotation = append.
+- Two free discovery routes, `GET /.well-known/x402` (JSON descriptor) and `GET /llms.txt`
+  (markdown guide), list the paid routes. The proxy builds both at start from the route
+  config. They never return 402 and never reach the npm passthrough.
 
 Auditor keys never live on the server.
 

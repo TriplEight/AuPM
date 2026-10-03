@@ -22,6 +22,8 @@ export function buildFrontPage(issuer: string, description: string): string {
   const image = escapeHtml(`${issuer}/.well-known/aupm-og.png`)
   const url = escapeHtml(`${issuer}/`)
   const keys = escapeHtml(`${issuer}/.well-known/aupm-keys.json`)
+  const llms = escapeHtml(`${issuer}/llms.txt`)
+  const descriptor = escapeHtml(`${issuer}/.well-known/x402`)
   const favicon = escapeHtml(`${issuer}/favicon.ico`)
   const svgIcon = escapeHtml(`${issuer}/.well-known/aupm-icon.svg`)
   const touchIcon = escapeHtml(`${issuer}/.well-known/aupm-apple-touch-icon.png`)
@@ -43,6 +45,8 @@ export function buildFrontPage(issuer: string, description: string): string {
 <link rel="icon" href="${favicon}" sizes="48x48">
 <link rel="icon" type="image/svg+xml" href="${svgIcon}">
 <link rel="apple-touch-icon" href="${touchIcon}">
+<link rel="alternate" type="text/markdown" href="${llms}">
+<link rel="alternate" type="application/json" href="${descriptor}">
 </head>
 <body>
 <h1>${escapeHtml(SITE_NAME)}</h1>

@@ -13,6 +13,7 @@ import type { RateLimiter } from './attest/ratelimit.js'
 import { claimsLedgerMiddleware } from './claims/middleware.js'
 import { createClaimsRouter } from './claims/routes.js'
 import { ATTEST_SIGNING_KEY_VALID_FROM, getAttestationSigningKey, ISSUER } from './config.js'
+import { buildLlmsTxt, buildX402Descriptor } from './discovery.js'
 import { buildFrontPage } from './front-page.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
@@ -128,6 +129,21 @@ export function createApp(
       return c.body(bytes, 200, { 'content-type': contentType })
     })
   }
+
+  // Free discovery documents, built once at start like the front page. They
+  // list the paid routes from the route config. WARNING: they must never
+  // return 402 and never reach the npm passthrough. `llms.txt` is a valid
+  // npm package name. No such package exists today. This route shadows it.
+  const x402Descriptor = buildX402Descriptor()
+  const llmsTxt = buildLlmsTxt()
+  app.get('/.well-known/x402', (c) => {
+    c.header('cache-control', 'public, max-age=3600')
+    return c.json(x402Descriptor)
+  })
+  app.get('/llms.txt', (c) => {
+    c.header('cache-control', 'public, max-age=3600')
+    return c.body(llmsTxt, 200, { 'content-type': 'text/markdown; charset=utf-8' })
+  })
 
   // Claims ledger write path (SPEC.md 5.2), registered *before* the
   // payment middleware below so it wraps that middleware's next() call and
