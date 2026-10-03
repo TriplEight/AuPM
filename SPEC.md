@@ -541,9 +541,11 @@ Confirmed by reading `proxy/node_modules/@x402-avm/hono/dist/esm/index.mjs`:
 
 Keep the pre-middleware 400 validation anyway: a caller never builds and signs a payment for a
 request that cannot succeed. One exception (ADR 0013): an empty request gets the 402 challenge
-at the price of one reviewed package. Empty means a 0-byte body on `POST /v1/attest/lockfile`,
-or neither `name` nor `version` on `GET /v1/attest`. A paid retry with an empty request gets 400
-and is never charged (point 2). With `X-AuPM-Donate: 0`, an empty request gets 400.
+at the price of one reviewed package. Empty means, on `POST /v1/attest/lockfile`, a body of
+zero bytes, a body of only JSON whitespace, or a body that is a JSON object with no keys (`{}`,
+with any surrounding whitespace). `null`, `[]` and every other body are not empty. On
+`GET /v1/attest`, empty means neither `name` nor `version`. A paid retry with an empty request
+gets 400 and is never charged (point 2). With `X-AuPM-Donate: 0`, an empty request gets 400.
 
 ### 10.6 USDC must be explicit; fee payer must be advertised
 
@@ -881,7 +883,7 @@ shape with one package.
 - `integrityMatch: false` → tier reported as `INTEGRITY_MISMATCH`, never `COMMUNITY_REVIEWED`.
 - Git, tarball-URL, or non-npm `resolved` entries → `UNRESOLVABLE`.
 - Limits: body ≤ 5 MB, ≤ 10,000 entries, `lockfileVersion` 2 or 3; otherwise 400
-  (pre-middleware, before any 402 — §10.5). An empty body gets 402 first (ADR 0013).
+  (pre-middleware, before any 402 — §10.5). An empty body (§10.5) gets 402 first (ADR 0013).
 - **`predicate.packages` lists only reviewed, `INTEGRITY_MISMATCH`, and `UNRESOLVABLE` entries.**
   `summary` carries the counts; `predicate.absentMeans: "UNREVIEWED"`.
 - `anchorTxid` is the review anchor (§14): a transaction whose sender is the auditor's address.

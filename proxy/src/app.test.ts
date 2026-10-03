@@ -1148,6 +1148,69 @@ describe('empty attestation request (402 first)', () => {
     },
   )
 
+  test.each(['{}', '  {} ', '\n', '{\r\n\t}', ' \t\r\n'])(
+    'POST /v1/attest/lockfile with body %j: 402 for one reviewed package',
+    async (body) => {
+      const res = await app.request('/v1/attest/lockfile', { method: 'POST', body })
+      expect(res.status).toBe(402)
+      const challenge = decodePaymentRequiredHeader(
+        res.headers.get('PAYMENT-REQUIRED') as string,
+      ) as unknown as Challenge
+      const option = challenge.accepts[0]
+      expect(option?.amount).toBe('1000')
+      expect(option?.extra?.asset).toBe(USDC_ASA_ID)
+      expect(option?.extra?.feePayer).toBe(FEE_PAYER)
+      expect(option?.extra?.tag).toBe(TAG)
+      expect(challenge.extensions?.['x402-merchant']?.info?.name).toBe('AuPM')
+    },
+  )
+
+  test('POST /v1/attest/lockfile with body {} and X-AuPM-Donate: 0: 400, never 402', async () => {
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'X-AuPM-Donate': '0' },
+    })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test.each(['null', '[]', '{"lockfileVersion":1}', '{"a":1}', '{} x', '{'])(
+    'POST /v1/attest/lockfile with body %j: 400, never 402',
+    async (body) => {
+      const res = await app.request('/v1/attest/lockfile', { method: 'POST', body })
+      expect(res.status).toBe(400)
+      expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    },
+  )
+
+  test('POST /v1/attest/lockfile paid retry with body {}: 400 and never settled', async () => {
+    const settle = vi.fn(stubSuccessFacilitatorClient().settle)
+    const client = { ...stubSuccessFacilitatorClient(), settle }
+    const { httpServer: paidHttpServer } = buildHttpServer(client, FEE_PAYER)
+    const paidApp = createApp(paidHttpServer)
+    const url = '/v1/attest/lockfile'
+
+    const unpaid = await paidApp.request(url, { method: 'POST', body: '{}' })
+    expect(unpaid.status).toBe(402)
+    const challenge = decodePaymentRequiredHeader(
+      unpaid.headers.get('PAYMENT-REQUIRED') as string,
+    ) as unknown as Challenge
+    const paymentSignature = encodePaymentSignatureHeader({
+      x402Version: 2,
+      accepted: challenge.accepts[0],
+      payload: {},
+    } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
+
+    const paid = await paidApp.request(url, {
+      method: 'POST',
+      body: '{}',
+      headers: { 'PAYMENT-SIGNATURE': paymentSignature },
+    })
+    expect(paid.status).toBe(400)
+    expect(settle).not.toHaveBeenCalled()
+  })
+
   test.each(emptyRequests)('%s with X-AuPM-Donate: 0: 400, never 402', async (_n, url, init) => {
     const res = await app.request(url, { ...init, headers: { 'X-AuPM-Donate': '0' } })
     expect(res.status).toBe(400)
