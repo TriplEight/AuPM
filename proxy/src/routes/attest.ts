@@ -72,6 +72,15 @@ export const ANALYSIS_KEY = 'aupmLockfileAnalysis' as const
 // The handler answers such a request with 400, so it is never settled.
 export const EMPTY_REQUEST_KEY = 'aupmEmptyRequest' as const
 
+// ADR 0013: an empty lockfile request is a body with only JSON whitespace,
+// or a body that is exactly one JSON object with no keys. The pattern equals
+// a parse to `{}` and needs no second parse. `null` and `[]` do not match.
+const EMPTY_LOCKFILE_BODY = /^[ \t\r\n]*(?:\{[ \t\r\n]*\})?[ \t\r\n]*$/
+
+function isEmptyLockfileBody(bytes: Uint8Array): boolean {
+  return EMPTY_LOCKFILE_BODY.test(new TextDecoder().decode(bytes))
+}
+
 const EMPTY_LOCKFILE_ERROR = 'request body is empty: send a package-lock.json'
 const EMPTY_SINGLE_ERROR = 'query parameters "name" and "version" are required'
 
@@ -506,8 +515,8 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (!limited.ok) {
       return limited.response
     }
-    if (limited.bytes.length === 0) {
-      // ADR 0013: a bodyless probe gets the 402 challenge, unless the
+    if (isEmptyLockfileBody(limited.bytes)) {
+      // ADR 0013: a bodyless or `{}` probe gets the 402 challenge, unless the
       // caller asked for the free path, which never returns 402.
       if (requestedPartial(c)) return c.json({ error: EMPTY_LOCKFILE_ERROR }, 400)
       c.set(EMPTY_REQUEST_KEY, true)
