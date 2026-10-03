@@ -1028,6 +1028,88 @@ describe('.well-known/aupm-keys.json', () => {
     expect(verified).toBe(true)
   })
 })
+describe('discovery routes', () => {
+  const ISSUER_ORIGIN = 'https://aupm-verify.invalid'
+  const donateHeaders: Record<string, string>[] = [{}, { 'X-AuPM-Donate': '1' }]
+
+  test.each(donateHeaders)('both routes answer 200 and never reach npm (%j)', async (headers) => {
+    const spy = vi.spyOn(globalThis, 'fetch')
+    const descriptor = await app.request('/.well-known/x402', { headers })
+    const llms = await app.request('/llms.txt', { headers })
+    expect(descriptor.status).toBe(200)
+    expect(descriptor.headers.get('content-type')).toContain('application/json')
+    expect(llms.status).toBe(200)
+    expect(llms.headers.get('content-type')).toBe('text/markdown; charset=utf-8')
+    expect(spy).not.toHaveBeenCalled()
+    spy.mockRestore()
+  })
+
+  test('descriptor resources equal the paid route table', async () => {
+    const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } = await import(
+      './x402/routes.js'
+    )
+    const { PRICE_PER_REVIEWED_PACKAGE_MICRO } = await import('./routes/attest.js')
+    const routes = buildRoutes(FEE_PAYER)
+    const body = (await (await app.request('/.well-known/x402')).json()) as {
+      resources: Record<string, unknown>[]
+      tags: string[]
+    }
+    expect(body.tags).toContain(TAG)
+    const expected = ([LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY] as const).map((key) => {
+      const [method, route] = key.split(' ')
+      const accepts = routes[key].accepts as unknown as {
+        network: string
+        payTo: string
+        extra: { asset: string }
+      }
+      return {
+        url: `${ISSUER_ORIGIN}${route}`,
+        method,
+        network: accepts.network,
+        asset: accepts.extra.asset,
+        amount: String(PRICE_PER_REVIEWED_PACKAGE_MICRO),
+        payTo: accepts.payTo,
+      }
+    })
+    const actual = body.resources.map(({ url, method, network, asset, amount, payTo }) => ({
+      url,
+      method,
+      network,
+      asset,
+      amount,
+      payTo,
+    }))
+    expect(actual).toEqual(expected)
+    const keys = [LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY] as const
+    keys.forEach((key, index) => {
+      expect(body.resources[index]?.description).toContain(routes[key].description as string)
+    })
+    expect(body.resources[0]?.description).toContain('1,000 µUSDC per reviewed entry')
+    expect(body.resources[0]?.description).toContain('0 reviewed entries: free')
+  })
+
+  test('llms.txt carries the split disclosure and the one price text', async () => {
+    const { PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
+    const text = await (await app.request('/llms.txt')).text()
+    expect(text).toContain(SPLIT_DISCLOSURE)
+    expect(text).toContain(PRICE_TEXT)
+    expect(text).toContain(`${ISSUER_ORIGIN}/.well-known/x402`)
+    expect(text).toContain('GET /v1/attest?name=@babel/core&version=7.25.2')
+    const prices = text.match(/\$\d[\d.,]*/g) ?? []
+    expect(new Set(prices)).toEqual(new Set([PRICE_TEXT]))
+  })
+
+  test('front page links both discovery documents', async () => {
+    const html = await (await app.request('/')).text()
+    expect(html).toContain(
+      `<link rel="alternate" type="text/markdown" href="${ISSUER_ORIGIN}/llms.txt">`,
+    )
+    expect(html).toContain(
+      `<link rel="alternate" type="application/json" href="${ISSUER_ORIGIN}/.well-known/x402">`,
+    )
+  })
+})
+
 describe('x402 resource URL', () => {
   const ISSUER_ORIGIN = 'https://aupm-verify.invalid'
 
