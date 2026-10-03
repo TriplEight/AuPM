@@ -13,3 +13,8 @@ paid retry with an empty request is never charged: the handler answers 400, and 
 skips settlement when the handler returns 400 or more (SPEC §10.5 point 2). Invariant 4 holds:
 an empty request carries no content. We rejected 402 for every invalid request, because a
 caller must never build and sign a payment for a request that cannot succeed.
+
+Amendment 2026-10-03: the facilitator doctor sends `{}` to `POST /v1/attest/lockfile` and
+expects 402. Empty now also covers a body of only JSON whitespace and a body that is a JSON
+object with no keys. `null` and `[]` stay 400. They are not a probe shape, and a lockfile is an
+object.
