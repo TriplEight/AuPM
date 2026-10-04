@@ -32,6 +32,12 @@ outputs:
   output-path:
     description: 'Path to the written signed receipt file.'
     value: ${{ inputs.output }}
+  settlement-txid:
+    description: 'The settlement txid of the donation. Empty when nothing was paid.'
+    value: ${{ steps.donate.outputs.settlement-txid }}
+  donated-micro-usdc:
+    description: 'The donated amount in microUSDC. Empty when nothing was paid.'
+    value: ${{ steps.donate.outputs.donated-micro-usdc }}
 runs:
   using: 'composite'
   steps:
@@ -59,6 +65,7 @@ runs:
       run: npm exec --yes --package=pnpm@12.5.1 -- pnpm install --frozen-lockfile --filter aupm... --filter aupm-mcp...
 
     - name: Check and donate to reviewed packages
+      id: donate
       shell: bash
       env:
         ENDPOINT: ${{ inputs.endpoint }}

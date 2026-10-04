@@ -1,11 +1,20 @@
 import assert from 'node:assert/strict'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
   buildCliArgs,
+  formatUsdc,
   parseSummaryFromStdout,
   reportDonation,
   resolveOptions,
@@ -13,6 +22,8 @@ import {
 } from './run.mjs'
 
 const CANARY_MNEMONIC = 'canary abandon abandon abandon abandon abandon abandon do-not-leak-4f9c'
+// A well-formed Algorand txid: 52 base32 characters.
+const DONATED_TXID = 'TXIDDONATEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
 /**
  * Writes a fake `npm` executable to a temp bin directory and returns its
@@ -42,8 +53,8 @@ if (mode === 'error') {
   process.exit(0)
 } else if (mode === 'donated') {
   process.stdout.write('attestation written to out.json\\n')
-  process.stdout.write('donated $0.03 (30000 microUSDC), settlement txid TXIDDONATED\\n')
-  process.stdout.write(JSON.stringify({ total: 30, reviewed: 30, unreviewed: 0, integrityMismatch: 0, donatedMicro: 30000, settlementTxid: 'TXIDDONATED' }) + '\\n')
+  process.stdout.write('donated $0.03 (30000 microUSDC), settlement txid TXIDDONATEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\\n')
+  process.stdout.write(JSON.stringify({ total: 30, reviewed: 30, unreviewed: 0, integrityMismatch: 0, donatedMicro: 30000, settlementTxid: 'TXIDDONATEDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }) + '\\n')
   process.exit(0)
 } else if (mode === 'withheld') {
   process.stdout.write('attestation written to out.json\\n')
@@ -119,11 +130,20 @@ test('a donation reports the amount and txid as a notice and in the job summary'
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'donated')
   const summaryPath = join(dir, 'step-summary.md')
-  const originalSummary = process.env.GITHUB_STEP_SUMMARY
+  const outputPath = join(dir, 'output.txt')
+  const saved = {
+    GITHUB_STEP_SUMMARY: process.env.GITHUB_STEP_SUMMARY,
+    GITHUB_OUTPUT: process.env.GITHUB_OUTPUT,
+    NETWORK: process.env.NETWORK,
+  }
   process.env.GITHUB_STEP_SUMMARY = summaryPath
+  process.env.GITHUB_OUTPUT = outputPath
+  delete process.env.NETWORK
   t.after(() => {
-    if (originalSummary === undefined) delete process.env.GITHUB_STEP_SUMMARY
-    else process.env.GITHUB_STEP_SUMMARY = originalSummary
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
   })
   const logCalls = t.mock.method(console, 'log')
 
@@ -133,20 +153,64 @@ test('a donation reports the amount and txid as a notice and in the job summary'
 
   assert.equal(code, 0)
   const logged = logCalls.mock.calls.map((call) => String(call.arguments[0])).join('\n')
-  assert.match(logged, /::notice::AuPM donation: 30000 microUSDC, settlement txid TXIDDONATED/)
+  assert.match(
+    logged,
+    new RegExp(
+      `::notice::AuPM donation: 30000 microUSDC, settlement txid ${DONATED_TXID} ` +
+        `https://lora\\.algokit\\.io/mainnet/transaction/${DONATED_TXID}`,
+    ),
+  )
   assert.doesNotMatch(logged, /::warning::/)
+  const jobSummary = readFileSync(summaryPath, 'utf8')
+  assert.match(jobSummary, /### AuPM donation/)
+  assert.match(jobSummary, /\| 0\.030000 USDC \(30000 microUSDC\) \|/)
+  assert.match(
+    jobSummary,
+    new RegExp(
+      `\\[${DONATED_TXID}\\]\\(https://lora\\.algokit\\.io/mainnet/transaction/${DONATED_TXID}\\)`,
+    ),
+  )
   assert.equal(
-    readFileSync(summaryPath, 'utf8'),
-    'AuPM donation: 30000 microUSDC, settlement txid TXIDDONATED\n',
+    readFileSync(outputPath, 'utf8'),
+    `settlement-txid=${DONATED_TXID}\ndonated-micro-usdc=30000\n`,
   )
 })
 
 test('reportDonation prints nothing for a free check', (t) => {
   const logCalls = t.mock.method(console, 'log')
   reportDonation({ total: 2, reviewed: 0 }, {})
-  reportDonation({ donatedMicro: 1.5, settlementTxid: 'X' }, {})
+  reportDonation({ donatedMicro: 1.5, settlementTxid: DONATED_TXID }, {})
   reportDonation(null, {})
   assert.equal(logCalls.mock.callCount(), 0)
+})
+
+test('reportDonation links the TestNet explorer when NETWORK is testnet', (t) => {
+  const logCalls = t.mock.method(console, 'log')
+  reportDonation({ donatedMicro: 1000, settlementTxid: DONATED_TXID }, { NETWORK: 'testnet' })
+  const logged = String(logCalls.mock.calls[0].arguments[0])
+  assert.match(logged, /https:\/\/lora\.algokit\.io\/testnet\/transaction\//)
+})
+
+test('reportDonation rejects a malformed txid and writes no output', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const outputPath = join(dir, 'output.txt')
+  const logCalls = t.mock.method(console, 'log')
+  reportDonation(
+    { donatedMicro: 1000, settlementTxid: `${DONATED_TXID}\nother-output=injected` },
+    { GITHUB_OUTPUT: outputPath },
+  )
+  const logged = logCalls.mock.calls.map((call) => String(call.arguments[0])).join('\n')
+  assert.match(logged, /::warning::.*malformed settlement txid/)
+  assert.doesNotMatch(logged, /::notice::/)
+  assert.equal(existsSync(outputPath), false)
+})
+
+test('formatUsdc formats integer microUSDC without floats', () => {
+  assert.equal(formatUsdc(0), '0.000000')
+  assert.equal(formatUsdc(1000), '0.001000')
+  assert.equal(formatUsdc(30000), '0.030000')
+  assert.equal(formatUsdc(1_234_567), '1.234567')
 })
 
 test('donate set without a donor-secret warns, exits 0, and never starts the CLI', async (t) => {
