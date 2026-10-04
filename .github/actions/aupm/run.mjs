@@ -82,9 +82,27 @@ export function resolveOptions(argv, env) {
   }
 }
 
-/** Build the argv for `pnpm -C <cliDir> exec tsx src/index.ts attest ...`. */
-export function buildPnpmArgs({ cliDir, lockfile, donate, output, cwd }) {
-  const args = ['-C', cliDir, 'exec', 'tsx', 'src/index.ts', 'attest', resolvePath(cwd, lockfile)]
+const PNPM_VERSION = '12.5.1'
+
+/**
+ * Build the argv for `npm exec -- pnpm -C <cliDir> exec tsx src/index.ts attest ...`.
+ * pnpm runs through npm, so the Action needs no pnpm on PATH and changes no PATH.
+ */
+export function buildCliArgs({ cliDir, lockfile, donate, output, cwd }) {
+  const args = [
+    'exec',
+    '--yes',
+    `--package=pnpm@${PNPM_VERSION}`,
+    '--',
+    'pnpm',
+    '-C',
+    cliDir,
+    'exec',
+    'tsx',
+    'src/index.ts',
+    'attest',
+    resolvePath(cwd, lockfile),
+  ]
   if (donate) args.push('--donate')
   args.push('--out', resolvePath(cwd, output))
   return args
@@ -157,7 +175,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
     }
 
     if (!setupOk) {
-      warn('pnpm/dependency setup for the aupm CLI failed; skipping the check')
+      warn('dependency setup for the aupm CLI failed; skipping the check')
       return 0
     }
 
@@ -166,14 +184,14 @@ export async function run(options, { spawnFn = spawn } = {}) {
       return 0
     }
 
-    const args = buildPnpmArgs({ cliDir, lockfile, donate, output, cwd })
+    const args = buildCliArgs({ cliDir, lockfile, donate, output, cwd })
     const env = { ...process.env, AUPM_PROXY_URL: endpoint }
     delete env.AUPM_DONOR_MNEMONIC
     if (donate) env.AUPM_DONOR_MNEMONIC = donorSecret
 
     let result
     try {
-      result = await runProcess('pnpm', args, { cwd, env }, spawnFn)
+      result = await runProcess('npm', args, { cwd, env }, spawnFn)
     } catch (err) {
       warn(`could not start the aupm CLI: ${err.message}`)
       return 0

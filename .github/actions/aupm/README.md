@@ -145,8 +145,11 @@ Donations need `package-lock.json`, because the server does not parse
 ## What the Action does with the lockfile
 
 The Action installs the `aupm` CLI's own dependencies (`cli/`, `mcp/`) from
-its own repository checkout, not the caller's. It then runs
-`aupm attest <lockfile>`.
+its own repository checkout, not the caller's. It runs pnpm through
+`npm exec`, with the Node of the job. It then runs `aupm attest <lockfile>`.
+
+The Action does not change the Node version or the `PATH` of later steps.
+It writes nothing to `GITHUB_PATH` or `GITHUB_ENV`.
 
 The Action never parses or re-serializes the lockfile. The CLI reads it as
 raw bytes. The server signs a digest of the exact request body. The signed
@@ -206,7 +209,7 @@ WARNING: after the install, each of the following logs a `::warning::` and
 exits 0:
 
 - A missing endpoint.
-- A pnpm or dependency-install failure for the `aupm` CLI.
+- A dependency-install failure for the `aupm` CLI.
 - Reviewed entries withheld because `donate` is not set.
 - A missing `donor-secret` with `donate` set.
 - A facilitator outage or a 5xx response.
@@ -253,7 +256,7 @@ development.
 
 `install.mjs` and `run.mjs` use only Node built-in modules. They need no
 install step of their own. `run.mjs` spawns the already-installed `aupm`
-CLI through `pnpm exec`.
+CLI through `npm exec -- pnpm exec`.
 
 ## Testing
 
@@ -263,7 +266,7 @@ Run the test suite with Node's built-in test runner.
 node --test *.test.mjs
 ```
 
-The `run.mjs` tests stub the `aupm` CLI with a fake `pnpm` executable. The
+The `run.mjs` tests stub the `aupm` CLI with a fake `npm` executable. The
 `install.mjs` tests stub `npm` the same way. Both place the stub first on
 `PATH`. Coverage includes:
 

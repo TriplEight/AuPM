@@ -5,7 +5,7 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
-  buildPnpmArgs,
+  buildCliArgs,
   parseSummaryFromStdout,
   reportDonation,
   resolveOptions,
@@ -15,7 +15,7 @@ import {
 const CANARY_MNEMONIC = 'canary abandon abandon abandon abandon abandon abandon do-not-leak-4f9c'
 
 /**
- * Writes a fake `pnpm` executable to a temp bin directory and returns its
+ * Writes a fake `npm` executable to a temp bin directory and returns its
  * path plus the path of the JSON file it records each invocation to.
  * `mode` selects the fake CLI's exit behaviour — see the switch below.
  */
@@ -56,13 +56,13 @@ if (mode === 'error') {
   process.exit(0)
 }
 `
-  const pnpmPath = join(binDir, 'pnpm')
+  const pnpmPath = join(binDir, 'npm')
   writeFileSync(pnpmPath, script)
   chmodSync(pnpmPath, 0o755)
   return { binDir, recordPath }
 }
 
-/** Runs fn with a fake `pnpm` prepended to PATH, then restores PATH. */
+/** Runs fn with a fake `npm` prepended to PATH, then restores PATH. */
 function withFakeCliOnPath(binDir, fn) {
   const originalPath = process.env.PATH
   process.env.PATH = `${binDir}${delimiter}${originalPath}`
@@ -224,7 +224,7 @@ test('setupOk false warns and exits 0 without spawning', async (t) => {
 })
 
 test('lockfile and output are resolved to absolute paths against cwd', () => {
-  const args = buildPnpmArgs({
+  const args = buildCliArgs({
     cliDir: '/repo/cli',
     lockfile: 'package-lock.json',
     donate: false,
@@ -233,6 +233,11 @@ test('lockfile and output are resolved to absolute paths against cwd', () => {
   })
 
   assert.deepEqual(args, [
+    'exec',
+    '--yes',
+    '--package=pnpm@12.5.1',
+    '--',
+    'pnpm',
     '-C',
     '/repo/cli',
     'exec',
