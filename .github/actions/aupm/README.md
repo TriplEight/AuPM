@@ -117,6 +117,14 @@ review sets, so the same lockfile costs a different amount on each network.
 
 Upload the receipt file with `actions/upload-artifact` in a later step.
 
+## Outputs
+
+| Output | Description |
+| --- | --- |
+| `output-path` | Path of the signed receipt. |
+| `settlement-txid` | The settlement txid of the donation. Empty when nothing was paid. |
+| `donated-micro-usdc` | The donated amount in microUSDC. Empty when nothing was paid. |
+
 ## Install and fallback
 
 The install step runs first. It runs in the directory of the `lockfile`
@@ -168,9 +176,16 @@ The Action maps `donor-secret` to the CLI's `AUPM_DONOR_MNEMONIC`
 environment variable. It maps `donate: 'true'` to the CLI's `--donate`
 flag.
 
-A paid run logs a `::notice::` with the amount and the settlement txid,
-for example `AuPM donation: 30000 microUSDC, settlement txid <txid>`. It
-adds the same line to the job summary.
+A paid run shows the settlement txid in three places:
+
+- A `::notice::` annotation on the run page, for example
+  `AuPM donation: 30000 microUSDC, settlement txid <txid> <explorer link>`.
+- An "AuPM donation" table in the job summary. The txid links to the Lora
+  explorer of the network that `NETWORK` selects.
+- The step outputs `settlement-txid` and `donated-micro-usdc`. A later
+  step reads them, for example
+  `${{ steps.<id>.outputs.settlement-txid }}`. Both are empty when
+  nothing was paid.
 
 The donor pays on Algorand MainNet by default. The Action has no network
 input. It reads `NETWORK` (`mainnet` or `testnet`) from the job's `env:`.
