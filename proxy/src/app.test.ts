@@ -1091,10 +1091,23 @@ describe('discovery routes', () => {
   test('llms.txt carries the split disclosure and the one price text', async () => {
     const { PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
     const text = await (await app.request('/llms.txt')).text()
-    expect(text).toContain(SPLIT_DISCLOSURE)
+    const { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./attest/lockfile.js')
+    expect(text.split(SPLIT_DISCLOSURE)).toHaveLength(2)
     expect(text).toContain(PRICE_TEXT)
     expect(text).toContain(`${ISSUER_ORIGIN}/.well-known/x402`)
+    expect(text).toContain(`${ISSUER_ORIGIN}/.well-known/aupm-keys.json`)
     expect(text).toContain('GET /v1/attest?name=@babel/core&version=7.25.2')
+    for (const required of [
+      '/api/v1/status/',
+      'X-AuPM-Donate: 0',
+      'X-AuPM-Donate: 1',
+      '--donate',
+      'AUPM_DONOR_MNEMONIC',
+      `${LOCKFILE_MAX_BYTES / (1024 * 1024)} MiB`,
+      `${LOCKFILE_MAX_ENTRIES.toLocaleString('en-US')} entries`,
+    ]) {
+      expect(text).toContain(required)
+    }
     const prices = text.match(/\$\d[\d.,]*/g) ?? []
     expect(new Set(prices)).toEqual(new Set([PRICE_TEXT]))
   })
