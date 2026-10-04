@@ -1,0 +1,281 @@
+# AuPM GitHub Action
+
+This Action replaces an `npm ci` step. It does three things in order:
+
+1. It installs with `npm ci` through the AuPM registry.
+2. It falls back to plain `npm ci` if the AuPM registry fails.
+3. It donates to the reviewed packages in the lockfile, only when `donate` is `'true'`.
+
+Pin the Action to a full 40-character commit SHA of `TriplEight/AuPM`.
+Never use a branch name or a short SHA.
+
+## Replace `npm ci`
+
+Before:
+
+```yaml
+- run: npm ci
+```
+
+After:
+
+```yaml
+- uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+  with:
+    endpoint: https://aupm.fyi
+```
+
+This step pays nothing. The project installs the same packages as with
+`npm ci`. The Action writes a signed receipt to `aupm-receipt.json`.
+
+Set up Node before this step, for example with `actions/setup-node`.
+The install step uses the Node and npm of the job.
+
+## Donate to reviewed packages
+
+Use one donor secret for each network. Put the network in the secret name,
+for example `AUPM_DONOR_MNEMONIC_MAINNET` and `AUPM_DONOR_MNEMONIC_TESTNET`.
+Then a secret cannot pay on the wrong network.
+
+The value of the donor secret is a 25-word Algorand mnemonic of a funded
+account.
+
+MainNet pays real USDC. Set `NETWORK: mainnet` in the job's `env:`, so the
+network is explicit in the log:
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      NETWORK: mainnet
+    steps:
+      - uses: actions/checkout@<40-character SHA>
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@<40-character SHA>
+        with:
+          node-version: 22
+      - name: Install and donate to reviewed packages
+        uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+        with:
+          endpoint: https://aupm.fyi
+          donate: 'true'
+          donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}
+```
+
+## TestNet rehearsal
+
+A TestNet run uses test USDC. Set `NETWORK: testnet`. Set `endpoint` to
+the TestNet server origin. Use the TestNet donor secret.
+
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    env:
+      NETWORK: testnet
+    steps:
+      - uses: actions/checkout@<40-character SHA>
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@<40-character SHA>
+        with:
+          node-version: 22
+      - name: Install and donate on TestNet
+        uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+        with:
+          endpoint: ${{ vars.AUPM_TESTNET_ENDPOINT }}
+          donate: 'true'
+          donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_TESTNET }}
+```
+
+The [aupm-action-demo](https://github.com/TriplEight/aupm-action-demo)
+workflow selects the network with a `workflow_dispatch` input. Its default
+is MainNet.
+
+The pinned SHA must contain PR #45 (merge
+`ef335ce9a5a3ecd11231831e32241ea505b02bce`) or a later commit. An older SHA
+builds the MainNet payment with TestNet parameters, and the facilitator
+rejects it.
+
+A run pays 1,000 microUSDC for each lockfile entry that has a review on the
+server of that network. The MainNet and TestNet servers have different
+review sets, so the same lockfile costs a different amount on each network.
+
+## Inputs
+
+| Input | Default | Description |
+| --- | --- | --- |
+| `endpoint` | (required) | URL of the AuPM server. |
+| `lockfile` | `package-lock.json` | Path to the lockfile. `npm ci` runs in its directory. |
+| `install` | `npm` | `npm` runs `npm ci` through the AuPM registry, with fallback to npm. `none` skips the install. Any other value fails the step. |
+| `donate` | `false` | Set to `true` to donate to the reviewed packages. |
+| `donor-secret` | (empty) | The donor mnemonic (25 words) from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
+| `output` | `aupm-receipt.json` | Path where the Action writes the signed receipt. |
+| `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
+
+Upload the receipt file with `actions/upload-artifact` in a later step.
+
+## Install and fallback
+
+The install step runs first. It runs in the directory of the `lockfile`
+input.
+
+1. The step runs `npm ci --registry <endpoint>`.
+2. If this command fails, the step logs a warning. The step then runs
+   plain `npm ci`. Plain `npm ci` uses the npm configuration of the project.
+   The warning text is:
+   `::warning::AuPM registry install failed; installing from the npm registry instead.`
+3. If plain `npm ci` also fails, the step fails and the job fails. This is
+   the same as a plain `npm ci` step. The donation steps do not run.
+
+An unknown `install` value is a configuration error. The step fails with a
+message that names the value.
+
+## Projects that install another way
+
+Set `install: none` if the project does not use `npm ci`. The Action then
+skips the install and only checks the lockfile.
+
+A pnpm project can install against the AuPM registry with its own step.
+Donations need `package-lock.json`, because the server does not parse
+`pnpm-lock.yaml` yet.
+
+## What the Action does with the lockfile
+
+The Action installs the `aupm` CLI's own dependencies (`cli/`, `mcp/`) from
+its own repository checkout, not the caller's. It then runs
+`aupm attest <lockfile>`.
+
+The Action never parses or re-serializes the lockfile. The CLI reads it as
+raw bytes. The server signs a digest of the exact request body. The signed
+receipt is a DSSE envelope that holds an in-toto Statement v1.
+
+A lockfile with zero reviewed packages is free. The CLI exits 0 without
+donating.
+
+## Donation
+
+A lockfile with reviewed packages needs payment. Donation is off by
+default. Set `donate: 'true'` and pass `donor-secret` (a GitHub secret)
+to opt in.
+
+The Action maps `donor-secret` to the CLI's `AUPM_DONOR_MNEMONIC`
+environment variable. It maps `donate: 'true'` to the CLI's `--donate`
+flag.
+
+A paid run logs a `::notice::` with the amount and the settlement txid,
+for example `AuPM donation: 30000 microUSDC, settlement txid <txid>`. It
+adds the same line to the job summary.
+
+The donor pays on Algorand MainNet by default. The Action has no network
+input. It reads `NETWORK` (`mainnet` or `testnet`) from the job's `env:`.
+An unset `NETWORK` means MainNet. If `NETWORK` does not match the server's
+network, the 402 does not match the donor's network, and the run pays
+nothing.
+
+WARNING: pass `donor-secret` only through a GitHub secret in `with:`. The
+Action forwards it through the spawned CLI's environment only. It never
+appears in argv, a file, or a log line.
+
+Without `donate: 'true'`, the reviewed entries are withheld, not refused.
+The CLI still writes a partial signed receipt and exits 0. The Action reads
+the withheld count from the CLI output, logs a `::warning::` that names it,
+and exits 0.
+
+The CLI signs a payment locally, inside its own process, before any
+network call. The Action never sends a bare mnemonic to any endpoint.
+
+CAUTION: never configure `donor-secret` for an account you cannot afford
+to spend from. The CLI enforces two limits:
+
+- It refuses to sign above 1,000 microUSDC per lockfile entry (SPEC.md
+  §11.4). There is no fixed cap.
+- It refuses any asset other than the USDC ASA of the network.
+
+A compromised `endpoint` input can still misdirect a donated payment.
+
+## Failure policy
+
+An install failure fails the job, as with plain npm. An AuPM failure never
+fails the job: a registry failure falls back to npm, and a check or
+donation failure logs a warning.
+
+WARNING: after the install, each of the following logs a `::warning::` and
+exits 0:
+
+- A missing endpoint.
+- A pnpm or dependency-install failure for the `aupm` CLI.
+- Reviewed entries withheld because `donate` is not set.
+- A missing `donor-secret` with `donate` set.
+- A facilitator outage or a 5xx response.
+- A spend-cap refusal.
+- Any other CLI error.
+
+Set `fail-on-mismatch: 'true'` to change this for one case. The step then
+exits 1 when the summary reports `integrityMismatch` above zero.
+
+A step that makes someone else's CI fail gets removed from their
+repository. This policy keeps the Action safe to adopt.
+
+## Triggers
+
+WARNING: do not add a recurring schedule trigger to the calling workflow.
+The facilitator classifies repeating loop patterns, such as cron pings and
+health checks, as `DEV` traffic. Trigger on `pull_request` and `push` only.
+
+## Local development
+
+Run the scripts directly with Node. Pass flags in place of workflow
+inputs, or set the matching environment variables.
+
+```bash
+ENDPOINT=https://aupm.example.com \
+LOCKFILE=package-lock.json \
+OUTPUT=aupm-receipt.json \
+  node run.mjs
+```
+
+```bash
+ENDPOINT=https://aupm.example.com \
+INSTALL=npm \
+  node install.mjs
+```
+
+`SETUP_OK` defaults to `true`. Set it to `false` to simulate a failed
+dependency install for the `aupm` CLI.
+
+Set `donate: 'true'` locally with `DONATE=true` and
+`DONOR_SECRET=<mnemonic>` in the environment. There is no
+`--donor-secret` flag. A secret does not belong in argv, even for local
+development.
+
+`install.mjs` and `run.mjs` use only Node built-in modules. They need no
+install step of their own. `run.mjs` spawns the already-installed `aupm`
+CLI through `pnpm exec`.
+
+## Testing
+
+Run the test suite with Node's built-in test runner.
+
+```bash
+node --test *.test.mjs
+```
+
+The `run.mjs` tests stub the `aupm` CLI with a fake `pnpm` executable. The
+`install.mjs` tests stub `npm` the same way. Both place the stub first on
+`PATH`. Coverage includes:
+
+- An AuPM install that passes, with no fallback.
+- An AuPM install that fails and a plain `npm ci` that passes.
+- Both installs failing.
+- `install: none` and an unknown `install` value.
+- A missing endpoint.
+- A failed dependency setup.
+- A withheld-count warning when `donate` is not set.
+- A missing `donor-secret` with `donate` set.
+- A generic CLI error.
+- Both `fail-on-mismatch` outcomes.
+- That the donor secret reaches the CLI only through its environment,
+  never argv.

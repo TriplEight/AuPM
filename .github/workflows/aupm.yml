@@ -1,4 +1,4 @@
-name: AuPM Attest
+name: AuPM
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  attest:
+  aupm:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -17,23 +17,24 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Run aupm-attest
+      - name: Install and check reviewed packages
         # actionlint v1.7.12 (pinned) does not parse GitHub's "$/..."
         # self-repository syntax yet; it flags "ref is missing" and fails
         # the lint hook. Switch to "$/..." once a pinned actionlint
         # release supports it.
-        uses: ./.github/actions/aupm-attest # zizmor: ignore[self-repository]
+        uses: ./.github/actions/aupm # zizmor: ignore[self-repository]
         with:
           endpoint: ${{ vars.AUPM_ENDPOINT }}
           lockfile: package-lock.json
+          install: none
           fail-on-mismatch: 'false'
-          output: aupm-attestation.json
+          output: aupm-receipt.json
 
-      - name: Upload attestation artifact
+      - name: Upload receipt artifact
         if: always()
         # actions/upload-artifact v4.6.2, pinned to a full commit SHA.
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: aupm-attestation
-          path: aupm-attestation.json
+          name: aupm-receipt
+          path: aupm-receipt.json
           if-no-files-found: ignore

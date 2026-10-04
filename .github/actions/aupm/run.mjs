@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// aupm-attest: spawns the workspace `aupm attest` CLI to post a lockfile to
-// the AuPM attestation server and write the signed envelope. Dependency-free
+// aupm check step: spawns the workspace `aupm attest` CLI to post a lockfile to
+// the AuPM server and write the signed receipt. Dependency-free
 // itself — it only shells out to a CLI that the action installed first.
 // Fails open on every error except an explicit integrity-mismatch failure
 // (see run()).
@@ -11,9 +11,9 @@ import { resolve as resolvePath } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const DEFAULT_LOCKFILE = 'package-lock.json'
-const DEFAULT_OUTPUT = 'aupm-attestation.json'
+const DEFAULT_OUTPUT = 'aupm-receipt.json'
 
-// cli/ lives three levels above this file: .github/actions/aupm-attest/ -> repo root -> cli.
+// cli/ lives three levels above this file: .github/actions/aupm/ -> repo root -> cli.
 const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
 
 /** Print a GitHub Actions warning annotation. */
@@ -22,9 +22,9 @@ export function warn(message) {
 }
 
 /**
- * Report a paid attestation: a `::notice::` annotation and, on a runner, one
+ * Report a donation: a `::notice::` annotation and, on a runner, one
  * line in the job summary. Reads `donatedMicro` and `settlementTxid` from the
- * CLI's summary; prints nothing for a free attestation.
+ * CLI's summary; prints nothing for a free check.
  */
 export function reportDonation(summary, env = process.env) {
   const micro = summary?.donatedMicro
@@ -61,9 +61,9 @@ export function parseArgs(argv) {
 /**
  * Merge CLI args and environment variables into a single options object.
  *
- * CAUTION: donorMnemonic is read here but must only ever be forwarded to
+ * CAUTION: donorSecret is read here but must only ever be forwarded to
  * the spawned CLI's environment, never to its argv, a file, or a log line.
- * There is no --donor-mnemonic flag on purpose — a secret does not belong
+ * There is no --donor-secret flag on purpose — a secret does not belong
  * in argv even for local development.
  */
 export function resolveOptions(argv, env) {
@@ -75,7 +75,7 @@ export function resolveOptions(argv, env) {
       cli['fail-on-mismatch'] ?? env.FAIL_ON_MISMATCH ?? env.INPUT_FAIL_ON_MISMATCH ?? 'false',
     output: cli.output ?? env.OUTPUT ?? env.INPUT_OUTPUT ?? DEFAULT_OUTPUT,
     donate: normalizeBool(cli.donate ?? env.DONATE ?? env.INPUT_DONATE ?? 'false'),
-    donorMnemonic: env.DONOR_MNEMONIC ?? env.INPUT_DONOR_MNEMONIC ?? '',
+    donorSecret: env.DONOR_SECRET ?? env.INPUT_DONOR_SECRET ?? '',
     cliDir: cli['cli-dir'] ?? env.CLI_DIR ?? DEFAULT_CLI_DIR,
     setupOk: normalizeBool(cli['setup-ok'] ?? env.SETUP_OK ?? 'true'),
     cwd: cli.cwd ?? env.CWD ?? process.cwd(),
@@ -129,11 +129,11 @@ function runProcess(command, args, options, spawnFn) {
 }
 
 /**
- * Run the full attest flow. Returns an exit code — never calls
+ * Run the check and donate flow. Returns an exit code — never calls
  * process.exit itself, so callers (including tests) can inspect the result.
  * Fails open: every caught error, non-zero CLI exit, and infra setup
  * failure returns 0. Without donate: true, the CLI still exits 0 with a
- * partial attestation (SPEC.md §11.4); this only warns and reports the
+ * partial result (SPEC.md §11.4); this only warns and reports the
  * withheld count. The single exception is a reported integrityMismatch
  * above zero when failOnMismatch is true.
  */
@@ -144,7 +144,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
     failOnMismatch = false,
     output = DEFAULT_OUTPUT,
     donate = false,
-    donorMnemonic = '',
+    donorSecret = '',
     cliDir = DEFAULT_CLI_DIR,
     setupOk = true,
     cwd = process.cwd(),
@@ -152,51 +152,51 @@ export async function run(options, { spawnFn = spawn } = {}) {
 
   try {
     if (!endpoint) {
-      warn('no endpoint configured; skipping attestation')
+      warn('no endpoint configured; skipping the check')
       return 0
     }
 
     if (!setupOk) {
-      warn('pnpm/dependency setup for the aupm CLI failed; skipping attestation')
+      warn('pnpm/dependency setup for the aupm CLI failed; skipping the check')
       return 0
     }
 
-    if (donate && !donorMnemonic) {
-      warn('donate is enabled but donor-mnemonic is not set; skipping attestation')
+    if (donate && !donorSecret) {
+      warn('donate is enabled but donor-secret is not set; skipping the check')
       return 0
     }
 
     const args = buildPnpmArgs({ cliDir, lockfile, donate, output, cwd })
     const env = { ...process.env, AUPM_PROXY_URL: endpoint }
     delete env.AUPM_DONOR_MNEMONIC
-    if (donate) env.AUPM_DONOR_MNEMONIC = donorMnemonic
+    if (donate) env.AUPM_DONOR_MNEMONIC = donorSecret
 
     let result
     try {
       result = await runProcess('pnpm', args, { cwd, env }, spawnFn)
     } catch (err) {
-      warn(`could not start aupm attest: ${err.message}`)
+      warn(`could not start the aupm CLI: ${err.message}`)
       return 0
     }
 
     if (result.code !== 0) {
       warn(
-        `aupm attest exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`,
+        `the aupm CLI exited with code ${result.code}: ${(result.stderr || result.stdout).trim()}`,
       )
       return 0
     }
 
     const summary = parseSummaryFromStdout(result.stdout)
 
-    // Without donate: true, the CLI still writes a partial attestation and
+    // Without donate: true, the CLI still writes a partial signed receipt and
     // reports how many reviewed entries it withheld (SPEC.md §11.4) — this
     // is a normal, passing outcome, not an error. Report the count and
     // keep going.
     const withheldCount = summary?.withheld ?? 0
     if (withheldCount > 0) {
       warn(
-        `${withheldCount} reviewed package(s) withheld from this attestation. ` +
-          "Set donate: 'true' and a donor-mnemonic secret to include them.",
+        `${withheldCount} reviewed package(s) withheld from the signed receipt. ` +
+          "Set donate: 'true' and a donor-secret to include them.",
       )
     }
 

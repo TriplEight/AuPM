@@ -107,10 +107,11 @@ An agent can call the MCP server directly: `check_audit_status` for a free statu
 whole project, `attest_lockfile` with `allowDonation: true` donates once for every reviewed
 entry in the lockfile.
 
-The `aupm-attest` GitHub Action runs `aupm attest` against a repository's lockfile in CI. Set
-its `donate: 'true'` input and a `donor-mnemonic` secret to donate from CI. Pin it to a full
+The `aupm` GitHub Action replaces an `npm ci` step in CI. It installs through the AuPM registry
+and falls back to npm. Then it checks the lockfile against the reviewed packages. Set
+its `donate: 'true'` input and a `donor-secret` secret to donate from CI. Pin it to a full
 commit SHA. It donates on MainNet unless the job sets `NETWORK: testnet`. See
-[.github/actions/aupm-attest/README.md](.github/actions/aupm-attest/README.md). The
+[.github/actions/aupm/README.md](.github/actions/aupm/README.md). The
 [aupm-action-demo](https://github.com/TriplEight/aupm-action-demo) repository runs it on MainNet.
 
 To donate, you need a funded Algorand account holding USDC. See "Donor account setup" in
