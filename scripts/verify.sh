@@ -50,7 +50,7 @@ run "unit:proxy"        "pnpm --dir proxy test"
 run "unit:cli"          "pnpm --dir cli test"
 run "unit:contracts"    "pnpm --dir contracts test"
 run "unit:mcp"          "pnpm --dir mcp test"
-run "action:aupm-attest" "node --test .github/actions/aupm-attest/attest.test.mjs"
+run "action:aupm" "node --test .github/actions/aupm/*.test.mjs"
 run "unit:scripts"      "node --test scripts/*.test.mjs"
 
 # ---------------------------------------------------------------------------
