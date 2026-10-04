@@ -5,17 +5,17 @@ import { delimiter, join } from 'node:path'
 import { test } from 'node:test'
 
 import {
-  buildPnpmArgs,
+  buildCliArgs,
   parseSummaryFromStdout,
   reportDonation,
   resolveOptions,
   run,
-} from './attest.mjs'
+} from './run.mjs'
 
 const CANARY_MNEMONIC = 'canary abandon abandon abandon abandon abandon abandon do-not-leak-4f9c'
 
 /**
- * Writes a fake `pnpm` executable to a temp bin directory and returns its
+ * Writes a fake `npm` executable to a temp bin directory and returns its
  * path plus the path of the JSON file it records each invocation to.
  * `mode` selects the fake CLI's exit behaviour — see the switch below.
  */
@@ -56,13 +56,13 @@ if (mode === 'error') {
   process.exit(0)
 }
 `
-  const pnpmPath = join(binDir, 'pnpm')
+  const pnpmPath = join(binDir, 'npm')
   writeFileSync(pnpmPath, script)
   chmodSync(pnpmPath, 0o755)
   return { binDir, recordPath }
 }
 
-/** Runs fn with a fake `pnpm` prepended to PATH, then restores PATH. */
+/** Runs fn with a fake `npm` prepended to PATH, then restores PATH. */
 function withFakeCliOnPath(binDir, fn) {
   const originalPath = process.env.PATH
   process.env.PATH = `${binDir}${delimiter}${originalPath}`
@@ -78,9 +78,9 @@ function baseOptions(overrides) {
     endpoint: 'https://aupm.example.com',
     lockfile: 'package-lock.json',
     failOnMismatch: false,
-    output: 'aupm-attestation.json',
+    output: 'aupm-receipt.json',
     donate: false,
-    donorMnemonic: '',
+    donorSecret: '',
     cliDir: '/nonexistent/cli',
     setupOk: true,
     cwd: process.cwd(),
@@ -89,7 +89,7 @@ function baseOptions(overrides) {
 }
 
 test('no endpoint configured warns and exits 0 without spawning', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
@@ -100,7 +100,7 @@ test('no endpoint configured warns and exits 0 without spawning', async (t) => {
 })
 
 test('a withheld count (no donate opt-in) warns with the count and exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'withheld')
 
@@ -114,8 +114,8 @@ test('a withheld count (no donate opt-in) warns with the count and exits 0', asy
   assert.match(logged, /3 reviewed package\(s\) withheld/)
 })
 
-test('a paid attestation reports the amount and txid as a notice and in the job summary', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+test('a donation reports the amount and txid as a notice and in the job summary', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'donated')
   const summaryPath = join(dir, 'step-summary.md')
@@ -128,7 +128,7 @@ test('a paid attestation reports the amount and txid as a notice and in the job 
   const logCalls = t.mock.method(console, 'log')
 
   const code = await withFakeCliOnPath(binDir, () =>
-    run(baseOptions({ donate: true, donorMnemonic: CANARY_MNEMONIC })),
+    run(baseOptions({ donate: true, donorSecret: CANARY_MNEMONIC })),
   )
 
   assert.equal(code, 0)
@@ -141,7 +141,7 @@ test('a paid attestation reports the amount and txid as a notice and in the job 
   )
 })
 
-test('reportDonation prints nothing for a free attestation', (t) => {
+test('reportDonation prints nothing for a free check', (t) => {
   const logCalls = t.mock.method(console, 'log')
   reportDonation({ total: 2, reviewed: 0 }, {})
   reportDonation({ donatedMicro: 1.5, settlementTxid: 'X' }, {})
@@ -149,13 +149,13 @@ test('reportDonation prints nothing for a free attestation', (t) => {
   assert.equal(logCalls.mock.callCount(), 0)
 })
 
-test('donate set without a donor-mnemonic warns, exits 0, and never starts the CLI', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+test('donate set without a donor-secret warns, exits 0, and never starts the CLI', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
   const code = await withFakeCliOnPath(binDir, () =>
-    run(baseOptions({ donate: true, donorMnemonic: '' })),
+    run(baseOptions({ donate: true, donorSecret: '' })),
   )
 
   assert.equal(code, 0)
@@ -163,7 +163,7 @@ test('donate set without a donor-mnemonic warns, exits 0, and never starts the C
 })
 
 test('a CLI error (non-zero, non-2 exit) warns and exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'error')
 
@@ -173,7 +173,7 @@ test('a CLI error (non-zero, non-2 exit) warns and exits 0', async (t) => {
 })
 
 test('fail-on-mismatch true with integrityMismatch above zero exits 1', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'mismatch')
 
@@ -183,7 +183,7 @@ test('fail-on-mismatch true with integrityMismatch above zero exits 1', async (t
 })
 
 test('fail-on-mismatch false with integrityMismatch above zero exits 0', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir } = makeFakeCli(dir, 'mismatch')
 
@@ -193,12 +193,12 @@ test('fail-on-mismatch false with integrityMismatch above zero exits 0', async (
 })
 
 test('donate true passes --donate, and the mnemonic reaches the CLI only via env', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
   const code = await withFakeCliOnPath(binDir, () =>
-    run(baseOptions({ donate: true, donorMnemonic: CANARY_MNEMONIC })),
+    run(baseOptions({ donate: true, donorSecret: CANARY_MNEMONIC })),
   )
 
   assert.equal(code, 0)
@@ -213,7 +213,7 @@ test('donate true passes --donate, and the mnemonic reaches the CLI only via env
 })
 
 test('setupOk false warns and exits 0 without spawning', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-attest-'))
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
   const { binDir, recordPath } = makeFakeCli(dir, 'ok')
 
@@ -224,7 +224,7 @@ test('setupOk false warns and exits 0 without spawning', async (t) => {
 })
 
 test('lockfile and output are resolved to absolute paths against cwd', () => {
-  const args = buildPnpmArgs({
+  const args = buildCliArgs({
     cliDir: '/repo/cli',
     lockfile: 'package-lock.json',
     donate: false,
@@ -233,6 +233,11 @@ test('lockfile and output are resolved to absolute paths against cwd', () => {
   })
 
   assert.deepEqual(args, [
+    'exec',
+    '--yes',
+    '--package=pnpm@12.5.1',
+    '--',
+    'pnpm',
     '-C',
     '/repo/cli',
     'exec',
@@ -251,19 +256,19 @@ test('parseSummaryFromStdout extracts the trailing JSON object', () => {
   assert.equal(parseSummaryFromStdout('no json here'), null)
 })
 
-test('resolveOptions reads the donor mnemonic only from DONOR_MNEMONIC / INPUT_DONOR_MNEMONIC', () => {
-  const options = resolveOptions([], { DONOR_MNEMONIC: CANARY_MNEMONIC })
-  assert.equal(options.donorMnemonic, CANARY_MNEMONIC)
+test('resolveOptions reads the donor mnemonic only from DONOR_SECRET / INPUT_DONOR_SECRET', () => {
+  const options = resolveOptions([], { DONOR_SECRET: CANARY_MNEMONIC })
+  assert.equal(options.donorSecret, CANARY_MNEMONIC)
   assert.ok(
     !Object.entries(options).some(
       ([key, value]) =>
-        key !== 'donorMnemonic' && typeof value === 'string' && value.includes(CANARY_MNEMONIC),
+        key !== 'donorSecret' && typeof value === 'string' && value.includes(CANARY_MNEMONIC),
     ),
     'no other resolved option should ever contain the mnemonic value',
   )
 })
 
-test('resolveOptions has no --donor-mnemonic argv flag', () => {
-  const options = resolveOptions(['--donor-mnemonic', CANARY_MNEMONIC], {})
-  assert.equal(options.donorMnemonic, '')
+test('resolveOptions has no --donor-secret argv flag', () => {
+  const options = resolveOptions(['--donor-secret', CANARY_MNEMONIC], {})
+  assert.equal(options.donorSecret, '')
 })

@@ -239,18 +239,19 @@ Any other first argument goes to npm unchanged.
 | \`install_audited_package\` | \`pkg\`, \`version\`, \`allowDonation\` (default off). |
 | \`attest_lockfile\` | \`lockfilePath\`, \`allowDonation\` (default off). |
 
-### GitHub Action \`aupm-attest\`
+### GitHub Action \`aupm\`
 
 | Input | Meaning |
 |---|---|
 | \`endpoint\` | URL of the AuPM server. Required. |
 | \`lockfile\` | Path to the lockfile. Default \`package-lock.json\`. |
 | \`fail-on-mismatch\` | \`true\` fails the step when \`integrityMismatch\` is above zero. |
-| \`output\` | Path of the attestation file. Default \`aupm-attestation.json\`. |
-| \`donate\` | \`true\` pays for a reviewed attestation. Default \`false\`. |
-| \`donor-mnemonic\` | A funded donor mnemonic from a GitHub secret. Read only with \`donate\`. |
+| \`install\` | \`npm\` runs \`npm ci\` through AuPM, with fallback to npm. \`none\` skips it. Default \`npm\`. |
+| \`output\` | Path of the signed receipt file. Default \`aupm-receipt.json\`. |
+| \`donate\` | \`true\` donates to the reviewed packages. Default \`false\`. |
+| \`donor-secret\` | A funded donor mnemonic (25 words) from a GitHub secret. Read only with \`donate\`. |
 
-The Action fails open. It never reddens CI unless \`fail-on-mismatch\` is \`true\`.`
+An install failure fails the job, as with plain npm. An AuPM failure never fails the job, unless \`fail-on-mismatch\` is \`true\`.`
 
 function setupSection(issuer: string): string {
   return `## Setup
@@ -264,7 +265,7 @@ npm config set registry ${issuer}/
 Add the Action to a workflow:
 
 \`\`\`yaml
-- uses: TriplEight/AuPM/.github/actions/aupm-attest@<ref>
+- uses: TriplEight/AuPM/.github/actions/aupm@<ref>
   with:
     endpoint: ${issuer}
     lockfile: package-lock.json

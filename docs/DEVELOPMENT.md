@@ -127,7 +127,7 @@ Set the mnemonic from a secret manager for one command only — never in a `.env
 
 ```bash
 AUPM_DONOR_MNEMONIC="$(rbw get aupm-donor)" \
-  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out aupm-attestation.json
+  pnpm -C cli exec tsx src/index.ts attest package-lock.json --donate --out aupm-receipt.json
 ```
 
 The same pattern installs one package:
@@ -140,11 +140,12 @@ Without `--donate`, `aupm attest` reports the price on a 402 and exits 2, signin
 MCP `attest_lockfile` tool takes the same opt-in as `allowDonation`. `mcp/src/donor.ts` is the
 shared donation client behind both.
 
-The `aupm-attest` GitHub Action installs `aupm` and runs `aupm attest`. Its `donate` input
-defaults to `'false'`. Set it to `'true'` and pass a `donor-mnemonic` secret to donate from CI.
-Never pass a mnemonic as plain text — use a GitHub Actions secret. The Action fails open: a
-facilitator outage, a 5xx, or a missing `donor-mnemonic` logs a warning and exits 0, so it
-never reddens a caller's CI.
+The `aupm` GitHub Action replaces `npm ci`. It installs through the AuPM registry, falls back to
+npm, and then runs `aupm attest`. Its `donate` input
+defaults to `'false'`. Set it to `'true'` and pass a `donor-secret` secret to donate from CI.
+Never pass a mnemonic as plain text — use a GitHub Actions secret. An install failure fails the
+job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to
+npm, and a facilitator outage, a 5xx, or a missing `donor-secret` logs a warning and exits 0.
 
 ### Donor account setup
 
@@ -194,7 +195,7 @@ Each command here exits 0 against this repository state.
   signing, claims ledger.
 - `mcp/` — MCP server: `check_audit_status`, `install_audited_package`, `attest_lockfile`.
 - `cli/` — `aupm` wrapper, including `aupm attest` and offline `aupm verify`.
-- `.github/actions/aupm-attest/` — CI Action. It fails open. It never reddens a user's CI.
+- `.github/actions/aupm/` — CI Action, a drop-in for `npm ci`. An AuPM failure never fails the job.
 - `docs/` — architecture notes, runbooks and the contract build guide.
 
 ## Further reading

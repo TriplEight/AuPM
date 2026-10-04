@@ -361,8 +361,9 @@ Nothing is deployed to MainNet.
   `mcp/src/donor.ts`, §11.4).
 - `cli/` — `aupm status`, `aupm install`, `aupm verify` (offline L1),
   `aupm attest <lockfile> [--donate] [--out <path>]` (§11.4).
-- `.github/actions/aupm-attest/` — composite Action (`action.yml`, `attest.mjs`). It runs
-  `aupm attest` from its own checkout and sends no wallet credential unless `donate` is `'true'`.
+- `.github/actions/aupm/` — composite Action (`action.yml`, `install.mjs`, `run.mjs`). It replaces an
+  `npm ci` step. It runs `aupm attest` from its own checkout and sends no wallet credential unless
+  `donate` is `'true'`. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning.
 - `scripts/verify.sh`, `scripts/guard.sh`, `scripts/e2e.mjs`, `scripts/payout.ts`,
   `scripts/demo.sh` — `verify.sh` prints PASS, FAIL, or SKIP per check. It never passes silently.
 
@@ -566,7 +567,7 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 
 ```
 ┌───────────────────────────────────── Clients ─────────────────────────────────────┐
-│ npm CLI (aupm wrapper) · AI agents · IDE / MCP · CI/CD (aupm CLI, aupm-attest Action) │
+│ npm CLI (aupm wrapper) · AI agents · IDE / MCP · CI/CD (aupm CLI, aupm Action) │
 │ · browser                                                                          │
 └──────────────────────────────────────────┬────────────────────────────────────────┘
                                            │ HTTPS (x402), one root domain
@@ -780,6 +781,7 @@ If volume lands under `dev` or `direct`, attribution is broken.
 The CLI, the MCP server, and the Action share one behaviour. Donation is off by default.
 
 Opt-in names: CLI `--donate`, MCP argument `allowDonation: true`, Action input `donate: 'true'`.
+The Action first runs `npm ci --registry <endpoint>` and falls back to plain `npm ci`. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning.
 It applies to reviewed tarball installs and to lockfile and single attestation.
 
 On the wire (ADR 0006):
@@ -1085,8 +1087,8 @@ The work items with acceptance checks are not in this repository. This section f
 the gates.
 
 **P0. Recruit third-party donors (spans the whole plan; owner: the team).** Line up 3–10
-external repos that will run `aupm-attest` **with their own donor accounts**. Each one passes
-`donate: 'true'` and its own `donor-mnemonic` secret. Each needs a MainNet Algorand account
+external repos that will run the `aupm` Action **with their own donor accounts**. Each one passes
+`donate: 'true'` and its own `donor-secret` secret. Each needs a MainNet Algorand account
 with about 0.3 ALGO (minimum balance for the USDC opt-in), a USDC opt-in, and a few dollars of
 USDC on Algorand (§11.4). **Acquiring Algorand-native USDC is the bottleneck** — an exchange
 withdrawal or bridge hop takes days; an in-app wallet purchase is faster. Chase every 3 days.
@@ -1171,7 +1173,7 @@ usage.
 
 **Placement (by Sept 29, running into early October) — in priority order:**
 - [ ] **≥3 external donors funded, opted in, and settling from their own donor accounts** (P0)
-- [ ] `aupm-attest` Action running on those repos, failing open
+- [ ] `aupm` Action running on those repos, failing open
 - [ ] Lockfile route live with per-package price, zero-coverage free path and partial path
 - [ ] 15–30 genuinely reviewed packages, each with a review anchor on MainNet
 - [ ] PaymentRouter deployed, `payTo` rekeyed, `credit()` and `claim()` executed on MainNet;
