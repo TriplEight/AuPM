@@ -18,7 +18,7 @@ Never weaken an assertion to make a check pass. Fix the code.
 | Everything | `bash scripts/verify.sh` — prints `VERIFY: PASS` or `VERIFY: FAIL` |
 | Types | `pnpm typecheck` |
 | Per package | `pnpm -C proxy test`, `pnpm -C contracts test`, `pnpm -C mcp test`, `pnpm -C cli test` |
-| CI Action | `node --test .github/actions/aupm-attest/attest.test.mjs` |
+| CI Action | `node --test .github/actions/aupm/*.test.mjs` |
 | Invariants | `bash scripts/guard.sh` |
 | Lint | `pnpm exec biome ci .` — zero warnings |
 
