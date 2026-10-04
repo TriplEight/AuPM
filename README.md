@@ -108,8 +108,10 @@ whole project, `attest_lockfile` with `allowDonation: true` donates once for eve
 entry in the lockfile.
 
 The `aupm-attest` GitHub Action runs `aupm attest` against a repository's lockfile in CI. Set
-its `donate: 'true'` input and a `donor-mnemonic` secret to donate from CI. See
-[.github/actions/aupm-attest/README.md](.github/actions/aupm-attest/README.md).
+its `donate: 'true'` input and a `donor-mnemonic` secret to donate from CI. Pin it to a full
+commit SHA. It donates on MainNet unless the job sets `NETWORK: testnet`. See
+[.github/actions/aupm-attest/README.md](.github/actions/aupm-attest/README.md). The
+[aupm-action-demo](https://github.com/TriplEight/aupm-action-demo) repository runs it on MainNet.
 
 To donate, you need a funded Algorand account holding USDC. See "Donor account setup" in
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).

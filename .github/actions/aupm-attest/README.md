@@ -7,17 +7,64 @@ build artifact.
 ## Usage
 
 Add this step to a workflow that triggers on `pull_request` or `push`.
+Pin the action to a full 40-character commit SHA of `TriplEight/AuPM`.
+Never use a branch name or a short SHA.
 
 ```yaml
-- uses: ./.github/actions/aupm-attest
+- uses: TriplEight/AuPM/.github/actions/aupm-attest@<40-character SHA>
   with:
-    endpoint: ${{ vars.AUPM_ENDPOINT }}
+    endpoint: https://aupm.fyi
     lockfile: package-lock.json
-    fail-on-mismatch: 'false'
     output: aupm-attestation.json
 ```
 
 Upload the output file with `actions/upload-artifact` in a later step.
+Without `donate: 'true'`, the action pays nothing and writes a partial
+attestation.
+
+### Donate on MainNet or TestNet
+
+Use one donor secret for each network. Put the network in the secret name,
+for example `AUPM_DONOR_MNEMONIC_MAINNET` and `AUPM_DONOR_MNEMONIC_TESTNET`.
+Then a secret cannot pay on the wrong network.
+
+MainNet pays real USDC. Set `NETWORK: mainnet` in the job's `env:`, so the
+network is explicit in the log:
+
+```yaml
+jobs:
+  attest:
+    name: attest on mainnet
+    runs-on: ubuntu-24.04
+    env:
+      NETWORK: mainnet
+    steps:
+      - uses: actions/checkout@<40-character SHA>
+        with:
+          persist-credentials: false
+      - name: AuPM attestation (donates on mainnet)
+        uses: TriplEight/AuPM/.github/actions/aupm-attest@<40-character SHA>
+        with:
+          endpoint: https://aupm.fyi
+          lockfile: package-lock.json
+          donate: 'true'
+          donor-mnemonic: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}
+```
+
+For a TestNet rehearsal, set `NETWORK: testnet`, the TestNet server origin
+as `endpoint`, and the TestNet donor secret. The
+[aupm-action-demo](https://github.com/TriplEight/aupm-action-demo) workflow
+selects the network with a `workflow_dispatch` input. Its default is
+MainNet.
+
+The pinned SHA must contain PR #45 (merge
+`ef335ce9a5a3ecd11231831e32241ea505b02bce`) or a later commit. An older SHA
+builds the MainNet payment with TestNet parameters, and the facilitator
+rejects it.
+
+A run pays 1,000 microUSDC for each lockfile entry that has a review on the
+server of that network. The MainNet and TestNet servers have different
+review sets, so the same lockfile costs a different amount on each network.
 
 ## Inputs
 
@@ -56,10 +103,11 @@ A paid run logs a `::notice::` with the amount and the settlement txid,
 for example `AuPM donation: 30000 microUSDC, settlement txid <txid>`. It
 adds the same line to the job summary.
 
-The donor pays on Algorand MainNet by default. For a TestNet rehearsal,
-set `NETWORK: testnet` in the job's `env:`. The action has no network
-input. Without that variable, a TestNet server's 402 does not match the
-donor's network, and the run pays nothing.
+The donor pays on Algorand MainNet by default. The action has no network
+input. It reads `NETWORK` (`mainnet` or `testnet`) from the job's `env:`.
+An unset `NETWORK` means MainNet. If `NETWORK` does not match the server's
+network, the 402 does not match the donor's network, and the run pays
+nothing.
 
 WARNING: pass `donor-mnemonic` only through a GitHub secret in `with:`. The
 action forwards it through the spawned CLI's environment only. It never
