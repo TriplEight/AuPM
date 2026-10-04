@@ -21,18 +21,54 @@ export function warn(message) {
   console.log(`::warning::${message}`)
 }
 
+const ALGORAND_TXID = /^[A-Z2-7]{52}$/
+
+/** Format integer microUSDC as a USDC decimal string, without floats. */
+export function formatUsdc(micro) {
+  return `${Math.trunc(micro / 1_000_000)}.${String(micro % 1_000_000).padStart(6, '0')}`
+}
+
+/** Lora explorer link for a transaction on the network that NETWORK selects. */
+export function explorerUrl(txid, env = process.env) {
+  const network = (env.NETWORK ?? '').toLowerCase() === 'testnet' ? 'testnet' : 'mainnet'
+  return `https://lora.algokit.io/${network}/transaction/${txid}`
+}
+
 /**
- * Report a donation: a `::notice::` annotation and, on a runner, one
- * line in the job summary. Reads `donatedMicro` and `settlementTxid` from the
- * CLI's summary; prints nothing for a free check.
+ * Report a donation. Reads `donatedMicro` and `settlementTxid` from the CLI's
+ * summary; prints nothing for a free check. On a runner, it also writes:
+ * - a `::notice::` annotation with the amount, the txid and the explorer link,
+ * - a table in the job summary,
+ * - the step outputs `settlement-txid` and `donated-micro-usdc`.
  */
 export function reportDonation(summary, env = process.env) {
   const micro = summary?.donatedMicro
   const txid = summary?.settlementTxid
   if (!Number.isInteger(micro) || typeof txid !== 'string') return
-  const line = `AuPM donation: ${micro} microUSDC, settlement txid ${txid}`
-  console.log(`::notice::${line}`)
-  if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`)
+  // An Algorand txid is 52 base32 characters. Anything else could inject
+  // lines into GITHUB_OUTPUT or the job summary.
+  if (!ALGORAND_TXID.test(txid)) {
+    warn(`the donation summary has a malformed settlement txid; ${micro} microUSDC reported`)
+    return
+  }
+  const url = explorerUrl(txid, env)
+  console.log(`::notice::AuPM donation: ${micro} microUSDC, settlement txid ${txid} ${url}`)
+  if (env.GITHUB_STEP_SUMMARY) {
+    appendFileSync(
+      env.GITHUB_STEP_SUMMARY,
+      [
+        '### AuPM donation',
+        '',
+        '| Amount | Settlement txid |',
+        '| --- | --- |',
+        `| ${formatUsdc(micro)} USDC (${micro} microUSDC) | [${txid}](${url}) |`,
+        '',
+      ].join('\n'),
+    )
+  }
+  if (env.GITHUB_OUTPUT) {
+    appendFileSync(env.GITHUB_OUTPUT, `settlement-txid=${txid}\ndonated-micro-usdc=${micro}\n`)
+  }
 }
 
 /** Convert an input value (string or boolean) to a strict boolean. */
