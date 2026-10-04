@@ -45,28 +45,18 @@ runs:
         LOCKFILE: ${{ inputs.lockfile }}
       run: node "${{ github.action_path }}/install.mjs"
 
-    - name: Setup pnpm and Node
-      # pnpm/setup v3.0.0, pinned to a full commit SHA. Matches ci.yml.
-      id: setup-pnpm
-      continue-on-error: true
-      uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024
-      with:
-        version: 12.5.1
-        runtime: node@22
-        cache: false
-        install: false
-
     - name: Install aupm CLI dependencies
       # Runs in the action's own repository checkout, not the caller's, so
       # cli/ and mcp/ resolve even when this action is called from a
-      # third-party repo. Never redden the caller's CI: continue-on-error
-      # here, and the run step below checks setup-ok before spawning.
+      # third-party repo. pnpm runs through npm, with the caller's Node. The
+      # step does not write to GITHUB_PATH or GITHUB_ENV. Never redden the
+      # caller's CI: continue-on-error here, and the next step checks
+      # setup-ok before spawning.
       id: install-deps
-      if: steps.setup-pnpm.outcome == 'success'
       continue-on-error: true
       shell: bash
       working-directory: ${{ github.action_path }}/../../..
-      run: pnpm install --frozen-lockfile --filter aupm... --filter aupm-mcp...
+      run: npm exec --yes --package=pnpm@12.5.1 -- pnpm install --frozen-lockfile --filter aupm... --filter aupm-mcp...
 
     - name: Check and donate to reviewed packages
       shell: bash
@@ -78,5 +68,5 @@ runs:
         DONATE: ${{ inputs.donate }}
         # WARNING: only set when donate is 'true'. Never argv, never a log line.
         DONOR_SECRET: ${{ inputs.donate == 'true' && inputs.donor-secret || '' }}
-        SETUP_OK: ${{ steps.setup-pnpm.outcome == 'success' && steps.install-deps.outcome == 'success' }}
+        SETUP_OK: ${{ steps.install-deps.outcome == 'success' }}
       run: node "${{ github.action_path }}/run.mjs"
