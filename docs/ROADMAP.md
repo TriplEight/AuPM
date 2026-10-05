@@ -31,10 +31,10 @@ change to the plan.
 - Onboard the contributor, maintainer, adversarial reviewer and treasury roles, so that the
   split moves to its target: auditor 30%, contributor 10%, maintainer 20%, adversarial reviewer
   pool 25%, treasury 10%, ops 5%.
-- Auditor self-registration (`aupm register`) and an on-chain auditor registry.
+- Auditor applications: an auditor applies, and ops reviews the application and adds the
+  auditor.
 - Review bounties for each new version of a reviewed package.
 - Automated scans as an extra signal (`AUTO_SCANNED`), separate from human review.
-- Card payments over x402, for donors without a crypto wallet.
 - Forge integrations: Codeberg and Radicle.
 
 ## Later

@@ -49,8 +49,6 @@ two reasons.
    at the Linux Foundation governs it. Its members include Google, AWS, Visa, Stripe and
    Cloudflare. AuPM depends on that open standard, not on one vendor.
 
-You need a wallet only to donate. An install never needs one.
-
 ## Review tiers
 
 The MVP has two tiers:
