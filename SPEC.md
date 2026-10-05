@@ -107,9 +107,11 @@ and x402-capable npm plugins are post-MVP.
 - **Cache/mirror bypass** — audit attestation travels with the tarball in response headers,
   not only the registry API. Stripped mirrors lose the attestation chain, which is what
   compliance users pay for.
-- **Sybil reviewers** — Phase 2 identity = funded Algorand wallet (~0.1 ALGO min balance per
-  identity); Sybil cost scales linearly with funding. Wallet cost alone is weak; stake/identity
-  weighting is governance scope (Phase 5). In the MVP the auditors are the team.
+- **Sybil reviewers** — registration is not acceptance. Anybody can register a wallet
+  (Phase 2), but ops reviews each auditor's application and accepts or rejects it. Only an
+  accepted auditor's review anchor creates a review record, so a mass of new wallets produces
+  no reviews. Stake/identity weighting is governance scope (Phase 5). In the MVP the auditors
+  are the team.
 - **Standard not fork** — AuPM never replaces npm; a user can always go direct. This bounds
   the attack surface of AuPM as a gatekeeper.
 
@@ -178,7 +180,7 @@ these four only. The shares of the other roles are ops income until those roles 
 |---|---|---|---|---|
 | **Free user** | Installs unreviewed packages; reads status; attests zero-coverage lockfiles | Yes | Set registry or install `aupm` wrapper | — |
 | **Donor** | Opts in and pays for reviewed resources (§11.4) | Yes | `--donate`, `allowDonation`, `donate: 'true'` | — |
-| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in); GPG tiers later | 30%, claimed from PaymentRouter |
+| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in) and apply; ops reviews the application and accepts the auditor manually (registration is not acceptance); GPG tiers later | 30%, claimed from PaymentRouter |
 | **Contributor** | Authors the fix PR; PR must reference the audit ID | No | Register wallet; link forge account | 10%, credited on merge of the fix PR. Fix completeness is verified by the maintainer who reviewed, approved and merged the PR |
 | **Maintainer** | Reviews/merges code; verifies fix completeness; keeps the package at a high tier | No | Register wallet; prove package ownership | 20% (covers merge-review work) |
 | **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 25% pool share; bounty on successful challenge |
@@ -262,7 +264,8 @@ in PaymentRouter → the auditor and ops claim.
 GitHub Action pinned to a published CLI; Dependabot/Renovate integration; Stripe x402
 subscriptions/donations + business tiers; IDE/MCP status badges; forge integrations (Codeberg,
 Radicle) + pay-at-forge; onboarding of contributor, maintainer, adversarial reviewer and
-treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm register`),
+treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm register`)
+with manual acceptance of each auditor by ops,
 `aupm audit`, `POST /api/v1/review`; claim registration and GitHub proof verification;
 oracle-signed identity binding for claims; on-chain AuditorRegistry; review bounty on each new
 version; review lineage with delta review (§21); `aupm donor init` (§21); `AUTO_SCANNED`

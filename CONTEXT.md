@@ -21,7 +21,7 @@ A version can have many flags (`cve:<id>`, `auto_scan:clean`, `auto_scan:finding
 _Avoid_: status value, label
 
 **COMMUNITY_REVIEWED**:
-The tier for a package version where at least one registered auditor read that exact tarball
+The tier for a package version where at least one accepted auditor read that exact tarball
 and signed a review.
 _Avoid_: REVIEWED, audited
 

@@ -31,8 +31,9 @@ change to the plan.
 - Onboard the contributor, maintainer, adversarial reviewer and treasury roles, so that the
   split moves to its target: auditor 30%, contributor 10%, maintainer 20%, adversarial reviewer
   pool 25%, treasury 10%, ops 5%.
-- Auditor applications: an auditor applies, and ops reviews the application and adds the
-  auditor.
+- Auditor registration and acceptance: an auditor registers a wallet (`aupm register`) and
+  applies. Ops reviews the application and accepts or rejects it. Registration alone does not
+  let anyone record a review.
 - Review bounties for each new version of a reviewed package.
 - Automated scans as an extra signal (`AUTO_SCANNED`), separate from human review.
 - Forge integrations: Codeberg and Radicle.
