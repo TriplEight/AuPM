@@ -177,6 +177,10 @@ verifiers. The signing key uses raw ed25519 instead.
 
 Use `pnpm`. Never use `npm` or `yarn` to install packages in this project.
 
+Prerequisites: Node 22 or later and pnpm 12.5.1, the same versions as CI. pnpm 11 and later need
+Node 22. A native module (`better-sqlite3`) builds for the Node version that runs
+`pnpm install`. After a Node version change, run `pnpm install` again.
+
 ```bash
 pnpm install                        # install all workspace dependencies
 pnpm test                           # proxy and contract test suites
