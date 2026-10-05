@@ -5,11 +5,12 @@ see [README.md](../README.md). For the specification, see [SPEC.md](../SPEC.md).
 
 ## Current status and limitations
 
-No MainNet deployment exists yet. MainNet runs no contract, and no payment has settled.
+AuPM runs on Algorand MainNet at `https://aupm.fyi`. A `PaymentRouter` application runs there,
+and donations settle in USDC. The project is at an early stage: see [ROADMAP.md](ROADMAP.md).
 
-`contracts/smart_contracts/artifacts/` holds a Puya build of `PaymentRouter`. MainNet does not
-run a `PaymentRouter` application id yet. Follow
-[RUNBOOK-contract-build.md](RUNBOOK-contract-build.md) before any MainNet deploy. The operator runbook for the deploy is not published.
+`contracts/smart_contracts/artifacts/` holds the Puya build of `PaymentRouter`. Follow
+[RUNBOOK-contract-build.md](RUNBOOK-contract-build.md) before any MainNet contract deploy or
+upgrade. The operator runbook for the deploy is not published.
 
 Contract tests run under `algorand-typescript-testing`, in JavaScript. A passing test does not
 prove the contract compiles under Puya. Only `algokit project run build`, on a machine with
