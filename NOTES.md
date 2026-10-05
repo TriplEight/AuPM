@@ -2,6 +2,15 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-05
+- #65 `3a3d31b`: the Action `.github/actions/aupm` is a drop-in for `npm ci`. It installs through
+  the AuPM registry, falls back to npm, and donates on opt-in (`donate`, `donor-secret`).
+- #66 `cdcf953`: the testing skill names the new Action tests.
+- #67 `230fb38`: a paid Action run shows the settlement txid with an explorer link, in the job
+  summary and as step outputs.
+- MainNet: `aupm-action-demo` runs the Action and donates. `10-verify.sh` and `verify.sh` pass,
+  `e2e` included.
+
 ## 2026-09-29
 - #38 `5e9d315`: multisig submit instructions POST to algod, not `algokit goal clerk rawsend`.
 - #39 `f803173`: `.dockerignore` excludes nested `.claude/` directories.
