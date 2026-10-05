@@ -21,8 +21,33 @@ of a package before it serves it. An unreviewed package installs free, exactly l
 npm. A reviewed package also installs free. A donor can also pay to fund the review, in USDC,
 on top of that install.
 
-Caution: no MainNet deployment exists yet. See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-for the current build and deployment status.
+## Early days: come build it with us
+
+AuPM is at an early stage. It runs on Algorand MainNet, and donations settle there. Many
+steps are still manual, and only the auditor and ops roles are paid today.
+[docs/ROADMAP.md](docs/ROADMAP.md) lists what comes next. If one of these fits you, please
+join:
+
+- **Review packages.** Read a tarball, anchor your review, and get paid for it. See
+  "For auditors" below.
+- **Maintain a package?** Tell us in an issue. The maintainer share is planned, not live.
+  Your input decides how it works.
+- **Write code.** Pick an item from the roadmap, or open an issue first.
+- **Try it.** Point npm at `https://aupm.fyi/` and tell us what breaks.
+
+## Why crypto?
+
+We know: the wallet setup is the hardest step in AuPM today. We chose crypto anyway, for
+two reasons.
+
+1. **The payment is too small for a card.** Card networks charge a fixed fee on each
+   payment, typically tens of cents. That is far more than $0.001. A USDC payment on
+   Algorand costs a small fraction of a cent, so a $0.001 donation works.
+2. **The protocol is an open standard.** AuPM pays over [x402](https://www.x402.org), which
+   turns HTTP status 402 "Payment Required" into a working payment flow. The
+   [x402 Foundation](https://www.linuxfoundation.org/press/linux-foundation-announces-operational-launch-of-x402-foundation-to-standardize-internet-native-payments-for-ai-agents-and-applications)
+   at the Linux Foundation governs it. Its members include Google, AWS, Visa, Stripe and
+   Cloudflare. AuPM depends on that open standard, not on one vendor.
 
 ## Review tiers
 
@@ -143,6 +168,7 @@ aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 
 - [SPEC.md](SPEC.md) — the authoritative specification.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
+- [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, and where help is welcome.
 - [docs/adr/](docs/adr/) — design decisions.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
 
