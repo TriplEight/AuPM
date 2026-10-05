@@ -1,7 +1,7 @@
 ---
 name: aupm-audit-status
 description: >
-  AUPM audit-status model: the MVP tiers, the auto-reset rule, the integrity rule, the
+  AuPM audit-status model: the MVP tiers, the auto-reset rule, the integrity rule, the
   review anchor, the SQLite schema, and the machine-readable status API. Use for the
   status store, the record-review tool, and the /api/v1/status endpoint.
 ---
@@ -20,8 +20,8 @@ product model. Do not build them in the MVP. CVEs are flags (`cve:<id>`), never 
 Flags are Phase 2.
 
 When is COMMUNITY_REVIEWED paid (invariant 4, SPEC §11.2):
-- Tarball: only with `X-AUPM-Donate: 1`. Plain npm gets it free.
-- Attestation routes: 402 unless the request sends `X-AUPM-Donate: 0`, which gets a free
+- Tarball: only with `X-AuPM-Donate: 1`. Plain npm gets it free.
+- Attestation routes: 402 unless the request sends `X-AuPM-Donate: 0`, which gets a free
   partial attestation. Integrity warnings are never withheld.
 
 ## Auto-reset rule

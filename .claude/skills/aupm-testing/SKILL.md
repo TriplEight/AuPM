@@ -1,11 +1,11 @@
 ---
 name: aupm-testing
 description: >
-  AUPM test stack, the verification harness (scripts/verify.sh), and the sandbox
+  AuPM test stack, the verification harness (scripts/verify.sh), and the sandbox
   limits on running it. Use whenever you write or run tests, e2e scripts, or
   acceptance checks.
 ---
-# Testing AUPM
+# Testing AuPM
 
 ## Principle
 "Done" means a command exits 0 and prints PASS. Run the check and show the result.
