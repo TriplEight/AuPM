@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // mcp/src/index.ts
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -6,7 +7,7 @@ import { attestLockfileTool } from './tools/attest.js'
 import { checkTool } from './tools/check.js'
 import { installTool } from './tools/install.js'
 
-const server = new McpServer({ name: 'aupm', version: '0.2.0' })
+const server = new McpServer({ name: 'aupm', version: '0.3.0' })
 
 server.tool(
   checkTool.name,
