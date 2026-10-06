@@ -22,8 +22,9 @@ aupm npx cowsay hi                                       # npx against the AuPM 
 aupm attest package-lock.json [--donate] [--out <path>]  # one signed attestation per lockfile
 aupm attest pnpm-lock.yaml [--donate] [--out <path>]     # lockfileVersion 9.0, at most 2 MiB
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
-aupm donor init                                          # create a donor key, show a funding QR
-aupm donor optin                                         # opt the donor in to USDC
+aupm donor init                                          # create a donor key, show the next steps
+aupm donor optin                                         # opt the donor in to USDC (one check)
+aupm donor status                                        # balances and the next step (read-only)
 ```
 
 After `install`, `i` and `add`, `aupm pnpm` attests `pnpm-lock.yaml` and prints the same summary
@@ -37,9 +38,15 @@ offline. It makes no network call.
 
 Donation is off by default. Add `--donate` to donate. The donor key is the environment variable
 `AUPM_DONOR_MNEMONIC`, or the file that `aupm donor init` writes to
-`~/.config/aupm/donor.env` (mode 0600). A donation costs 1,000 microUSDC per reviewed package. A
+`~/.config/aupm/donor.key` (mode 0600; the 25 words and a newline). A donation costs 1,000 microUSDC per reviewed package. A
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
+
+For CI, `aupm donor init` prints the commands. You may use a separate wallet: put
+`XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` before the onboarding commands. Then
+`gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm/donor.key"` stores the key as a
+GitHub secret. Back up each key file offline: write the 25 words on paper, or copy the file to
+an external drive.
 
 ## Where a donation goes
 
