@@ -30,6 +30,10 @@ loop for 7 to 9 s. This route is free and public. Three limits contain the cost.
   fixes it. 422 says the server understood the type and could not process the content.
 - **One parse at a time.** A YAML request that arrives while a parse runs gets 503 with
   `Retry-After: 3`. JSON requests never wait for the parser and are not affected.
+- **Server faults.** A worker that cannot start, a missing script or `yaml` module, or a worker
+  that exits without a result is the server's fault, not the caller's. The route answers 500 with
+  a generic message and logs one line with the error code and message, never the body. A worker
+  out of memory stays 422. A syntax error or duplicate key is posted by the worker and answers 400.
 - **Separate byte cap.** `LOCKFILE_MAX_YAML_BYTES` is 2 MiB, checked before the worker starts
   (413). The JSON cap stays 5 MiB.
 

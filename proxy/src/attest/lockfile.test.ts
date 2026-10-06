@@ -775,6 +775,19 @@ describe('analyzePnpmLockfile', () => {
     expect(result).toMatchObject({ ok: false, status })
   })
 
+  test('an error parse outcome maps to 500 with a generic message', async () => {
+    const result = await analyzePnpmLockfile(fixture, undefined, async () => ({
+      kind: 'error',
+      code: 'ERR_MODULE_NOT_FOUND',
+      message: 'Cannot find package yaml',
+    }))
+    expect(result).toEqual({
+      ok: false,
+      status: 500,
+      message: 'internal error: the lockfile could not be parsed',
+    })
+  })
+
   test('a busy outcome carries Retry-After seconds', async () => {
     const result = await analyzePnpmLockfile(fixture, undefined, async () => ({ kind: 'busy' }))
     expect(result).toMatchObject({ retryAfterSeconds: 3 })

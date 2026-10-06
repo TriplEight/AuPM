@@ -17,6 +17,8 @@ export type YamlParseOutcome =
   | { kind: 'too_complex' }
   /** Another parse is running. */
   | { kind: 'busy' }
+  /** A server fault: no worker, a missing module, or a worker that died. Not the caller's fault. */
+  | { kind: 'error'; code: string; message: string }
 
 export interface YamlParseOptions {
   timeoutMs?: number
@@ -25,6 +27,12 @@ export interface YamlParseOptions {
 }
 
 export type YamlParser = (text: string, options?: YamlParseOptions) => Promise<YamlParseOutcome>
+
+/** Logs one line with the error code and message. Never logs the request body. */
+function serverFault(code: string, message: string): YamlParseOutcome {
+  console.error(`[aupm] pnpm-lock.yaml parse worker failed: ${code}: ${message}`)
+  return { kind: 'error', code, message }
+}
 
 const DEFAULT_WORKER_URL = new URL('./yaml-worker.mjs', import.meta.url)
 
@@ -48,9 +56,10 @@ export const parseYamlInWorker: YamlParser = (text, options = {}) => {
         workerData: text,
         resourceLimits: { maxOldGenerationSizeMb: YAML_PARSE_MEMORY_MB },
       })
-    } catch {
+    } catch (error) {
       parseInFlight = false
-      resolve({ kind: 'invalid' })
+      const fault = error as NodeJS.ErrnoException
+      resolve(serverFault(fault.code ?? fault.name, fault.message))
       return
     }
     let settled = false
@@ -69,8 +78,17 @@ export const parseYamlInWorker: YamlParser = (text, options = {}) => {
       settle(message.ok ? { kind: 'ok', value: message.value } : { kind: 'invalid' })
     })
     worker.once('error', (error: NodeJS.ErrnoException) => {
-      settle({ kind: error.code === 'ERR_WORKER_OUT_OF_MEMORY' ? 'too_complex' : 'invalid' })
+      if (settled) return
+      settle(
+        error.code === 'ERR_WORKER_OUT_OF_MEMORY'
+          ? { kind: 'too_complex' }
+          : serverFault(error.code ?? error.name, error.message),
+      )
     })
-    worker.once('exit', () => settle({ kind: 'invalid' }))
+    worker.once('exit', (exitCode) => {
+      // Fires after every settle, because settle() terminates the worker.
+      if (settled) return
+      settle(serverFault('WORKER_EXIT', `worker exited with code ${exitCode} before a result`))
+    })
   })
 }
