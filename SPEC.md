@@ -268,7 +268,7 @@ treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm
 with manual acceptance of each auditor by ops,
 `aupm audit`, `POST /api/v1/review`; claim registration and GitHub proof verification;
 oracle-signed identity binding for claims; on-chain AuditorRegistry; review bounty on each new
-version; review lineage with delta review (§21); `aupm donor init` (§21); `AUTO_SCANNED`
+version; review lineage with delta review (§21); `AUTO_SCANNED`
 pipeline and flags; IPFS/ARC-19/mirror manifest upgrades;
 AI-skills/MCP-plugin publishing; opt-in maintainer notifications; provenance-verified
 maintainer mapping; L2 online verification.
@@ -797,8 +797,21 @@ On the wire (ADR 0006):
 - A generic x402 client that sends neither header gets standard x402: a 402 for reviewed
   content on the attestation routes, and a free tarball.
 
-Key: env `AUPM_DONOR_MNEMONIC`, for a dedicated donor account (`CONTEXT.md`). No stored
-credential file.
+Key: env `AUPM_DONOR_MNEMONIC`, for a dedicated donor account (`CONTEXT.md`). When the env var
+is unset, the client reads `AUPM_DONOR_MNEMONIC=<25 words>` from
+`$XDG_CONFIG_HOME/aupm/donor.env` (default `~/.config/aupm/donor.env`). The env var wins. The
+directory is 0700 and the file is 0600. A client refuses a file with a wider mode and prints
+`chmod 600 <path>`.
+
+`aupm donor init` creates a donor account (ADR 0016). It writes the key file exclusively and
+refuses when the file exists. It never prints the mnemonic. It prints the address, the file path,
+an ARC-26 `algorand://<address>` URI, a terminal QR code of the URI and the funding needed: 0.2
+ALGO for the minimum balance with one asset, the 1,000 microALGO opt-in fee, then USDC. Then it
+continues as `aupm donor optin [--timeout <minutes>]`. `optin` polls algod until the ALGO balance
+covers the opt-in, then sends one 0-amount USDC transfer to self, signed by the donor. An
+existing opt-in prints "already opted in" and exits 0. A timeout (default 15 minutes) exits
+non-zero with the address and the amount to fund. The opt-in goes to algod, not through the
+facilitator. It is not an x402 payment.
 
 Spend cap: a client refuses to sign above 1,000 µUSDC × the number of entries in the lockfile
 it sends (1,000 µUSDC for a tarball or a single attestation), or for any asset other than the
@@ -1049,7 +1062,7 @@ fallback · `PEER_REVIEWED` / `MISSION_CRITICAL_SAFE` tiers · onboarding of con
 maintainer, adversarial reviewer or treasury · wallet registration (`aupm register`),
 `aupm audit`, `POST /api/v1/review` · claim registration and GitHub proof verification ·
 on-chain AuditorRegistry · `attest()` or `setAttestationKey()` in PaymentRouter · per-payment
-`credit()` · review bounties · review lineage and delta review · `aupm donor init` ·
+`credit()` · review bounties · review lineage and delta review ·
 automated maintainer notifications · automated payouts · L2 online verification · bulk
 discounts or price caps · 1-year escrow.
 
@@ -1197,8 +1210,6 @@ Decided in the v6 review. Not in the MVP.
   in the lineage. Payments for a version in the lineage split between the original auditor and
   the delta reviewers. The tier never carries forward; a patch release is the moment attacks are
   injected (axios 1.14.1). Each new version creates a delta-review bounty (Phase 2).
-- **`aupm donor init` / `aupm donor optin`.** Create a donor account, print the address and a
-  funding QR code, wait for funds, opt in to USDC.
 - **Reviews as a file in git.** The review records live in the repo, signed and anchored
   on-chain; SQLite keeps only the ledger.
 - **Litestream** replication of the ledger, if the nightly copy is not enough.
