@@ -82,7 +82,11 @@ export const EMPTY_REQUEST_KEY = 'aupmEmptyRequest' as const
 // ADR 0013: an empty lockfile request is a body with only JSON whitespace,
 // or a body that is exactly one JSON object with no keys. The pattern equals
 // a parse to `{}` and needs no second parse. `null` and `[]` do not match.
-const EMPTY_LOCKFILE_BODY = /^[ \t\r\n]*(?:\{[ \t\r\n]*\})?[ \t\r\n]*$/
+// CAUTION: keep the trailing whitespace inside the optional group. Two
+// adjacent whitespace runs backtrack in quadratic time on a long run of
+// spaces plus one other character, and this check runs on every body before
+// the x402 gate.
+const EMPTY_LOCKFILE_BODY = /^[ \t\r\n]*(?:\{[ \t\r\n]*\}[ \t\r\n]*)?$/
 
 function isEmptyLockfileBody(bytes: Uint8Array): boolean {
   return EMPTY_LOCKFILE_BODY.test(new TextDecoder().decode(bytes))

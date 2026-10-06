@@ -12,15 +12,16 @@ change to the plan.
 - The npm-compatible registry runs on Algorand MainNet at `https://aupm.fyi`.
 - Two review tiers: `UNREVIEWED` and `COMMUNITY_REVIEWED`.
 - Opt-in donations from the `aupm` CLI, the MCP server and the GitHub Action.
+- `aupm donor init` creates a donor account, shows a funding QR code and opts in to USDC.
 - The donation split pays two roles: the auditor (30%) and ops (70%).
 - Auditor onboarding is manual.
 
 ## Next
 
 - **Publish the CLI to npm**, so that `npm install -g aupm` works and the GitHub Action runs a
-  pinned, published package.
-- **`aupm donor init`**: create a donor account, show a funding QR code, and opt in to USDC.
-  This makes the wallet setup shorter.
+  pinned, published package. The release workflow and runbook exist
+  ([ADR 0017](adr/0017-publish-cli-with-trusted-publishing.md)). The first release waits for the
+  maintainer's manual first publish.
 - **pnpm and npx**: `aupm pnpm` and `aupm npx`, and pnpm lockfiles in the MCP server and in
   `aupm verify`. The lockfile route already parses `pnpm-lock.yaml` (lockfileVersion '9.0').
 - **Delta review**: a new version in the same major version needs a review of its diff against
