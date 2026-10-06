@@ -16,6 +16,7 @@ import {
   buildCliArgs,
   formatUsdc,
   parseSummaryFromStdout,
+  reportCounts,
   reportDonation,
   resolveOptions,
   run,
@@ -316,4 +317,34 @@ test('resolveOptions reads the donor mnemonic only from DONOR_SECRET / INPUT_DON
 test('resolveOptions has no --donor-secret argv flag', () => {
   const options = resolveOptions(['--donor-secret', CANARY_MNEMONIC], {})
   assert.equal(options.donorSecret, '')
+})
+
+test('reportCounts writes the four counts and the offer without donate', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const summaryPath = join(dir, 'summary.md')
+  reportCounts({ reviewed: 2, unreviewed: 3, integrityMismatch: 1, unresolvable: 4 }, false, {
+    GITHUB_STEP_SUMMARY: summaryPath,
+  })
+  const text = readFileSync(summaryPath, 'utf8')
+  assert.match(text, /\| 2 \| 3 \| 1 \| 4 \|/)
+  assert.match(text, /A donation would be 0\.002000 USDC for 2 audited packages/)
+  assert.match(text, /whole lockfile/)
+})
+
+test('reportCounts writes the same counts with donate and no offer', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const summaryPath = join(dir, 'summary.md')
+  reportCounts({ reviewed: 2, unreviewed: 3, integrityMismatch: 1, unresolvable: 4 }, true, {
+    GITHUB_STEP_SUMMARY: summaryPath,
+  })
+  const text = readFileSync(summaryPath, 'utf8')
+  assert.match(text, /\| 2 \| 3 \| 1 \| 4 \|/)
+  assert.doesNotMatch(text, /A donation would be/)
+})
+
+test('reportCounts writes nothing without a step summary file or a summary', () => {
+  reportCounts({ reviewed: 1 }, false, {})
+  reportCounts(null, false, { GITHUB_STEP_SUMMARY: '/nonexistent/never-written' })
 })
