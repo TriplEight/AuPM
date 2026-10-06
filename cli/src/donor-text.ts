@@ -231,13 +231,15 @@ export function ciStep(
   windows: boolean,
   keyFile: string,
 ): string[] {
-  return step(label, 'Optional, for CI. Store the key as a GitHub secret.', '', [
-    ...separateWalletLines(windows),
+  // The separate-wallet lines come last, so their prefix is never read as part of the
+  // secret command.
+  return step(label, 'Optional, for CI. Store the key as a GitHub secret:', '', [
     `${COMMAND_INDENT}${secretCommand(network, windows, keyFile)}`,
     ...wrap('In the workflow:'),
     `${COMMAND_INDENT}donor-secret: \${{ secrets.${network.ciSecret} }}`,
     ...wrap(`Web page: ${GITHUB_SECRETS_PATH}.`),
     ...wrap('Everyone who can change the workflows of the repository can read the secret.'),
+    ...separateWalletLines(windows),
   ])
 }
 
