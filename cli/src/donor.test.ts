@@ -123,6 +123,11 @@ function expectNoMnemonic(text: string, mnemonic: string): void {
   }
 }
 
+// Lines that cannot break: the key file path, shell commands and the workflow line.
+function isUnbreakable(line: string): boolean {
+  return /^ {2,}(\/|gh secret|Get-Content|XDG_CONFIG_HOME|\$env:|donor-secret|aupm )/.test(line)
+}
+
 function expectCleanSecretText(text: string): void {
   expect(text).not.toContain('sed')
   expect(text).not.toContain('secret set -f')
@@ -176,13 +181,12 @@ describe('aupm donor init', () => {
     expect(steps).toBeGreaterThan(where)
     expect(text).toContain('Network: Algorand MainNet')
     for (const phrase of [
-      `The file ${keyFile} holds the secret key of your donor wallet: 25 words.`,
-      'hot wallet by design',
-      'Any program that runs as this user can read the key',
-      'and spend the funds',
+      'This file holds the secret key of your donor wallet (25 words):',
+      `  ${keyFile}`,
+      'Hot wallet by design: any program running as this user can spend the funds.',
       '1 USDC pays for 1,000 reviewed packages',
       'This file is the only copy.',
-      'Back up the 25 words offline: on paper, or on an external drive.',
+      'Back up the 25 words offline: on paper,\n  or on an external drive.',
       'Never paste the key into a chat, an issue or a log.',
     ]) {
       expect(text.slice(warning, where)).toContain(phrase)
@@ -197,42 +201,48 @@ describe('aupm donor init', () => {
     for (const number of ['1.', '2.', '3.', '4.', '5.']) expect(text).toContain(`\n${number} `)
     expect(text).toContain(`algorand://${address}?amount=300000\n`)
     expect(text).not.toContain('asset=')
-    expect(text).toContain('`aupm donor optin` shows a QR code for this step.')
+    expect(text).toContain('`aupm donor optin` shows a QR code.')
     expect(text.split(keyFile)).toHaveLength(3)
     expect(text.startsWith('Created the donor wallet.\n')).toBe(true)
     expect(text).not.toContain('deadline')
     expect(text).toContain('Run `aupm donor status` at any time to see the next step.')
-    expect(text).toContain('1. Send 0.3 ALGO to this address. The minimum is 0.201 ALGO')
-    expect(text).toContain('With Pera Wallet (formerly the official Algorand Wallet): buy ALGO')
+    expect(text).toContain('1. Send 0.3 ALGO to this address. Scan the QR code with your wallet.')
+    expect(text).toContain('The minimum is 0.201 ALGO')
+    expect(text).toContain('With Pera Wallet (formerly the official Algorand Wallet): buy ALGO.')
     expect(text.split('formerly').length).toBe(2)
-    expect(text).toContain('Send 1 to 5 USDC to this address.')
+    expect(text).toContain('3. Send 1 to 5 USDC to this address.')
     expect(text).toContain('USDC from other chains is lost')
     expect(text).toContain('2. Run `aupm donor optin`.')
     expect(text).toContain(
-      'You may use a separate wallet: put XDG_CONFIG_HOME="$HOME/.config/aupm-ci" before the same onboarding commands.',
+      'You may use a separate wallet. Put this before the same onboarding commands:',
     )
+    expect(text).toContain('\n     XDG_CONFIG_HOME="$HOME/.config/aupm-ci"\n')
     expect(text).toContain(`gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "${keyFile}"`)
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
     expect(text).toContain('donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}')
     expectCleanSecretText(text)
     expect(text).toContain('Settings > Secrets and variables > Actions > New repository secret')
     expect(text).toContain('can change the workflows of the repository can read the secret')
-    expect(text).toContain('5. Donate. Add --donate to an install or attest command')
-    expect(text).toContain('`aupm install --donate`')
+    expect(text).toContain('5. Donate. Add --donate to an install or attest command:')
+    expect(text).toContain('aupm install --donate   or   aupm attest package-lock.json --donate')
     expect(text).toContain('aupm attest package-lock.json --donate')
     expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
-    expect(text).toContain('Without --donate, every install is free, reviewed packages included.')
+    expect(text).toContain('every install is free, reviewed packages included.')
     expect(text).not.toContain('plain install')
     expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
   })
 
-  it('stays within 40 lines, not counting the QR code', async () => {
+  it('stays within 40 lines and 80 columns, not counting the QR code and long commands', async () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     const lines = allText(io)
       .split('\n')
       .filter((line) => !/[█▀▄]/.test(line) && !line.trim().startsWith('algorand://'))
     expect(lines.length).toBeLessThanOrEqual(40)
+    for (const line of lines) {
+      if (isUnbreakable(line)) continue
+      expect(line.length, line).toBeLessThanOrEqual(80)
+    }
   })
 
   it('does not wait, poll or continue into the opt-in', async () => {
@@ -301,7 +311,7 @@ describe('aupm donor init', () => {
     expect(text).toContain(
       'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.',
     )
-    expect(text).toContain(`The address in use is: ${envAccount.address}`)
+    expect(text).toContain(`Address in use: ${envAccount.address}`)
     expectNoMnemonic(text, envAccount.mnemonic)
   })
 
@@ -499,7 +509,7 @@ describe('aupm donor status', () => {
     await runDonor(['status'], { io })
     const text = allText(io)
     expect(text).toContain('It wins over the key file')
-    expect(text).toContain(`The address in use is: ${envAccount.address}`)
+    expect(text).toContain(`Address in use: ${envAccount.address}`)
     expect(text).not.toContain(fileAccount.address)
   })
 
@@ -583,6 +593,27 @@ describe('aupm donor on TestNet', () => {
     const io = captureIo()
     await mainnet.runDonor(['init'], { io })
     expect(allText(io)).not.toContain('TestNet')
+  })
+})
+
+describe('aupm donor output width', () => {
+  it('keeps the prose of optin and status within 80 columns', async () => {
+    useAccount()
+    for (const [balance, assets, subcommand] of [
+      [150_000n, [], 'optin'],
+      [100_000n, [], 'status'],
+      [300_000n, optedIn(), 'status'],
+      [300_000n, optedIn(2_500_500), 'status'],
+      [300_000n, [], 'optin'],
+    ] as const) {
+      installFakeAlgod(freshState(balance, [...assets]))
+      const io = captureIo()
+      await runDonor([subcommand], { io })
+      for (const line of allText(io).split('\n')) {
+        if (/[█▀▄]/.test(line) || /^ *(algorand|Explorer|Transaction):?/.test(line)) continue
+        expect(line.length, line).toBeLessThanOrEqual(80)
+      }
+    }
   })
 })
 

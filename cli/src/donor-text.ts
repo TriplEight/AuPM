@@ -68,6 +68,35 @@ export function paint(style: Style | Style[], text: string): string {
   return styleText(style, text, { stream: process.stdout, validateStream: true })
 }
 
+const LINE_WIDTH = 80
+const BODY_INDENT = '   '
+const COMMAND_INDENT = '     '
+
+/** Breaks prose at spaces so that no line is longer than 80 characters. */
+export function wrap(text: string, indent = BODY_INDENT, firstIndent = indent): string[] {
+  const lines: string[] = []
+  let line = ''
+  let prefix = firstIndent
+  for (const word of text.split(' ')) {
+    if (line !== '' && prefix.length + line.length + 1 + word.length > LINE_WIDTH) {
+      lines.push(`${prefix}${line}`)
+      prefix = indent
+      line = word
+    } else {
+      line = line === '' ? word : `${line} ${word}`
+    }
+  }
+  if (line !== '') lines.push(`${prefix}${line}`)
+  return lines
+}
+
+/** A step: the bold heading and the intro on wrapped lines, then the body. */
+function step(label: string, heading: string, intro: string, body: string[]): string[] {
+  const title = `${label} ${heading}`
+  const [first = '', ...rest] = wrap(`${title} ${intro}`.trim(), BODY_INDENT, '')
+  return [first.replace(title, paint('bold', title)), ...rest, ...body]
+}
+
 function qrLines(uri: string): string[] {
   return [...renderUnicodeCompact(uri).split('\n'), uri]
 }
@@ -78,10 +107,12 @@ export function warningBlock(file: string, windows: boolean): string[] {
     paint(['bold', 'yellow'], rule),
     paint(['bold', 'yellow'], 'PLEASE READ. THIS PROTECTS YOUR FUNDS.'),
     paint(['bold', 'yellow'], rule),
-    `The file ${file} holds the secret key of your donor wallet: 25 words.`,
-    '- This is a hot wallet by design. Any program that runs as this user can read the key',
-    '  and spend the funds. Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
-    '- This file is the only copy. Back up the 25 words offline: on paper, or on an external drive.',
+    'This file holds the secret key of your donor wallet (25 words):',
+    `  ${file}`,
+    '- Hot wallet by design: any program running as this user can spend the funds.',
+    '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
+    '- This file is the only copy. Back up the 25 words offline: on paper,',
+    '  or on an external drive.',
     '- Never paste the key into a chat, an issue or a log.',
   ]
   if (windows) lines.push('- On Windows, the permissions of this file are not protected.')
@@ -105,12 +136,13 @@ export function addressLines(address: string, network: Network): string[] {
 export function envNoticeLines(address: string | null): string[] {
   const lead = 'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.'
   if (address === null) return [lead, 'The value is not a valid 25-word mnemonic.']
-  return [lead, `The address in use is: ${address}`]
+  return [lead, `Address in use: ${address}`]
 }
 
 export function existingFileLines(file: string, address: string): string[] {
   return [
-    `A donor key file exists already: ${file}`,
+    'A donor key file exists already:',
+    `  ${file}`,
     `It holds the address: ${address}`,
     'Run `aupm donor status` to see the state of this wallet.',
     'Do not delete the file. Deleting it loses the funds in this wallet.',
@@ -127,26 +159,23 @@ export function algoStep(
   micro: bigint,
   detail = false,
 ): string[] {
-  const lines = [
-    paint('bold', `${label} Send ${formatMicro(micro)} ALGO to this address.`) +
-      (detail
-        ? ` The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO (0.1 account, 0.1 USDC opt-in, 0.001 fee).`
-        : ''),
-    '   Scan the QR code with your wallet.',
-    ...qrLines(arc26Uri(address, micro)).map((line) => `   ${line}`),
+  const minimum = `The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO (0.1 account, 0.1 USDC opt-in, 0.001 fee).`
+  const body = [
+    ...(detail ? wrap(minimum) : []),
+    ...qrLines(arc26Uri(address, micro)).map((line) => `${BODY_INDENT}${line}`),
   ]
   if (!network.testnet) {
-    lines.push(
-      `   With ${PERA_FIRST}: buy ALGO in the app, then scan the QR code.`,
-      '   With an exchange: withdraw ALGO on the "Algorand" network only.',
+    body.push(
+      ...wrap(`With ${PERA_FIRST}: buy ALGO.`),
+      ...wrap('With an exchange: withdraw ALGO on the "Algorand" network only.'),
     )
   }
-  return lines
+  const heading = `Send ${formatMicro(micro)} ALGO to this address.`
+  return step(label, heading, 'Scan the QR code with your wallet.', body)
 }
 
 export function optinStep(label: string): string[] {
-  const heading = paint('bold', `${label} Run \`aupm donor optin\`.`)
-  return [`${heading} It lets the wallet hold USDC.`]
+  return step(label, 'Run `aupm donor optin`.', 'It lets the wallet hold USDC.', [])
 }
 
 export function usdcStep(
@@ -156,36 +185,39 @@ export function usdcStep(
   options: { withQr?: boolean; peraKnown?: boolean } = {},
 ): string[] {
   const { withQr = true, peraKnown = false } = options
-  const lines = [
-    paint('bold', `${label} Send 1 to 5 USDC to this address.`) +
-      ` Only USDC on Algorand (ASA ${network.usdcAsset}). USDC from other chains is lost.`,
-  ]
+  const only = `Only USDC on Algorand (ASA ${network.usdcAsset}).`
+  const lost = 'USDC from other chains is lost.'
+  const body = wrap(
+    withQr
+      ? 'The QR code asks for 1 USDC. You can change the amount in your wallet.'
+      : `${lost} \`aupm donor optin\` shows a QR code.`,
+  )
   if (withQr) {
-    lines.push(
-      '   The QR code asks for 1 USDC. You can change the amount in your wallet.',
-      ...qrLines(arc26Uri(address, USDC_SUGGESTED_MICRO, network.usdcAsset)).map(
-        (line) => `   ${line}`,
-      ),
-    )
-  } else {
-    lines.push('   `aupm donor optin` shows a QR code for this step.')
+    const uri = arc26Uri(address, USDC_SUGGESTED_MICRO, network.usdcAsset)
+    body.push(...qrLines(uri).map((line) => `${BODY_INDENT}${line}`))
   }
   if (!network.testnet) {
     const pera = peraKnown ? 'Pera Wallet' : PERA_FIRST
-    lines.push(
-      `   With ${pera}: buy USDC, or swap ALGO to USDC. With an exchange: withdraw USDC on the Algorand network.`,
-    )
+    body.push(...wrap(`With ${pera}: buy USDC. With an exchange: withdraw it on Algorand.`))
   }
-  return lines
+  const intro = withQr ? `${only} ${lost}` : only
+  return step(label, 'Send 1 to 5 USDC to this address.', intro, body)
 }
 
 export const CI_CONFIG_HOME = '$HOME/.config/aupm-ci'
 
-function separateWalletLine(windows: boolean): string {
+function separateWalletLines(windows: boolean): string[] {
   if (windows) {
-    return `   You may use a separate wallet: run \`$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"\` first, then the same onboarding commands. Close the window afterwards.`
+    return [
+      ...wrap('You may use a separate wallet. Run this first, then the same onboarding commands.'),
+      `${COMMAND_INDENT}$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"`,
+      ...wrap('Close the window afterwards.'),
+    ]
   }
-  return `   You may use a separate wallet: put XDG_CONFIG_HOME="${CI_CONFIG_HOME}" before the same onboarding commands.`
+  return [
+    ...wrap('You may use a separate wallet. Put this before the same onboarding commands:'),
+    `${COMMAND_INDENT}XDG_CONFIG_HOME="${CI_CONFIG_HOME}"`,
+  ]
 }
 
 function secretCommand(network: Network, windows: boolean, keyFile: string): string {
@@ -199,25 +231,26 @@ export function ciStep(
   windows: boolean,
   keyFile: string,
 ): string[] {
-  return [
-    paint('bold', `${label} Optional, for CI. Store the key as a GitHub secret.`),
-    separateWalletLine(windows),
-    `     ${secretCommand(network, windows, keyFile)}`,
-    `   Workflow line: donor-secret: \${{ secrets.${network.ciSecret} }}`,
-    `   Or use the web page of your repository: ${GITHUB_SECRETS_PATH}.`,
-    '   Everyone who can change the workflows of the repository can read the secret.',
-  ]
+  return step(label, 'Optional, for CI. Store the key as a GitHub secret.', '', [
+    ...separateWalletLines(windows),
+    `${COMMAND_INDENT}${secretCommand(network, windows, keyFile)}`,
+    ...wrap('In the workflow:'),
+    `${COMMAND_INDENT}donor-secret: \${{ secrets.${network.ciSecret} }}`,
+    ...wrap(`Web page: ${GITHUB_SECRETS_PATH}.`),
+    ...wrap('Everyone who can change the workflows of the repository can read the secret.'),
+  ])
 }
 
 export function donateStep(label: string): string[] {
   const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
-  return [
-    paint('bold', `${label} Donate.`) +
-      ' Add --donate to an install or attest command, for example `aupm install --donate`',
-    '   or `aupm attest package-lock.json --donate`.' +
-      ` It pays ${price} USDC for each reviewed package in the lockfile.`,
-    '   Without --donate, every install is free, reviewed packages included.',
-  ]
+  const intro = 'Add --donate to an install or attest command:'
+  return step(label, 'Donate.', intro, [
+    `${COMMAND_INDENT}aupm install --donate   or   aupm attest package-lock.json --donate`,
+    ...wrap(
+      `It pays ${price} USDC for each reviewed package in the lockfile. ` +
+        'Without --donate, every install is free, reviewed packages included.',
+    ),
+  ])
 }
 
 export function initNextSteps(
@@ -227,9 +260,7 @@ export function initNextSteps(
   keyFile: string,
 ): string[] {
   return [
-    paint(['bold', 'cyan'], 'Next steps.') +
-      ' Run `aupm donor status` at any time to see the next step.',
-    '',
+    `${paint(['bold', 'cyan'], 'Next steps.')} Run \`aupm donor status\` at any time to see the next step.`,
     ...algoStep('1.', address, network, ALGO_SUGGESTED_MICRO, true),
     '',
     ...optinStep('2.'),

@@ -71,15 +71,15 @@ describe('network text', () => {
 
   it('offers a separate wallet with one line, in the shell form of the platform', () => {
     const posix = ciStep('4.', mainnet, false, KEY).join('\n')
-    expect(posix).toContain(
-      'You may use a separate wallet: put XDG_CONFIG_HOME="$HOME/.config/aupm-ci" before the same onboarding commands.',
-    )
+    expect(posix).toContain('You may use a separate wallet. Put this before the same onboarding')
+    expect(posix).toContain('\n     XDG_CONFIG_HOME="$HOME/.config/aupm-ci"\n')
     expect(posix).not.toContain('$env:')
     expect(posix).not.toContain('aupm donor init')
     const windows = ciStep('4.', mainnet, true, KEY).join('\n')
     expect(windows).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"')
     expect(windows).toContain('Close the window afterwards.')
     expect(windows).not.toContain('XDG_CONFIG_HOME="')
+    expect(windows).toContain('\n     $env:XDG_CONFIG_HOME = ')
   })
 
   it('reads the main key file through stdin on each platform and network', () => {
@@ -134,7 +134,7 @@ describe('network text', () => {
 
   it('names the price of one reviewed package from the price constant', () => {
     expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
-    expect(donateStep('5.').join('\n')).toContain('Without --donate, every install is free')
+    expect(donateStep('5.').join('\n')).toContain('every install is free')
     expect(donateStep('5.').join('\n')).not.toContain('plain install')
   })
 })
