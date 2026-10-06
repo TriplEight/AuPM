@@ -1,9 +1,14 @@
 // cli/src/donor-text.test.ts
+import os from 'node:os'
+import { donorEnvFilePath } from 'aupm-mcp/donor-key'
 import { describe, expect, it } from 'vitest'
 import {
   algoStep,
   arc26Uri,
+  CI_CONFIG_HOME,
+  CI_KEY_FILE,
   ciStep,
+  donateStep,
   formatMicro,
   networkFor,
   optInRequiredMicro,
@@ -17,8 +22,8 @@ const mainnet = networkFor(false, '31566704', 'mainnet')
 
 describe('amounts', () => {
   it('formats integer micro-units without floats', () => {
-    expect(formatMicro(0n)).toBe('0.000000')
-    expect(formatMicro(201_000n)).toBe('0.201000')
+    expect(formatMicro(0n)).toBe('0')
+    expect(formatMicro(201_000n)).toBe('0.201')
     expect(formatMicro(12_345_678n)).toBe('12.345678')
   })
 
@@ -67,11 +72,34 @@ describe('network text', () => {
   })
 
   it('names the CI secret of the network', () => {
-    expect(ciStep('4.', '/k/donor.env', mainnet).join('\n')).toContain(
-      'gh secret set AUPM_DONOR_MNEMONIC_MAINNET',
-    )
-    expect(ciStep('4.', '/k/donor.env', testnet).join('\n')).toContain(
-      'gh secret set AUPM_DONOR_MNEMONIC_TESTNET',
-    )
+    expect(ciStep('4.', mainnet).join('\n')).toContain('gh secret set AUPM_DONOR_MNEMONIC_MAINNET')
+    const testnetText = ciStep('4.', testnet).join('\n')
+    expect(testnetText).toContain('gh secret set AUPM_DONOR_MNEMONIC_TESTNET')
+    expect(testnetText).toContain('NETWORK=testnet XDG_CONFIG_HOME=')
+  })
+
+  it('prints a CI key path that init writes with that XDG_CONFIG_HOME', () => {
+    const home = os.homedir()
+    const previous = process.env.XDG_CONFIG_HOME
+    process.env.XDG_CONFIG_HOME = CI_CONFIG_HOME.replace('$HOME', home)
+    try {
+      expect(donorEnvFilePath()).toBe(CI_KEY_FILE.replace('$HOME', home))
+    } finally {
+      if (previous === undefined) delete process.env.XDG_CONFIG_HOME
+      else process.env.XDG_CONFIG_HOME = previous
+    }
+  })
+
+  it('shows the USDC QR only when asked', () => {
+    const uri = `algorand://${ADDRESS}?amount=1000000&asset=31566704`
+    expect(usdcStep('3.', ADDRESS, mainnet).join('\n')).toContain(uri)
+    const short = usdcStep('3.', ADDRESS, mainnet, false).join('\n')
+    expect(short).not.toContain('asset=')
+    expect(short).toContain('Send only USDC on Algorand (ASA 31566704)')
+    expect(short).toContain('USDC from another chain is lost')
+  })
+
+  it('names the price of one reviewed package from the price constant', () => {
+    expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
   })
 })

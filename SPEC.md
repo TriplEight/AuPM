@@ -819,13 +819,17 @@ a warning block, the address and the network, and five numbered next steps.
   the 1,000 microALGO fee). A terminal QR code carries an ARC-26 URI with the amount in
   microALGO. MainNet names Pera Wallet and a withdrawal on the "Algorand" network. TestNet names
   the Algorand TestNet dispenser.
-- Step 2 is `aupm donor optin`. Step 3 sends 1 to 5 USDC (ASA 31566704; TestNet 10458941). Its QR
-  code carries an ARC-26 URI with `amount` (microUSDC) and `asset`. TestNet names the Circle
-  faucet.
-- Step 4 is optional: store the key as the GitHub secret `AUPM_DONOR_MNEMONIC_MAINNET`
-  (`AUPM_DONOR_MNEMONIC_TESTNET` on TestNet) with `sed ... | gh secret set`, so the mnemonic goes
-  through stdin only. The text says that everyone who can change the workflows of the repository
-  can read the secret. Step 5 is `aupm attest package-lock.json --donate`.
+- Step 2 is `aupm donor optin`. Step 3 sends 1 to 5 USDC (ASA 31566704; TestNet 10458941). `init`
+  prints the step without a QR code. `optin` (after the opt-in) and `status` (opted in, no USDC)
+  print the QR code: an ARC-26 URI with `amount` (microUSDC) and `asset`. TestNet names the
+  Circle faucet.
+- Step 4 is optional: make a separate CI wallet with
+  `XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init`, then store its key as the GitHub
+  secret `AUPM_DONOR_MNEMONIC_MAINNET` (`AUPM_DONOR_MNEMONIC_TESTNET` on TestNet) with
+  `sed ... | gh secret set`, so the mnemonic goes through stdin only. The text says that everyone
+  who can change the workflows of the repository can read the secret. Step 5 is
+  `aupm attest package-lock.json --donate`; the text says that it pays 0.001 USDC for each
+  reviewed package.
 
 `aupm donor optin` makes one check. An existing opt-in prints "already opted in" and exits 0. A
 funded wallet sends one 0-amount USDC transfer to self, signed by the donor, then prints the
