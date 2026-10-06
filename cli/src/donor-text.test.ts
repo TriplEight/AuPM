@@ -1,6 +1,6 @@
 // cli/src/donor-text.test.ts
 import os from 'node:os'
-import { donorEnvFilePath } from 'aupm-mcp/donor-key'
+import { donorKeyFilePath } from 'aupm-mcp/donor-key'
 import { describe, expect, it } from 'vitest'
 import {
   algoStep,
@@ -61,12 +61,10 @@ describe('network text', () => {
     expect(text).not.toContain('dispenser')
   })
 
-  it('points TestNet at the dispenser and the Circle faucet with the TestNet asset', () => {
+  it('gives TestNet the TestNet asset and no dispenser, faucet or link', () => {
     const algo = algoStep('1.', ADDRESS, testnet, 300_000n).join('\n')
     const usdc = usdcStep('3.', ADDRESS, testnet).join('\n')
-    expect(algo).toContain('https://lora.algokit.io/testnet/fund')
-    expect(usdc).toContain('https://faucet.circle.com/')
-    expect(usdc).toContain('Algorand Testnet')
+    expect(`${algo}\n${usdc}`).not.toMatch(/https?:|dispenser|faucet|Pera/i)
     expect(usdc).toContain('ASA 10458941')
     expect(usdc).toContain(`algorand://${ADDRESS}?amount=1000000&asset=10458941`)
   })
@@ -99,11 +97,23 @@ describe('network text', () => {
     expect(test).toContain('Remove-Item Env:NETWORK')
   })
 
-  it('uses gh secret set -f on every platform and never sed', () => {
-    for (const windows of [false, true]) {
-      const text = ciStep('4.', mainnet, windows).join('\n')
-      expect(text).toContain('gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"')
-      expect(text).not.toContain('sed')
+  it('reads the key file through stdin on each platform and network', () => {
+    const key = '"$HOME/.config/aupm-ci/aupm/donor.key"'
+    for (const [network, name] of [
+      [mainnet, 'AUPM_DONOR_MNEMONIC_MAINNET'],
+      [testnet, 'AUPM_DONOR_MNEMONIC_TESTNET'],
+    ] as const) {
+      const posix = ciStep('4.', network, false).join('\n')
+      const windows = ciStep('4.', network, true).join('\n')
+      expect(posix).toContain(`gh secret set ${name} < ${key}`)
+      expect(windows).toContain(`Get-Content ${key} | gh secret set ${name}`)
+      for (const text of [posix, windows]) {
+        expect(text).toContain(`secrets.${name} }}`)
+        expect(text).not.toContain('sed')
+        expect(text).not.toContain('secret set -f')
+        expect(text).not.toContain('AUPM_DONOR_MNEMONIC=')
+        expect(text).not.toMatch(/rename/i)
+      }
     }
   })
 
@@ -112,7 +122,7 @@ describe('network text', () => {
     const previous = process.env.XDG_CONFIG_HOME
     process.env.XDG_CONFIG_HOME = CI_CONFIG_HOME.replace('$HOME', home)
     try {
-      expect(donorEnvFilePath()).toBe(CI_KEY_FILE.replace('$HOME', home))
+      expect(donorKeyFilePath()).toBe(CI_KEY_FILE.replace('$HOME', home))
     } finally {
       if (previous === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = previous

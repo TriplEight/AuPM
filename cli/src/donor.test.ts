@@ -123,14 +123,22 @@ function expectNoMnemonic(text: string, mnemonic: string): void {
   }
 }
 
+function expectCleanSecretText(text: string): void {
+  expect(text).not.toContain('sed')
+  expect(text).not.toContain('secret set -f')
+  expect(text).not.toContain('AUPM_DONOR_MNEMONIC=')
+  expect(text).not.toContain('secrets.AUPM_DONOR_MNEMONIC }}')
+  expect(text).not.toMatch(/dispenser|faucet|lora\.algokit\.io\/testnet\/fund|circle\.com/i)
+}
+
 function storedMnemonic(): string {
-  return fs.readFileSync(keyFile, 'utf8').trim().replace(`${KEY_VAR}=`, '')
+  return fs.readFileSync(keyFile, 'utf8').trim()
 }
 
 beforeEach(() => {
   configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-donor-test-'))
   process.env.XDG_CONFIG_HOME = configHome
-  keyFile = path.join(configHome, 'aupm', 'donor.env')
+  keyFile = path.join(configHome, 'aupm', 'donor.key')
   vi.stubEnv('NO_COLOR', undefined)
   vi.stubEnv('FORCE_COLOR', undefined)
 })
@@ -207,14 +215,14 @@ describe('aupm donor init', () => {
     expect(text.indexOf('separate wallet for CI')).toBeLessThan(text.indexOf('gh secret set'))
     expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
     expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin')
-    expect(text).toContain('gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"')
-    expect(text).toContain('It creates the repository secret AUPM_DONOR_MNEMONIC.')
+    expect(text).toContain(
+      'gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm-ci/aupm/donor.key"',
+    )
+    expect(text).toContain('It creates the repository secret AUPM_DONOR_MNEMONIC_MAINNET.')
     expect(text).toContain('The mnemonic does not appear on the screen')
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
-    expect(text).toContain('donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC }}')
-    expect(text).toContain('Rename the TestNet secret to AUPM_DONOR_MNEMONIC_TESTNET')
-    expect(text).not.toContain('sed')
-    expect(text).not.toContain('$env:')
+    expect(text).toContain('donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}')
+    expectCleanSecretText(text)
     expect(text).toContain('Settings > Secrets and variables > Actions > New repository secret')
     expect(text).toContain('can change the workflows of the repository can read the secret')
     expect(text).toContain('separate wallet for CI')
@@ -265,7 +273,7 @@ describe('aupm donor init', () => {
   it('says that an existing file holds funds, shows its address and never says remove', async () => {
     const account = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`, { mode: 0o600 })
+    fs.writeFileSync(keyFile, `${account.mnemonic}\n`, { mode: 0o600 })
     const io = captureIo()
     const code = await runDonor(['init'], { io })
     const text = allText(io)
@@ -298,7 +306,10 @@ describe('aupm donor init', () => {
     await runDonor(['init'], { io })
     expect(allText(io)).toContain('On Windows, the permissions of this file are not protected')
     expect(allText(io)).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init')
-    expect(allText(io)).not.toContain('sed')
+    expect(allText(io)).toContain(
+      'Get-Content "$HOME/.config/aupm-ci/aupm/donor.key" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET',
+    )
+    expectCleanSecretText(allText(io))
   })
 })
 
@@ -371,7 +382,7 @@ describe('aupm donor optin', () => {
   it('reads the key file when the env var is unset', async () => {
     const account = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`, { mode: 0o600 })
+    fs.writeFileSync(keyFile, `${account.mnemonic}\n`, { mode: 0o600 })
     const state = freshState(500_000n, optedIn())
     installFakeAlgod(state)
     expect(await runDonor(['optin'], { io: captureIo() })).toBe(0)
@@ -381,7 +392,7 @@ describe('aupm donor optin', () => {
   it('lets the env var beat the key file', async () => {
     const fileAccount = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${fileAccount.mnemonic}\n`, { mode: 0o600 })
+    fs.writeFileSync(keyFile, `${fileAccount.mnemonic}\n`, { mode: 0o600 })
     const envAccount = useAccount()
     const state = freshState(500_000n, optedIn())
     installFakeAlgod(state)
@@ -392,7 +403,7 @@ describe('aupm donor optin', () => {
 
   it('refuses a key file with mode 0644 and suggests chmod 600', async () => {
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${newAccount().mnemonic}\n`)
+    fs.writeFileSync(keyFile, `${newAccount().mnemonic}\n`)
     fs.chmodSync(keyFile, 0o644)
     const io = captureIo()
     expect(await runDonor(['optin'], { io })).toBe(1)
@@ -477,7 +488,7 @@ describe('aupm donor status', () => {
   it('says that the env var wins over the file and shows the address in use', async () => {
     const fileAccount = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${fileAccount.mnemonic}\n`, { mode: 0o600 })
+    fs.writeFileSync(keyFile, `${fileAccount.mnemonic}\n`, { mode: 0o600 })
     const envAccount = useAccount()
     installFakeAlgod(freshState(300_000n))
     const io = captureIo()
@@ -491,7 +502,7 @@ describe('aupm donor status', () => {
   it('reads a 0644 key file on win32 and says it is not permission-protected', async () => {
     const account = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`)
+    fs.writeFileSync(keyFile, `${account.mnemonic}\n`)
     fs.chmodSync(keyFile, 0o644)
     vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
     installFakeAlgod(freshState(300_000n))
@@ -499,6 +510,83 @@ describe('aupm donor status', () => {
     expect(await runDonor(['status'], { io })).toBe(0)
     expect(allText(io)).toContain(account.address)
     expect(allText(io)).toContain('permissions of the key file are not protected')
+  })
+})
+
+describe('aupm donor on TestNet', () => {
+  const NOTE = 'TestNet is for development. Put NETWORK=testnet before every aupm command,'
+  type DonorModule = typeof import('./donor.js')
+  let donor: DonorModule
+
+  beforeEach(async () => {
+    vi.stubEnv('NETWORK', 'testnet')
+    vi.resetModules()
+    donor = await import('./donor.js')
+  })
+
+  afterEach(() => {
+    vi.resetModules()
+  })
+
+  it('init prints the note near the top and no dispenser or faucet', async () => {
+    const io = captureIo()
+    expect(await donor.runDonor(['init'], { io })).toBe(0)
+    const text = allText(io)
+    expect(text.indexOf(NOTE)).toBeGreaterThan(-1)
+    expect(text.indexOf(NOTE)).toBeLessThan(text.indexOf('PLEASE READ'))
+    expect(text).toContain('Network: Algorand TestNet')
+    expect(text).toContain('ASA 10458941')
+    expect(text).not.toContain('Pera Wallet')
+    expectCleanSecretText(text)
+  })
+
+  it('init prints the TestNet CI commands', async () => {
+    const io = captureIo()
+    await donor.runDonor(['init'], { io })
+    const text = allText(io)
+    expect(text).toContain(
+      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init',
+    )
+    expect(text).toContain(
+      'gh secret set AUPM_DONOR_MNEMONIC_TESTNET < "$HOME/.config/aupm-ci/aupm/donor.key"',
+    )
+  })
+
+  it('init prints the TestNet PowerShell commands on Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const io = captureIo()
+    await donor.runDonor(['init'], { io })
+    const text = allText(io)
+    expect(text).toContain(
+      '$env:NETWORK = "testnet"; $env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init',
+    )
+    expect(text).toContain(
+      'Get-Content "$HOME/.config/aupm-ci/aupm/donor.key" | gh secret set AUPM_DONOR_MNEMONIC_TESTNET',
+    )
+  })
+
+  it('optin and status print the note and the network', async () => {
+    const account = useAccount()
+    installFakeAlgod(freshState(150_000n))
+    for (const subcommand of ['optin', 'status']) {
+      const io = captureIo()
+      await donor.runDonor([subcommand], { io })
+      const text = allText(io)
+      expect(text).toContain(NOTE)
+      expect(text).toContain('set AUPM_PROXY_URL to the TestNet server.')
+      expect(text).toContain('Network: Algorand TestNet')
+      expect(text).toContain(account.address)
+      expectCleanSecretText(text)
+    }
+  })
+
+  it('MainNet prints no note', async () => {
+    vi.stubEnv('NETWORK', undefined)
+    vi.resetModules()
+    const mainnet = await import('./donor.js')
+    const io = captureIo()
+    await mainnet.runDonor(['init'], { io })
+    expect(allText(io)).not.toContain('TestNet')
   })
 })
 

@@ -801,10 +801,11 @@ On the wire (ADR 0006):
   content on the attestation routes, and a free tarball.
 
 Key: env `AUPM_DONOR_MNEMONIC`, for a dedicated donor account (`CONTEXT.md`). When the env var
-is unset, the client reads `AUPM_DONOR_MNEMONIC=<25 words>` from
-`$XDG_CONFIG_HOME/aupm/donor.env` (default `~/.config/aupm/donor.env`). The env var wins. The
-directory is 0700 and the file is 0600. A client refuses a file with a wider mode and prints
-`chmod 600 <path>`.
+is unset, the client reads the key file `$XDG_CONFIG_HOME/aupm/donor.key` (default
+`~/.config/aupm/donor.key`). The file holds the 25 words and a newline, nothing else. The env var
+wins. The directory is 0700 and the file is 0600. A client refuses a file with a wider mode and
+prints `chmod 600 <path>`. It refuses a file that is not one line of 25 valid words and names
+only the path.
 
 `aupm donor init` creates a donor account (ADR 0016). It writes the key file exclusively. It
 never prints the mnemonic. No `aupm donor` command waits or polls. `init` prints, in this order:
@@ -818,23 +819,27 @@ a warning block, the address and the network, and five numbered next steps.
   issue or a log. On Windows it adds that the file is not permission-protected there.
 - Step 1 sends 0.3 ALGO (the minimum is 0.201: 0.1 for the account, 0.1 for the USDC opt-in and
   the 1,000 microALGO fee). A terminal QR code carries an ARC-26 URI with the amount in
-  microALGO. MainNet names Pera Wallet and a withdrawal on the "Algorand" network. TestNet names
-  the Algorand TestNet dispenser.
+  microALGO. MainNet names Pera Wallet and a withdrawal on the "Algorand" network. The output
+  gives no TestNet source of funds (`docs/DEVELOPMENT.md` lists them).
 - Step 2 is `aupm donor optin`. Step 3 sends 1 to 5 USDC (ASA 31566704; TestNet 10458941). `init`
   prints the step without a QR code. `optin` (after the opt-in) and `status` (opted in, no USDC)
-  print the QR code: an ARC-26 URI with `amount` (microUSDC) and `asset`. TestNet names the
-  Circle faucet.
+  print the QR code: an ARC-26 URI with `amount` (microUSDC) and `asset`.
 - Step 4 is optional: make a separate CI wallet with
   `XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init` (on Windows, the PowerShell form
   `$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init`, and the text says to close
-  that window afterwards). `gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"` then creates
-  the GitHub secret `AUPM_DONOR_MNEMONIC`; the mnemonic does not appear on the screen or in the
-  command line. For a TestNet wallet, the user renames the secret to
-  `AUPM_DONOR_MNEMONIC_TESTNET` on the web page. The text says that everyone who can change the
-  workflows of the repository can read the secret. The warning block and the "key file exists"
+  that window afterwards). `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm-ci/aupm/donor.key"`
+  (PowerShell: `Get-Content "<same path>" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`) then
+  creates the GitHub secret; the mnemonic does not appear on the screen or in the command line.
+  On TestNet the name is `AUPM_DONOR_MNEMONIC_TESTNET`. The text shows the workflow line
+  `donor-secret: ${{ secrets.<name> }}`. It says that everyone who can change the workflows of
+  the repository can read the secret. The warning block and the "key file exists"
   message tell the user to back up the key offline (paper or an external drive). Step 5 is
   `aupm attest package-lock.json --donate`; the text says that it pays 0.001 USDC for each
   reviewed package.
+
+On TestNet (`NETWORK=testnet`), `init`, `optin` and `status` print one note near the top: TestNet
+is for development, put `NETWORK=testnet` before every `aupm` command and set `AUPM_PROXY_URL` to
+the TestNet server. `optin` and `status` print the network.
 
 `aupm donor optin` makes one check. An existing opt-in prints "already opted in" and exits 0. A
 funded wallet sends one 0-amount USDC transfer to self, signed by the donor, then prints the

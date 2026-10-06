@@ -1,7 +1,7 @@
 // cli/src/donor.ts
 //
 // `aupm donor init|optin|status` (SPEC.md §11.4, ADR 0016). `init` creates a donor account and
-// stores its key in the donor env file. `optin` checks the balance once and sends one 0-amount
+// stores its key in the donor key file. `optin` checks the balance once and sends one 0-amount
 // USDC transfer to self straight to algod. `status` reads the state and names the next step.
 // No command waits or polls. The opt-in is not an x402 payment.
 //
@@ -10,10 +10,10 @@ import algosdk from 'algosdk'
 import { donorAlgodUrl } from 'aupm-mcp/donor'
 import {
   AUPM_DONOR_MNEMONIC_ENV,
-  donorEnvFilePath,
+  donorKeyFilePath,
   loadDonorMnemonic,
-  readDonorEnvFile,
-  writeDonorEnvFile,
+  readDonorKeyFile,
+  writeDonorKeyFile,
 } from 'aupm-mcp/donor-key'
 import {
   addressLines,
@@ -28,6 +28,7 @@ import {
   paint,
   type Snapshot,
   statusLines,
+  testnetNote,
   usdcStep,
   warningBlock,
 } from './donor-text.js'
@@ -94,18 +95,19 @@ async function readSnapshot(address: string, usdcAsset: string): Promise<Snapsho
 }
 
 function runInit(io: DonorIo, network: Network): number {
-  const file = donorEnvFilePath()
-  const existing = readDonorEnvFile()
+  const file = donorKeyFilePath()
+  const existing = readDonorKeyFile()
   if (existing !== null) {
     emit(io, [...existingFileLines(file, addressOf(existing)), ...envNotice()])
     return 1
   }
   const account = algosdk.generateAccount()
-  writeDonorEnvFile(algosdk.secretKeyToMnemonic(account.sk))
+  writeDonorKeyFile(algosdk.secretKeyToMnemonic(account.sk))
   const address = account.addr.toString()
   emit(io, [
     'Created the donor wallet.',
     '',
+    ...testnetNote(network),
     ...warningBlock(file, process.platform === 'win32'),
     '',
     ...addressLines(address, network),
@@ -133,6 +135,7 @@ async function sendOptIn(address: string, secretKey: Uint8Array, network: Networ
 async function runOptin(io: DonorIo, network: Network): Promise<number> {
   const { addr, sk } = accountOf(loadDonorMnemonic())
   const snapshot = await readSnapshot(addr.toString(), network.usdcAsset)
+  emit(io, [...testnetNote(network), ...addressLines(snapshot.address, network), ''])
   if (snapshot.optedIn) {
     io.out(`The wallet is already opted in to USDC (ASA ${network.usdcAsset}).`)
     io.out('Run `aupm donor status` to see the next step.')
@@ -162,11 +165,17 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
 }
 
 async function runStatus(io: DonorIo, network: Network): Promise<number> {
-  const file = donorEnvFilePath()
+  const file = donorKeyFilePath()
   const address = addressOf(loadDonorMnemonic())
   const snapshot = await readSnapshot(address, network.usdcAsset)
   const fileLine = process.env[AUPM_DONOR_MNEMONIC_ENV] ? [] : [`Key file: ${file}`]
-  emit(io, [paint('bold', 'Donor wallet'), ...fileLine, ...envNotice(), ''])
+  emit(io, [
+    paint('bold', 'Donor wallet'),
+    ...testnetNote(network),
+    ...fileLine,
+    ...envNotice(),
+    '',
+  ])
   emit(io, statusLines(snapshot, network))
   if (process.platform === 'win32') {
     io.out('')
