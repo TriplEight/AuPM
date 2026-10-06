@@ -13,8 +13,6 @@ const ACCOUNT_MIN_BALANCE_MICRO = 100_000n
 const ASA_MIN_BALANCE_INCREASE_MICRO = 100_000n
 const OPT_IN_FEE_MICRO = 1_000n
 
-const TESTNET_ALGO_DISPENSER = 'https://lora.algokit.io/testnet/fund'
-const TESTNET_USDC_FAUCET = 'https://faucet.circle.com/'
 const GITHUB_SECRETS_PATH = 'Settings > Secrets and variables > Actions > New repository secret'
 
 export interface Network {
@@ -22,6 +20,7 @@ export interface Network {
   name: 'MainNet' | 'TestNet'
   usdcAsset: string
   explorer: string
+  ciSecret: string
 }
 
 export function currentNetwork(): Network {
@@ -34,6 +33,7 @@ export function networkFor(testnet: boolean, usdcAsset: string, explorer: string
     name: testnet ? 'TestNet' : 'MainNet',
     usdcAsset,
     explorer,
+    ciSecret: testnet ? 'AUPM_DONOR_MNEMONIC_TESTNET' : 'AUPM_DONOR_MNEMONIC_MAINNET',
   }
 }
 
@@ -95,6 +95,15 @@ export function warningBlock(file: string, windows: boolean): string[] {
   return lines
 }
 
+export function testnetNote(network: Network): string[] {
+  if (!network.testnet) return []
+  return [
+    'TestNet is for development. Put NETWORK=testnet before every aupm command,',
+    'and set AUPM_PROXY_URL to the TestNet server.',
+    '',
+  ]
+}
+
 export function addressLines(address: string, network: Network): string[] {
   return [`Address: ${address}`, `Network: Algorand ${network.name}`]
 }
@@ -123,12 +132,7 @@ export function algoStep(label: string, address: string, network: Network, micro
     '   Scan this QR code with your wallet. It fills in the address and the amount.',
     ...qrLines(arc26Uri(address, micro)).map((line) => `   ${line}`),
   ]
-  if (network.testnet) {
-    lines.push(
-      `   Get free TestNet ALGO from the dispenser: ${TESTNET_ALGO_DISPENSER}`,
-      '   Enter the address above on that page.',
-    )
-  } else {
+  if (!network.testnet) {
     lines.push(
       '   With Pera Wallet: buy ALGO in the app. Then scan the QR code to send it here.',
       '   With an exchange: withdraw ALGO on the "Algorand" network. No other network works.',
@@ -165,12 +169,7 @@ export function usdcStep(
   } else {
     lines.push('   `aupm donor optin` shows a QR code for this step.')
   }
-  if (network.testnet) {
-    lines.push(
-      `   Get free TestNet USDC from the Circle faucet: ${TESTNET_USDC_FAUCET}`,
-      '   Choose "Algorand Testnet" on that page. Enter the address above.',
-    )
-  } else {
+  if (!network.testnet) {
     lines.push(
       '   With Pera Wallet: buy USDC in the app, or swap ALGO to USDC. Then send it here.',
       '   With an exchange: withdraw USDC on the Algorand network.',
@@ -180,7 +179,7 @@ export function usdcStep(
 }
 
 export const CI_CONFIG_HOME = '$HOME/.config/aupm-ci'
-export const CI_KEY_FILE = `${CI_CONFIG_HOME}/aupm/donor.env`
+export const CI_KEY_FILE = `${CI_CONFIG_HOME}/aupm/donor.key`
 
 function ciWalletLines(network: Network, windows: boolean): string[] {
   if (windows) {
@@ -190,7 +189,9 @@ function ciWalletLines(network: Network, windows: boolean): string[] {
       `     ${networkEnv}$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"; aupm donor init`,
       '   Fund that wallet as in steps 1 to 3. Run `aupm donor optin` in the same window.',
       '   Then close that PowerShell window, or run `Remove-Item Env:XDG_CONFIG_HOME`',
-      '   (and `Remove-Item Env:NETWORK` on TestNet). Later commands then use the main wallet.',
+      network.testnet
+        ? '   Also run `Remove-Item Env:NETWORK`. Later commands then use the main wallet.'
+        : '   Later commands then use the main wallet.',
     ]
   }
   const networkEnv = network.testnet ? 'NETWORK=testnet ' : ''
@@ -202,20 +203,23 @@ function ciWalletLines(network: Network, windows: boolean): string[] {
   ]
 }
 
+function secretCommand(network: Network, windows: boolean): string {
+  if (windows) return `Get-Content "${CI_KEY_FILE}" | gh secret set ${network.ciSecret}`
+  return `gh secret set ${network.ciSecret} < "${CI_KEY_FILE}"`
+}
+
 export function ciStep(label: string, network: Network, windows: boolean): string[] {
   return [
     paint('bold', `${label} Optional. Store a key as a secret for CI.`),
     '   Use a separate wallet for CI. A separate wallet limits the loss.',
     ...ciWalletLines(network, windows),
-    '   Then run this command. It creates the repository secret AUPM_DONOR_MNEMONIC.',
+    `   Then run this command. It creates the repository secret ${network.ciSecret}.`,
     '   The mnemonic does not appear on the screen:',
-    `     gh secret set -f "${CI_KEY_FILE}"`,
+    `     ${secretCommand(network, windows)}`,
     '   In the workflow:',
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
-    '     donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC }}',
+    `     donor-secret: \${{ secrets.${network.ciSecret} }}`,
     `   Or use the web page of your repository: ${GITHUB_SECRETS_PATH}.`,
-    '   If the repository uses both networks, create one wallet for each network.',
-    '   Rename the TestNet secret to AUPM_DONOR_MNEMONIC_TESTNET in the web page.',
+    `   Name the secret ${network.ciSecret}.`,
     '   Everyone who can change the workflows of the repository can read the secret.',
   ]
 }

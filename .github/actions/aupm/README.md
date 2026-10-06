@@ -33,8 +33,8 @@ The install step uses the Node and npm of the job.
 
 ## Donate to reviewed packages
 
-Use one donor secret for each network. The MainNet secret is
-`AUPM_DONOR_MNEMONIC`. The TestNet secret is `AUPM_DONOR_MNEMONIC_TESTNET`.
+Use one donor secret for each network. Put the network in the secret name,
+for example `AUPM_DONOR_MNEMONIC_MAINNET` and `AUPM_DONOR_MNEMONIC_TESTNET`.
 Then a secret cannot pay on the wrong network.
 
 The value of the donor secret is a 25-word Algorand mnemonic of a funded
@@ -44,16 +44,15 @@ Create the CI wallet and the secret with the CLI. In bash or zsh:
 
 ```sh
 XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init
-gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"
+gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm-ci/aupm/donor.key"
 ```
 
 In PowerShell, run `$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init`.
-Then close that window, or run `Remove-Item Env:XDG_CONFIG_HOME`. The second
-command is the same in every shell.
-The mnemonic does not appear on the screen. The command creates the secret
-`AUPM_DONOR_MNEMONIC`. For a TestNet wallet, add `NETWORK=testnet` (PowerShell:
-`$env:NETWORK = "testnet"`) to `init`, then rename the secret to
-`AUPM_DONOR_MNEMONIC_TESTNET` on the repository's secrets web page.
+Then run `Get-Content "$HOME/.config/aupm-ci/aupm/donor.key" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`.
+Then close that window, or run `Remove-Item Env:XDG_CONFIG_HOME`.
+The mnemonic does not appear on the screen. For a TestNet wallet, add
+`NETWORK=testnet` (PowerShell: `$env:NETWORK = "testnet"`) to `init`, fund it,
+and name the secret `AUPM_DONOR_MNEMONIC_TESTNET`.
 Everyone who can change the workflows of the repository can read the secret.
 
 MainNet pays real USDC. Set `NETWORK: mainnet` in the job's `env:`, so the
@@ -77,7 +76,7 @@ jobs:
         with:
           endpoint: https://aupm.fyi
           donate: 'true'
-          donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC }}
+          donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}
 ```
 
 ## TestNet rehearsal
