@@ -111,7 +111,7 @@ export function runToolProcess(tool: Tool, npmArgs: string[]): Promise<number> {
 /** Reads the four counts out of an attest_lockfile outcome. */
 function outcomeCounts(outcome: AttestLockfileOutcome): LockfileCounts {
   const counts = countsFromSummary('summary' in outcome ? outcome.summary : undefined)
-  if (counts.reviewed === 0 && outcome.status === 'donation_required') {
+  if (counts.reviewed === 'unknown' && outcome.status === 'donation_required') {
     return { ...counts, reviewed: outcome.withheld ?? 0 }
   }
   return counts
