@@ -29,7 +29,8 @@ jobs:
         with:
           version: 12.5.1
           runtime: node@24.13.0
-          cache: true
+          # No cache restore: a poisoned store entry would ship in a signed release.
+          cache: false
           install: false
 
       - name: Check the tag against both package versions
