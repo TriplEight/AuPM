@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { donorEnvFilePath, loadDonorMnemonic, writeDonorEnvFile } from './donor-key.js'
 
 const KEY_VAR = 'AUPM_DONOR_MNEMONIC'
@@ -46,6 +46,27 @@ describe('donor key file', () => {
     const file = writeDonorEnvFile(FILE_VALUE)
     fs.chmodSync(file, 0o644)
     expect(() => loadDonorMnemonic()).toThrow(`chmod 600 ${file}`)
+  })
+
+  it('skips the mode check on win32', () => {
+    const file = writeDonorEnvFile(FILE_VALUE)
+    fs.chmodSync(file, 0o644)
+    const platform = vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    expect(loadDonorMnemonic()).toBe(FILE_VALUE)
+    platform.mockRestore()
+    expect(() => loadDonorMnemonic()).toThrow('chmod 600')
+  })
+
+  it('never tells the user to remove an existing file', () => {
+    writeDonorEnvFile(FILE_VALUE)
+    let message = ''
+    try {
+      writeDonorEnvFile('other')
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toContain('aupm donor status')
+    expect(message).not.toMatch(/remove/i)
   })
 
   it('fails with a pointer to init when neither source exists', () => {

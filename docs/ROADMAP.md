@@ -12,7 +12,8 @@ change to the plan.
 - The npm-compatible registry runs on Algorand MainNet at `https://aupm.fyi`.
 - Two review tiers: `UNREVIEWED` and `COMMUNITY_REVIEWED`.
 - Opt-in donations from the `aupm` CLI, the MCP server and the GitHub Action.
-- `aupm donor init` creates a donor account, shows a funding QR code and opts in to USDC.
+- `aupm donor init` creates a donor account and guides the funding with QR codes. `aupm donor
+  optin` opts in to USDC. `aupm donor status` shows the next step. No command waits.
 - `aupm pnpm` and `aupm npx` run pnpm and npx against the registry. Lockfile attestations read
   `pnpm-lock.yaml` (lockfileVersion 9.0) as well as `package-lock.json`.
 - The donation split pays two roles: the auditor (30%) and ops (70%).

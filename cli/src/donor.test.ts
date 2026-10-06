@@ -11,6 +11,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { type DonorIo, runDonor } from './donor.js'
 
 const KEY_VAR = 'AUPM_DONOR_MNEMONIC'
+const USDC = Number(USDC_ASSET_ID)
+const ESCAPE = '\u001b['
 
 let configHome: string
 let keyFile: string
@@ -19,6 +21,7 @@ interface FakeAlgod {
   balance: bigint
   assets: { 'asset-id': number; amount: number }[]
   submitted: Uint8Array[]
+  requests: string[]
 }
 
 function jsonResponse(body: unknown): Response {
@@ -31,6 +34,7 @@ function jsonResponse(body: unknown): Response {
 function installFakeAlgod(state: FakeAlgod): void {
   vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(typeof input === 'string' || input instanceof URL ? input : input.url)
+    state.requests.push(`${init?.method ?? 'GET'} ${url.pathname}`)
     if (url.pathname.startsWith('/v2/accounts/')) {
       return jsonResponse({
         address: url.pathname.split('/').pop(),
@@ -97,31 +101,43 @@ function newAccount(): { mnemonic: string; address: string } {
   return { mnemonic: algosdk.secretKeyToMnemonic(account.sk), address: account.addr.toString() }
 }
 
-function fastOptions(state: FakeAlgod, onSleep?: () => void) {
-  let clock = 0
-  return {
-    now: () => clock,
-    pollIntervalMs: 1,
-    sleep: async (ms: number) => {
-      clock += 60_000 + ms
-      onSleep?.()
-    },
-    state,
+function freshState(balance: bigint, assets: FakeAlgod['assets'] = []): FakeAlgod {
+  return { balance, assets, submitted: [], requests: [] }
+}
+
+function optedIn(amount = 0): FakeAlgod['assets'] {
+  return [{ 'asset-id': USDC, amount }]
+}
+
+function useAccount(): { mnemonic: string; address: string } {
+  const account = newAccount()
+  process.env[KEY_VAR] = account.mnemonic
+  return account
+}
+
+function expectNoMnemonic(text: string, mnemonic: string): void {
+  expect(text).not.toContain(mnemonic)
+  const words = mnemonic.split(' ')
+  for (let index = 0; index + 1 < words.length; index += 1) {
+    expect(text).not.toContain(`${words[index]} ${words[index + 1]}`)
   }
 }
 
-function freshState(balance: bigint, assets: FakeAlgod['assets'] = []): FakeAlgod {
-  return { balance, assets, submitted: [] }
+function storedMnemonic(): string {
+  return fs.readFileSync(keyFile, 'utf8').trim().replace(`${KEY_VAR}=`, '')
 }
 
 beforeEach(() => {
   configHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-donor-test-'))
   process.env.XDG_CONFIG_HOME = configHome
   keyFile = path.join(configHome, 'aupm', 'donor.env')
+  vi.stubEnv('NO_COLOR', undefined)
+  vi.stubEnv('FORCE_COLOR', undefined)
 })
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.unstubAllEnvs()
   vi.restoreAllMocks()
   delete process.env[KEY_VAR]
   delete process.env.XDG_CONFIG_HOME
@@ -129,62 +145,151 @@ afterEach(() => {
 })
 
 describe('aupm donor init', () => {
-  it('writes the key file with mode 0600 in a 0700 directory', async () => {
-    const state = freshState(500_000n)
+  it('writes the key file with mode 0600 in a 0700 directory and makes no network call', async () => {
+    const state = freshState(0n)
     installFakeAlgod(state)
-    const io = captureIo()
-    const code = await runDonor(['init'], { io, ...fastOptions(state) })
+    const code = await runDonor(['init'], { io: captureIo() })
     expect(code).toBe(0)
     expect(fs.statSync(keyFile).mode & 0o777).toBe(0o600)
     expect(fs.statSync(path.dirname(keyFile)).mode & 0o777).toBe(0o700)
+    expect(state.requests).toEqual([])
   })
 
-  it('prints the address, the file path, the ARC-26 URI and the funding, never the key', async () => {
-    const state = freshState(500_000n)
-    installFakeAlgod(state)
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
-    const write = vi.spyOn(process.stdout, 'write')
-    await runDonor(['init'], fastOptions(state))
-    const printed = [...log.mock.calls, ...error.mock.calls, ...write.mock.calls]
-      .map((call) => String(call[0]))
-      .join('\n')
-    const stored = fs.readFileSync(keyFile, 'utf8').trim().replace(`${KEY_VAR}=`, '')
-    const address = algosdk.mnemonicToSecretKey(stored).addr.toString()
-    expect(printed).toContain(address)
-    expect(printed).toContain(keyFile)
-    expect(printed).toContain(`algorand://${address}`)
-    expect(printed).toContain('0.201000 ALGO')
-    expect(printed).toContain(`ASA ${USDC_ASSET_ID}`)
-    expect(printed).not.toContain(stored)
-    const words = stored.split(' ')
-    for (let index = 0; index + 1 < words.length; index += 1) {
-      expect(printed).not.toContain(`${words[index]} ${words[index + 1]}`)
+  it('prints the warning block first, then the address and network, then the steps', async () => {
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    const text = allText(io)
+    const address = algosdk.mnemonicToSecretKey(storedMnemonic()).addr.toString()
+    const warning = text.indexOf('PLEASE READ')
+    const where = text.indexOf(`Address: ${address}`)
+    const steps = text.indexOf('Next steps')
+    expect(warning).toBeGreaterThan(-1)
+    expect(where).toBeGreaterThan(warning)
+    expect(steps).toBeGreaterThan(where)
+    expect(text).toContain('Network: Algorand MainNet')
+    for (const phrase of [
+      'secret key of your donor wallet',
+      keyFile,
+      '25-word mnemonic',
+      'hot wallet by design',
+      'not encrypted on this disk',
+      'Any program that runs as this user can read the key and spend the funds',
+      '1 USDC pays for 1,000 reviewed packages',
+      'only backup',
+      'password manager',
+      'Never paste the mnemonic into a chat, an issue or a log',
+    ]) {
+      expect(text.slice(warning, where)).toContain(phrase)
     }
   })
 
-  it('refuses an existing file and names the path', async () => {
+  it('prints five numbered steps with the ARC-26 URIs for ALGO and for USDC', async () => {
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    const text = allText(io)
+    const address = algosdk.mnemonicToSecretKey(storedMnemonic()).addr.toString()
+    for (const number of ['1.', '2.', '3.', '4.', '5.']) expect(text).toContain(`\n${number} `)
+    expect(text).toContain(`algorand://${address}?amount=300000\n`)
+    expect(text).toContain(`algorand://${address}?amount=1000000&asset=${USDC}`)
+    expect(text).toContain('Send 0.300000 ALGO')
+    expect(text).toContain('The minimum is 0.201000 ALGO')
+    expect(text).toContain('Pera Wallet')
+    expect(text).toContain('Send 1 to 5 USDC')
+    expect(text).toContain('USDC from another chain is lost')
+    expect(text).toContain('aupm donor optin')
+    expect(text).toContain(`| gh secret set AUPM_DONOR_MNEMONIC_MAINNET`)
+    expect(text).toContain("sed -n 's/^AUPM_DONOR_MNEMONIC=//p'")
+    expect(text).toContain('Settings > Secrets and variables > Actions > New repository secret')
+    expect(text).toContain('can change the workflows of the repository can read the secret')
+    expect(text).toContain('separate wallet for CI')
+    expect(text).toContain('aupm attest package-lock.json --donate')
+    expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
+  })
+
+  it('does not wait, poll or continue into the opt-in', async () => {
+    const state = freshState(0n)
+    installFakeAlgod(state)
+    const io = captureIo()
+    expect(await runDonor(['init'], { io })).toBe(0)
+    expect(state.requests).toEqual([])
+    expect(await runDonor(['init', '--timeout', '2'], { io })).toBe(1)
+    expect(allText(io)).toContain('Usage: aupm donor')
+  })
+
+  it('never prints the mnemonic', async () => {
+    const io = captureIo()
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await runDonor(['init'], { io })
+    await runDonor(['init'])
+    const printed = [allText(io), ...log.mock.calls.flat(), ...error.mock.calls.flat()].join('\n')
+    expectNoMnemonic(printed, storedMnemonic())
+  })
+
+  it('prints no escape code when stdout is not a terminal', async () => {
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    expect(allText(io)).not.toContain(ESCAPE)
+  })
+
+  it('prints no escape code with NO_COLOR', async () => {
+    vi.stubEnv('NO_COLOR', '1')
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    expect(allText(io)).not.toContain(ESCAPE)
+  })
+
+  it('colors the warning block with FORCE_COLOR', async () => {
+    vi.stubEnv('FORCE_COLOR', '1')
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    expect(allText(io)).toContain(ESCAPE)
+  })
+
+  it('says that an existing file holds funds, shows its address and never says remove', async () => {
+    const account = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, 'keep me', { mode: 0o600 })
+    fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`, { mode: 0o600 })
     const io = captureIo()
     const code = await runDonor(['init'], { io })
+    const text = allText(io)
     expect(code).toBe(1)
-    expect(allText(io)).toContain(keyFile)
-    expect(fs.readFileSync(keyFile, 'utf8')).toBe('keep me')
+    expect(text).toContain(keyFile)
+    expect(text).toContain(account.address)
+    expect(text).toContain('aupm donor status')
+    expect(text).toContain('Deleting it loses the funds in this wallet')
+    expect(text).not.toMatch(/remove/i)
+    expectNoMnemonic(text, account.mnemonic)
+    expect(storedMnemonic()).toBe(account.mnemonic)
+  })
+
+  it('says that the env var wins over the file and shows the address in use', async () => {
+    const envAccount = useAccount()
+    const io = captureIo()
+    expect(await runDonor(['init'], { io })).toBe(0)
+    const text = allText(io)
+    expect(text).toContain(
+      'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.',
+    )
+    expect(text).toContain(`The address in use is: ${envAccount.address}`)
+    expectNoMnemonic(text, envAccount.mnemonic)
+  })
+
+  it('says that the key file is not permission-protected on Windows', async () => {
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    expect(allText(io)).toContain('On Windows, the permissions of this file are not protected')
   })
 })
 
 describe('aupm donor optin', () => {
-  it('waits for ALGO, then submits one opt-in for the USDC ASA', async () => {
-    const account = newAccount()
-    process.env[KEY_VAR] = account.mnemonic
-    const state = freshState(0n)
+  it('sends one opt-in when funded, then prints the txid, the explorer link and the USDC step', async () => {
+    const account = useAccount()
+    const state = freshState(201_000n)
     installFakeAlgod(state)
     const io = captureIo()
-    const options = fastOptions(state, () => {
-      state.balance = 201_000n
-    })
-    const code = await runDonor(['optin'], { io, ...options })
+    const code = await runDonor(['optin'], { io })
     expect(io.err.mock.calls).toEqual([])
     expect(code).toBe(0)
     expect(state.submitted).toHaveLength(1)
@@ -194,91 +299,76 @@ describe('aupm donor optin', () => {
     expect(transfer?.amount).toBe(0n)
     expect(signed.txn.sender.toString()).toBe(account.address)
     expect(transfer?.receiver.toString()).toBe(account.address)
-    expect(allText(io)).toContain('Waiting for 0.201000 ALGO')
-    expect(allText(io)).not.toContain(account.mnemonic)
+    const text = allText(io)
+    const txid = signed.txn.txID()
+    expect(text).toContain(`Transaction: ${txid}`)
+    expect(text).toContain(`https://lora.algokit.io/mainnet/transaction/${txid}`)
+    expect(text).toContain('Send 1 to 5 USDC')
+    expect(text).toContain(`algorand://${account.address}?amount=1000000&asset=${USDC}`)
+    expectNoMnemonic(text, account.mnemonic)
+  })
+
+  it('does not wait: an unfunded wallet gets the exact shortfall and exit 1', async () => {
+    const account = useAccount()
+    const state = freshState(150_000n)
+    installFakeAlgod(state)
+    const io = captureIo()
+    const code = await runDonor(['optin'], { io })
+    const text = allText(io)
+    expect(code).toBe(1)
+    expect(state.submitted).toHaveLength(0)
+    expect(state.requests.filter((request) => request.includes('/v2/accounts/'))).toHaveLength(1)
+    expect(text).toContain('ALGO balance: 0.150000 ALGO. Needed: 0.201000 ALGO.')
+    expect(text).toContain('Shortfall: 0.051000 ALGO.')
+    expect(text).toContain(`algorand://${account.address}?amount=51000`)
+    expect(text).toContain('Send ALGO to this address')
+  })
+
+  it('counts the whole minimum for an account that algod does not know yet', async () => {
+    useAccount()
+    installFakeAlgod(freshState(0n))
+    const io = captureIo()
+    expect(await runDonor(['optin'], { io })).toBe(1)
+    expect(allText(io)).toContain('Shortfall: 0.201000 ALGO.')
   })
 
   it('is idempotent: already opted in exits 0 and sends nothing', async () => {
-    process.env[KEY_VAR] = newAccount().mnemonic
-    const state = freshState(500_000n, [{ 'asset-id': Number(USDC_ASSET_ID), amount: 0 }])
+    useAccount()
+    const state = freshState(500_000n, optedIn())
     installFakeAlgod(state)
     const io = captureIo()
-    const code = await runDonor(['optin'], { io, ...fastOptions(state) })
-    expect(code).toBe(0)
+    expect(await runDonor(['optin'], { io })).toBe(0)
     expect(allText(io)).toContain('already opted in')
     expect(state.submitted).toHaveLength(0)
   })
 
-  it('exits non-zero on a poll timeout and prints the address and the funding', async () => {
-    const account = newAccount()
-    process.env[KEY_VAR] = account.mnemonic
-    const state = freshState(0n)
-    installFakeAlgod(state)
+  it('rejects the removed --timeout option', async () => {
+    useAccount()
     const io = captureIo()
-    const code = await runDonor(['optin', '--timeout', '2'], { io, ...fastOptions(state) })
-    expect(code).toBe(1)
-    expect(io.err.mock.calls.map((call) => String(call[0])).join('\n')).toContain(account.address)
-    expect(allText(io)).toContain('0.201000 ALGO')
-    expect(state.submitted).toHaveLength(0)
-  })
-
-  it('rejects a bad --timeout value', async () => {
-    process.env[KEY_VAR] = newAccount().mnemonic
-    const io = captureIo()
-    expect(await runDonor(['optin', '--timeout', '0'], { io })).toBe(1)
-    expect(allText(io)).toContain('--timeout')
-  })
-
-  it('stops cleanly with exit 0 on SIGINT', async () => {
-    process.env[KEY_VAR] = newAccount().mnemonic
-    const state = freshState(0n)
-    installFakeAlgod(state)
-    const io = captureIo()
-    const code = await runDonor(['optin'], {
-      io,
-      now: () => 0,
-      sleep: async (_ms, signal) => {
-        process.emit('SIGINT')
-        expect(signal.aborted).toBe(true)
-      },
-    })
-    expect(code).toBe(0)
-    expect(allText(io)).toContain('Stopped')
+    expect(await runDonor(['optin', '--timeout', '2'], { io })).toBe(1)
+    expect(allText(io)).toContain('Usage: aupm donor')
   })
 
   it('reads the key file when the env var is unset', async () => {
     const account = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
     fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`, { mode: 0o600 })
-    const state = freshState(500_000n, [{ 'asset-id': Number(USDC_ASSET_ID), amount: 0 }])
+    const state = freshState(500_000n, optedIn())
     installFakeAlgod(state)
-    const requested: string[] = []
-    const inner = globalThis.fetch
-    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
-      requested.push(String(input))
-      return inner(input, init)
-    })
-    expect(await runDonor(['optin'], { io: captureIo(), ...fastOptions(state) })).toBe(0)
-    expect(requested.some((url) => url.includes(account.address))).toBe(true)
+    expect(await runDonor(['optin'], { io: captureIo() })).toBe(0)
+    expect(state.requests.some((request) => request.includes(account.address))).toBe(true)
   })
 
   it('lets the env var beat the key file', async () => {
     const fileAccount = newAccount()
-    const envAccount = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
     fs.writeFileSync(keyFile, `${KEY_VAR}=${fileAccount.mnemonic}\n`, { mode: 0o600 })
-    process.env[KEY_VAR] = envAccount.mnemonic
-    const state = freshState(500_000n, [{ 'asset-id': Number(USDC_ASSET_ID), amount: 0 }])
+    const envAccount = useAccount()
+    const state = freshState(500_000n, optedIn())
     installFakeAlgod(state)
-    const requested: string[] = []
-    const inner = globalThis.fetch
-    vi.stubGlobal('fetch', (input: string | URL | Request, init?: RequestInit) => {
-      requested.push(String(input))
-      return inner(input, init)
-    })
-    await runDonor(['optin'], { io: captureIo(), ...fastOptions(state) })
-    expect(requested.some((url) => url.includes(envAccount.address))).toBe(true)
-    expect(requested.some((url) => url.includes(fileAccount.address))).toBe(false)
+    await runDonor(['optin'], { io: captureIo() })
+    expect(state.requests.some((request) => request.includes(envAccount.address))).toBe(true)
+    expect(state.requests.some((request) => request.includes(fileAccount.address))).toBe(false)
   })
 
   it('refuses a key file with mode 0644 and suggests chmod 600', async () => {
@@ -286,8 +376,7 @@ describe('aupm donor optin', () => {
     fs.writeFileSync(keyFile, `${KEY_VAR}=${newAccount().mnemonic}\n`)
     fs.chmodSync(keyFile, 0o644)
     const io = captureIo()
-    const code = await runDonor(['optin'], { io })
-    expect(code).toBe(1)
+    expect(await runDonor(['optin'], { io })).toBe(1)
     expect(allText(io)).toContain(`chmod 600 ${keyFile}`)
   })
 
@@ -295,6 +384,102 @@ describe('aupm donor optin', () => {
     const io = captureIo()
     expect(await runDonor(['optin'], { io })).toBe(1)
     expect(allText(io)).toContain('aupm donor init')
+  })
+
+  it('names no key word when the key is not a mnemonic', async () => {
+    process.env[KEY_VAR] = 'abandon abandon abandon'
+    const io = captureIo()
+    expect(await runDonor(['optin'], { io })).toBe(1)
+    expect(allText(io)).not.toContain('abandon')
+  })
+})
+
+describe('aupm donor status', () => {
+  it('says how to run init when no key exists', async () => {
+    const io = captureIo()
+    expect(await runDonor(['status'], { io })).toBe(1)
+    expect(allText(io)).toContain('aupm donor init')
+  })
+
+  it('shows the ALGO shortfall and the ALGO step for an unfunded wallet', async () => {
+    const account = useAccount()
+    const state = freshState(100_000n)
+    installFakeAlgod(state)
+    const io = captureIo()
+    expect(await runDonor(['status'], { io })).toBe(0)
+    const text = allText(io)
+    expect(text).toContain(`Address: ${account.address}`)
+    expect(text).toContain('Network: Algorand MainNet')
+    expect(text).toContain('ALGO balance: 0.100000 ALGO (needed: 0.201000 ALGO)')
+    expect(text).toContain('USDC opt-in: not done')
+    expect(text).toContain('The wallet needs 0.101000 more ALGO')
+    expect(text).toContain(`algorand://${account.address}?amount=101000`)
+    expectNoMnemonic(text, account.mnemonic)
+  })
+
+  it('names the opt-in as the next step for a funded wallet', async () => {
+    useAccount()
+    installFakeAlgod(freshState(300_000n))
+    const io = captureIo()
+    await runDonor([], { io })
+    expect(allText(io)).toContain('Run `aupm donor optin`')
+  })
+
+  it('names the USDC step for an opted-in wallet with no USDC', async () => {
+    const account = useAccount()
+    installFakeAlgod(freshState(300_000n, optedIn()))
+    const io = captureIo()
+    await runDonor(['status'], { io })
+    const text = allText(io)
+    expect(text).toContain('USDC opt-in: done')
+    expect(text).toContain('USDC balance: 0.000000 USDC (pays for 0 reviewed packages)')
+    expect(text).toContain(`algorand://${account.address}?amount=1000000&asset=${USDC}`)
+  })
+
+  it('counts the reviewed packages that the USDC pays for, in integers', async () => {
+    useAccount()
+    installFakeAlgod(freshState(300_000n, optedIn(2_500_500)))
+    const io = captureIo()
+    await runDonor(['status'], { io })
+    const text = allText(io)
+    expect(text).toContain('USDC balance: 2.500500 USDC (pays for 2500 reviewed packages)')
+    expect(text).toContain('aupm attest package-lock.json --donate')
+  })
+
+  it('sends nothing: it only reads', async () => {
+    useAccount()
+    const state = freshState(300_000n)
+    installFakeAlgod(state)
+    await runDonor(['status'], { io: captureIo() })
+    expect(state.submitted).toHaveLength(0)
+    expect(state.requests.every((request) => request.startsWith('GET'))).toBe(true)
+  })
+
+  it('says that the env var wins over the file and shows the address in use', async () => {
+    const fileAccount = newAccount()
+    fs.mkdirSync(path.dirname(keyFile), { recursive: true })
+    fs.writeFileSync(keyFile, `${KEY_VAR}=${fileAccount.mnemonic}\n`, { mode: 0o600 })
+    const envAccount = useAccount()
+    installFakeAlgod(freshState(300_000n))
+    const io = captureIo()
+    await runDonor(['status'], { io })
+    const text = allText(io)
+    expect(text).toContain('It wins over the key file')
+    expect(text).toContain(`The address in use is: ${envAccount.address}`)
+    expect(text).not.toContain(fileAccount.address)
+  })
+
+  it('reads a 0644 key file on win32 and says it is not permission-protected', async () => {
+    const account = newAccount()
+    fs.mkdirSync(path.dirname(keyFile), { recursive: true })
+    fs.writeFileSync(keyFile, `${KEY_VAR}=${account.mnemonic}\n`)
+    fs.chmodSync(keyFile, 0o644)
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('win32')
+    installFakeAlgod(freshState(300_000n))
+    const io = captureIo()
+    expect(await runDonor(['status'], { io })).toBe(0)
+    expect(allText(io)).toContain(account.address)
+    expect(allText(io)).toContain('permissions of the key file are not protected')
   })
 })
 

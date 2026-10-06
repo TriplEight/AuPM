@@ -22,8 +22,9 @@ aupm npx cowsay hi                                       # npx against the AuPM 
 aupm attest package-lock.json [--donate] [--out <path>]  # one signed attestation per lockfile
 aupm attest pnpm-lock.yaml [--donate] [--out <path>]     # lockfileVersion 9.0, at most 2 MiB
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
-aupm donor init                                          # create a donor key, show a funding QR
-aupm donor optin                                         # opt the donor in to USDC
+aupm donor init                                          # create a donor key, show the next steps
+aupm donor optin                                         # opt the donor in to USDC (one check)
+aupm donor status                                        # balances and the next step (read-only)
 ```
 
 After `install`, `i` and `add`, `aupm pnpm` attests `pnpm-lock.yaml` and prints the same summary
