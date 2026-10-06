@@ -39,11 +39,11 @@ export function networkFor(testnet: boolean, usdcAsset: string, explorer: string
   }
 }
 
-/** Formats integer micro-units (6 decimals) as a decimal string, with no floats. */
+/** Formats integer micro-units (6 decimals), trailing zeros removed, with no floats. */
 export function formatMicro(micro: bigint): string {
   const whole = micro / 1_000_000n
-  const fraction = (micro % 1_000_000n).toString().padStart(6, '0')
-  return `${whole}.${fraction}`
+  const fraction = (micro % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
+  return fraction === '' ? `${whole}` : `${whole}.${fraction}`
 }
 
 /** ALGO the account needs before it can opt in to USDC, from algod's minimum balance. */
@@ -143,16 +143,27 @@ export function optinStep(label: string): string[] {
   ]
 }
 
-export function usdcStep(label: string, address: string, network: Network): string[] {
+export function usdcStep(
+  label: string,
+  address: string,
+  network: Network,
+  withQr = true,
+): string[] {
   const lines = [
     paint('bold', `${label} Send 1 to 5 USDC to this address.`),
     `   Send only USDC on Algorand (ASA ${network.usdcAsset}).`,
     '   USDC from another chain is lost when you send it here.',
-    '   This QR code asks for 1 USDC. You can change the amount in your wallet.',
-    ...qrLines(arc26Uri(address, USDC_SUGGESTED_MICRO, network.usdcAsset)).map(
-      (line) => `   ${line}`,
-    ),
   ]
+  if (withQr) {
+    lines.push(
+      '   This QR code asks for 1 USDC. You can change the amount in your wallet.',
+      ...qrLines(arc26Uri(address, USDC_SUGGESTED_MICRO, network.usdcAsset)).map(
+        (line) => `   ${line}`,
+      ),
+    )
+  } else {
+    lines.push('   `aupm donor optin` shows a QR code for this step.')
+  }
   if (network.testnet) {
     lines.push(
       `   Get free TestNet USDC from the Circle faucet: ${TESTNET_USDC_FAUCET}`,
@@ -167,26 +178,36 @@ export function usdcStep(label: string, address: string, network: Network): stri
   return lines
 }
 
-export function ciStep(label: string, file: string, network: Network): string[] {
+export const CI_CONFIG_HOME = '$HOME/.config/aupm-ci'
+export const CI_KEY_FILE = `${CI_CONFIG_HOME}/aupm/donor.env`
+
+export function ciStep(label: string, network: Network): string[] {
+  const networkEnv = network.testnet ? 'NETWORK=testnet ' : ''
   return [
-    paint('bold', `${label} Optional. Store the key as a secret for CI.`),
-    '   Run this command. The mnemonic goes through stdin only:',
-    `     sed -n 's/^AUPM_DONOR_MNEMONIC=//p' "${file}" | gh secret set ${network.ciSecret}`,
+    paint('bold', `${label} Optional. Store a key as a secret for CI.`),
+    '   Use a separate wallet for CI. A separate wallet limits the loss.',
+    '   Create it with this command. It writes a second key file:',
+    `     ${networkEnv}XDG_CONFIG_HOME="${CI_CONFIG_HOME}" aupm donor init`,
+    '   Fund that wallet as in steps 1 to 3. Then run this command.',
+    '   The mnemonic goes through stdin only:',
+    `     sed -n 's/^AUPM_DONOR_MNEMONIC=//p' "${CI_KEY_FILE}" | gh secret set ${network.ciSecret}`,
     `   Or use the web page of your repository: ${GITHUB_SECRETS_PATH}.`,
     '   Everyone who can change the workflows of the repository can read the secret.',
-    '   Use a separate wallet for CI. A separate wallet limits the loss.',
   ]
 }
 
 export function donateStep(label: string): string[] {
+  const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
   return [
     paint('bold', `${label} Make the first donation.`),
+    `   It pays ${price} USDC for each reviewed package in the lockfile.`,
+    '   Unreviewed packages are free. It works with package-lock.json and pnpm-lock.yaml.',
     '   Run: aupm attest package-lock.json --donate',
     '   A plain install stays free.',
   ]
 }
 
-export function initNextSteps(address: string, file: string, network: Network): string[] {
+export function initNextSteps(address: string, network: Network): string[] {
   return [
     paint(['bold', 'cyan'], 'Next steps. Nothing here has a deadline.'),
     'Run `aupm donor status` at any time to see the next step.',
@@ -195,9 +216,9 @@ export function initNextSteps(address: string, file: string, network: Network): 
     '',
     ...optinStep('2.'),
     '',
-    ...usdcStep('3.', address, network),
+    ...usdcStep('3.', address, network, false),
     '',
-    ...ciStep('4.', file, network),
+    ...ciStep('4.', network),
     '',
     ...donateStep('5.'),
   ]

@@ -104,14 +104,14 @@ function runInit(io: DonorIo, network: Network): number {
   writeDonorEnvFile(algosdk.secretKeyToMnemonic(account.sk))
   const address = account.addr.toString()
   emit(io, [
-    `Created the donor wallet. Key file: ${file}`,
+    'Created the donor wallet.',
     '',
     ...warningBlock(file, process.platform === 'win32'),
     '',
     ...addressLines(address, network),
     ...envNotice(),
     '',
-    ...initNextSteps(address, file, network),
+    ...initNextSteps(address, network),
   ])
   return 0
 }
