@@ -1,0 +1,84 @@
+name: Publish CLI
+
+on:
+  push:
+    tags:
+      - 'cli-v*'
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm trusted publishing (OIDC) and provenance. No npm token secret exists.
+      id-token: write
+    steps:
+      - name: Checkout
+        # actions/checkout v7.0.1, pinned to a full commit SHA.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm and Node
+        # pnpm/setup v3.0.0, pinned to a full commit SHA. Trusted publishing
+        # needs npm 11.5.1 or later and Node 22.14.0 or later. Node 24.13.0
+        # ships npm 11.6.2, so the job needs no newer npm.
+        uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024
+        with:
+          version: 12.5.1
+          runtime: node@24.13.0
+          # No cache restore: a poisoned store entry would ship in a signed release.
+          cache: false
+          install: false
+
+      - name: Check the tag against both package versions
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'EOF'
+            import { readFileSync } from "node:fs"
+            const tag = process.env.TAG
+            for (const dir of ["mcp", "cli"]) {
+              const { name, version } = JSON.parse(readFileSync(`${dir}/package.json`, "utf8"))
+              if (tag !== `cli-v${version}`) {
+                console.error(`tag ${tag} does not match ${name}@${version}`)
+                process.exit(1)
+              }
+            }
+          EOF
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test mcp
+        run: pnpm -C mcp test
+
+      - name: Test cli
+        run: pnpm -C cli test
+
+      - name: Pack both packages
+        # pnpm pack runs prepack (the build) and replaces workspace:* with the exact version.
+        run: |
+          mkdir -p "$RUNNER_TEMP/pack"
+          pnpm -C mcp pack --pack-destination "$RUNNER_TEMP/pack"
+          pnpm -C cli pack --pack-destination "$RUNNER_TEMP/pack"
+
+      - name: Publish aupm-mcp
+        # aupm-mcp goes first because aupm depends on the exact same version.
+        env:
+          PACK_DIR: ${{ runner.temp }}/pack
+        run: |
+          VERSION="$(node -p 'require("./mcp/package.json").version')"
+          npm publish "$PACK_DIR/aupm-mcp-$VERSION.tgz" --provenance --access public
+
+      - name: Publish aupm
+        env:
+          PACK_DIR: ${{ runner.temp }}/pack
+        run: |
+          VERSION="$(node -p 'require("./cli/package.json").version')"
+          npm publish "$PACK_DIR/aupm-$VERSION.tgz" --provenance --access public

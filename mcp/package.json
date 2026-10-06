@@ -1,7 +1,22 @@
 {
   "name": "aupm-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "AGPL-3.0-only",
+  "description": "MCP server for AuPM: check and install npm packages with human review status",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TriplEight/AuPM.git",
+    "directory": "mcp"
+  },
+  "homepage": "https://github.com/TriplEight/AuPM#readme",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "bin": {
@@ -10,15 +25,17 @@
   "exports": {
     "./money": "./src/money.ts",
     "./donor": "./src/donor.ts",
+    "./donor-key": "./src/donor-key.ts",
     "./proxy-url": "./src/proxy-url.ts",
     "./tools/attest": "./src/tools/attest.ts"
   },
   "scripts": {
     "dev": "tsx src/index.ts",
     "start": "node --import tsx/esm src/index.ts",
-    "build": "tsc",
+    "build": "tsc -p tsconfig.build.json",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepack": "pnpm run build"
   },
   "dependencies": {
     "@algorandfoundation/algokit-utils": "10.0.0-alpha.39",
@@ -33,5 +50,30 @@
     "tsx": "4.22.4",
     "typescript": "5.8.3",
     "vitest": "4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      "./money": {
+        "types": "./dist/money.d.ts",
+        "default": "./dist/money.js"
+      },
+      "./donor": {
+        "types": "./dist/donor.d.ts",
+        "default": "./dist/donor.js"
+      },
+      "./donor-key": {
+        "types": "./dist/donor-key.d.ts",
+        "default": "./dist/donor-key.js"
+      },
+      "./proxy-url": {
+        "types": "./dist/proxy-url.d.ts",
+        "default": "./dist/proxy-url.js"
+      },
+      "./tools/attest": {
+        "types": "./dist/tools/attest.d.ts",
+        "default": "./dist/tools/attest.js"
+      }
+    }
   }
 }

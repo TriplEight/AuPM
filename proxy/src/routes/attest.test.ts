@@ -218,6 +218,34 @@ describe('POST /v1/attest/lockfile', () => {
     expect(res.status).toBe(400)
   })
 
+  // The empty-body check is synchronous, so a test timeout cannot interrupt a
+  // slow pattern. The test measures the time instead. The old quadratic pattern
+  // needed about 4 s for this body; the linear one needs under 1 ms.
+  test('a long run of whitespace plus one other character answers 400 quickly', async () => {
+    const { app } = buildTestApp()
+    const started = performance.now()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: `${' \t\r\n'.repeat(10_000)}x`,
+    })
+    expect(res.status).toBe(400)
+    expect(performance.now() - started).toBeLessThan(1_000)
+  })
+
+  test('whitespace around an empty object is still an empty request', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: ' \n { \t } \r\n',
+    })
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: 'request body is empty: send a package-lock.json or a pnpm-lock.yaml',
+    })
+  })
+
   test('lockfileVersion 1 returns 400', async () => {
     const { app } = buildTestApp()
     const res = await app.request('/v1/attest/lockfile', {

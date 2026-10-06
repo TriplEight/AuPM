@@ -114,7 +114,8 @@ aupm install ms@2.1.3 --donate      # also donates for any reviewed package in t
 `AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
 MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm
 release, `npm install -g aupm` installs it. Until then, run it from a clone. See
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). The release process is in
+[docs/RUNBOOK-npm-publish.md](docs/RUNBOOK-npm-publish.md).
 
 Plain npm also works, and stays free:
 
