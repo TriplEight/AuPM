@@ -24,7 +24,7 @@ describe('parseNpmArgv', () => {
     const result = parseNpmArgv(['install', 'left pad', '--save-dev', '-g'])
     expect(result).toEqual({
       npmArgs: ['install', 'left pad', '--save-dev', '-g'],
-      allowDonation: false,
+      donateFlag: undefined,
       attestOutPath: undefined,
     })
   })
@@ -33,7 +33,15 @@ describe('parseNpmArgv', () => {
     const { parseNpmArgv } = await import('./npm-wrapper.js')
     const result = parseNpmArgv(['install', '--donate', 'ms@2.1.3'])
     expect(result.npmArgs).toEqual(['install', 'ms@2.1.3'])
-    expect(result.allowDonation).toBe(true)
+    expect(result.donateFlag).toBe(true)
+  })
+
+  it('strips --no-donate and the last donate flag wins', async () => {
+    const { parseNpmArgv } = await import('./npm-wrapper.js')
+    const off = parseNpmArgv(['install', '--no-donate', 'ms'])
+    expect(off.npmArgs).toEqual(['install', 'ms'])
+    expect(off.donateFlag).toBe(false)
+    expect(parseNpmArgv(['install', '--no-donate', '--donate']).donateFlag).toBe(true)
   })
 
   it('strips --attest-out and its value', async () => {
@@ -47,7 +55,7 @@ describe('parseNpmArgv', () => {
     const { parseNpmArgv } = await import('./npm-wrapper.js')
     const result = parseNpmArgv(['run', 'build', '--', '--donate', '--attest-out'])
     expect(result.npmArgs).toEqual(['run', 'build', '--', '--donate', '--attest-out'])
-    expect(result.allowDonation).toBe(false)
+    expect(result.donateFlag).toBeUndefined()
     expect(result.attestOutPath).toBeUndefined()
   })
 })
@@ -74,9 +82,12 @@ describe('runWrapper', () => {
     process.chdir(cwd)
     vi.mocked(spawn).mockReset()
     vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     process.chdir(originalCwd)
     fs.rmSync(cwd, { recursive: true, force: true })
   })
@@ -220,9 +231,9 @@ describe('runWrapper', () => {
     await runPromise
 
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 0 packages in package-lock.json are audited (COMMUNITY_REVIEWED).',
+      'aupm: Audited: 0. Not audited: 3. Integrity mismatch: 0. Unresolvable: 0.',
     )
-    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('donate'))
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('donat'))
     logSpy.mockRestore()
   })
 
@@ -251,11 +262,12 @@ describe('runWrapper', () => {
       allowDonation: false,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 2 packages are audited (COMMUNITY_REVIEWED). $0.002 available to donate.',
+      'aupm: Audited: 2. Not audited: 1. Integrity mismatch: 0. Unresolvable: 0.',
     )
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: run the install again with --donate to send this to the auditors.',
+      'aupm: A donation would be 0.002 USDC for 2 audited packages. Add --donate to send it.',
     )
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('whole lockfile'))
     logSpy.mockRestore()
   })
 
@@ -287,10 +299,13 @@ describe('runWrapper', () => {
       lockfilePath: path.join(cwd, 'package-lock.json'),
       allowDonation: true,
     })
+    expect(logSpy).toHaveBeenCalledWith('aupm: Donated 0.001 USDC for 1 audited package.')
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 1 package is audited (COMMUNITY_REVIEWED). ' +
-        'Donated $0.001 (1000 microUSDC), settlement txid SETTLE1.',
+      expect.stringMatching(
+        /^aupm: Settlement txid: SETTLE1 https:\/\/lora\.algokit\.io\/.+\/SETTLE1$/,
+      ),
     )
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('whole lockfile'))
     expect(fs.existsSync(outPath)).toBe(true)
     logSpy.mockRestore()
   })
@@ -312,9 +327,8 @@ describe('runWrapper', () => {
     child.emit('exit', 0, null)
     await runPromise
 
-    expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 1 package is audited (COMMUNITY_REVIEWED). No donation settled.',
-    )
+    expect(logSpy).toHaveBeenCalledWith('aupm: No donation settled.')
+    expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Donated'))
     logSpy.mockRestore()
   })
 
@@ -359,9 +373,12 @@ describe('runWrapper with pnpm and npx', () => {
     process.chdir(cwd)
     vi.mocked(spawn).mockReset()
     vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     process.chdir(originalCwd)
     fs.rmSync(cwd, { recursive: true, force: true })
   })
@@ -409,7 +426,7 @@ describe('runWrapper with pnpm and npx', () => {
       resourceUrl: 'http://localhost:4873/v1/attest/lockfile',
       asset: '31566704',
       withheld: 1,
-      summary: { total: 2, reviewed: 1 },
+      summary: { total: 2, reviewed: 1, unreviewed: 1, unresolvable: 0, integrityMismatch: 0 },
       attestation: {},
     })
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -421,12 +438,12 @@ describe('runWrapper with pnpm and npx', () => {
       allowDonation: false,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: 1 package is audited (COMMUNITY_REVIEWED). $0.001 available to donate.',
+      'aupm: A donation would be 0.001 USDC for 1 audited package. Add --donate to send it.',
     )
     logSpy.mockRestore()
   })
 
-  it('passes allowDonation to the handler for pnpm --donate', async () => {
+  it('passes the donate setting to the handler for pnpm --donate', async () => {
     fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
     vi.mocked(attestLockfileTool.handler).mockResolvedValue({
       status: 'attested',
@@ -442,7 +459,7 @@ describe('runWrapper with pnpm and npx', () => {
       lockfilePath: path.join(cwd, 'pnpm-lock.yaml'),
       allowDonation: true,
     })
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('settlement txid TX1'))
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('Settlement txid: TX1'))
     logSpy.mockRestore()
   })
 
@@ -510,5 +527,144 @@ describe('runWrapper with pnpm and npx', () => {
     expect(spawn).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('npx has no lockfile'))
     errorSpy.mockRestore()
+  })
+})
+
+describe('runWrapper donate setting', () => {
+  let cwd: string
+  let originalCwd: string
+  const summary = { total: 4, reviewed: 2, unreviewed: 1, unresolvable: 1, integrityMismatch: 0 }
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-npm-wrapper-setting-'))
+    originalCwd = process.cwd()
+    process.chdir(cwd)
+    vi.mocked(spawn).mockReset()
+    vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary,
+      attestation: {},
+      settlement: null,
+    })
+    fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    process.chdir(originalCwd)
+    fs.rmSync(cwd, { recursive: true, force: true })
+  })
+
+  function writeConfig(text: string): void {
+    fs.mkdirSync(path.join(cwd, 'xdg', 'aupm'), { recursive: true })
+    fs.writeFileSync(path.join(cwd, 'xdg', 'aupm', 'config.toml'), text)
+  }
+
+  async function install(args: string[] = []): Promise<number> {
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const { runWrapper } = await import('./npm-wrapper.js')
+    const runPromise = runWrapper('npm', ['install', 'ms', ...args])
+    child.emit('exit', 0, null)
+    return runPromise
+  }
+
+  function donated(): boolean {
+    const call = vi.mocked(attestLockfileTool.handler).mock.calls[0]
+    return call?.[0].allowDonation === true
+  }
+
+  it('is off with no flag, no env and no file', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    await install()
+    expect(donated()).toBe(false)
+  })
+
+  it('AUPM_DONATE=true turns it on and AUPM_DONATE=false keeps it off', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.stubEnv('AUPM_DONATE', 'true')
+    await install()
+    expect(donated()).toBe(true)
+    vi.mocked(attestLockfileTool.handler).mockClear()
+    vi.stubEnv('AUPM_DONATE', 'false')
+    await install()
+    expect(donated()).toBe(false)
+  })
+
+  it('the config file turns it on, and the env var overrides the file', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    writeConfig('donate = true\n')
+    await install()
+    expect(donated()).toBe(true)
+    vi.mocked(attestLockfileTool.handler).mockClear()
+    vi.stubEnv('AUPM_DONATE', 'false')
+    await install()
+    expect(donated()).toBe(false)
+  })
+
+  it('--no-donate overrides the env var and the file, and never reaches the tool', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    writeConfig('donate = true\n')
+    vi.stubEnv('AUPM_DONATE', 'true')
+    await install(['--no-donate'])
+    expect(donated()).toBe(false)
+    expect(spawn).toHaveBeenCalledWith('npm', ['install', 'ms'], expect.anything())
+  })
+
+  it('--donate wins over AUPM_DONATE=false', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.stubEnv('AUPM_DONATE', 'false')
+    await install(['--donate'])
+    expect(donated()).toBe(true)
+  })
+
+  it('a malformed AUPM_DONATE exits 2 before the tool runs, naming the variable', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubEnv('AUPM_DONATE', 'yes')
+    const { runWrapper } = await import('./npm-wrapper.js')
+    expect(await runWrapper('npm', ['install', 'ms'])).toBe(2)
+    expect(spawn).not.toHaveBeenCalled()
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('AUPM_DONATE'))
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('true or false'))
+  })
+
+  it('a malformed config line exits 2 before the tool runs, with path and line number', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    writeConfig('# header\n\ndonate = maybe\n')
+    const { runWrapper } = await import('./npm-wrapper.js')
+    expect(await runWrapper('npm', ['install', 'ms'])).toBe(2)
+    expect(spawn).not.toHaveBeenCalled()
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('config.toml:3'))
+  })
+
+  it('--donate skips a malformed AUPM_DONATE', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.stubEnv('AUPM_DONATE', 'yes')
+    expect(await install(['--donate'])).toBe(0)
+    expect(donated()).toBe(true)
+  })
+
+  it('prints all four counts in both modes', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const counts = 'aupm: Audited: 2. Not audited: 1. Integrity mismatch: 0. Unresolvable: 1.'
+    await install()
+    expect(logSpy).toHaveBeenCalledWith(counts)
+    logSpy.mockClear()
+    await install(['--donate'])
+    expect(logSpy).toHaveBeenCalledWith(counts)
+  })
+
+  it('aupm npx ignores the setting', async () => {
+    vi.stubEnv('AUPM_DONATE', 'yes')
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const { runWrapper } = await import('./npm-wrapper.js')
+    const runPromise = runWrapper('npx', ['cowsay', 'hi'])
+    child.emit('exit', 0, null)
+    expect(await runPromise).toBe(0)
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
   })
 })

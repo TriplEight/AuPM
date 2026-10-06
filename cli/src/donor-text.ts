@@ -252,6 +252,7 @@ export function donateStep(label: string): string[] {
       `It pays ${price} USDC for each reviewed package in the lockfile. ` +
         'Without --donate, every install is free, reviewed packages included.',
     ),
+    ...wrap('Always donate: `aupm config set donate true` or AUPM_DONATE=true.'),
   ])
 }
 

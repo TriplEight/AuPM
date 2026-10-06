@@ -8,13 +8,15 @@
 import fs from 'node:fs'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { attestLockfileTool } from 'aupm-mcp/tools/attest'
+import { ConfigError, resolveDonate } from './config.js'
+import { countsFromSummary, summaryLines } from './summary.js'
 
 const DEFAULT_OUT_PATH = 'aupm-attestation.json'
-const USAGE = 'Usage: aupm attest <lockfile> [--donate] [--out <path>]'
+const USAGE = 'Usage: aupm attest <lockfile> [--donate|--no-donate] [--out <path>]'
 
 interface ParsedAttestArgs {
   lockfilePath?: string
-  allowDonation: boolean
+  donateFlag?: boolean
   outPath: string
 }
 
@@ -25,12 +27,12 @@ interface ParsedAttestArgs {
 export class AttestArgvUsageError extends Error {}
 
 function parseAttestArgv(argv: string[]): ParsedAttestArgs {
-  const result: ParsedAttestArgs = { allowDonation: false, outPath: DEFAULT_OUT_PATH }
+  const result: ParsedAttestArgs = { outPath: DEFAULT_OUT_PATH }
   let index = 0
   while (index < argv.length) {
     const arg = argv[index]
-    if (arg === '--donate') {
-      result.allowDonation = true
+    if (arg === '--donate' || arg === '--no-donate') {
+      result.donateFlag = arg === '--donate'
       index += 1
     } else if (arg === '--out') {
       const value = argv[index + 1]
@@ -74,19 +76,26 @@ export async function runAttest(argv: string[]): Promise<number> {
     return 1
   }
 
+  let donate: boolean
+  try {
+    donate = resolveDonate(args.donateFlag).value
+  } catch (error) {
+    if (!(error instanceof ConfigError)) throw error
+    console.log(`usage error: ${error.message}`)
+    return 1
+  }
+
   const result = await attestLockfileTool.handler({
     lockfilePath: args.lockfilePath,
-    allowDonation: args.allowDonation,
+    allowDonation: donate,
   })
 
   if (result.status === 'donation_required') {
     if (result.attestation !== undefined && result.withheld !== undefined) {
       fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
       console.log(`attestation written to ${args.outPath}`)
-      console.log(
-        `withheld ${result.withheld} reviewed ${result.withheld === 1 ? 'entry' : 'entries'} ` +
-          `(${formatMicroUsd(result.priceMicro)}) — retry with --donate to include them`,
-      )
+      const counts = countsFromSummary(result.summary)
+      for (const line of summaryLines({ counts, donate, settlement: null })) console.log(line)
       console.log(
         JSON.stringify(
           { ...(result.summary as Record<string, unknown>), withheld: result.withheld },
@@ -105,24 +114,11 @@ export async function runAttest(argv: string[]): Promise<number> {
   fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
   console.log(`attestation written to ${args.outPath}`)
   const { settlement } = result
-  if (settlement === null) {
-    console.log(JSON.stringify(result.summary, null, 2))
-    return 0
-  }
-  console.log(
-    `donated ${formatMicroUsd(settlement.amountMicro)} (${settlement.amountMicro} microUSDC), ` +
-      `settlement txid ${settlement.txid}`,
-  )
-  console.log(
-    JSON.stringify(
-      {
-        ...(result.summary as Record<string, unknown>),
-        donatedMicro: settlement.amountMicro,
-        settlementTxid: settlement.txid,
-      },
-      null,
-      2,
-    ),
-  )
+  const counts = countsFromSummary(result.summary)
+  for (const line of summaryLines({ counts, donate, settlement })) console.log(line)
+  const extra = settlement
+    ? { donatedMicro: settlement.amountMicro, settlementTxid: settlement.txid }
+    : {}
+  console.log(JSON.stringify({ ...(result.summary as Record<string, unknown>), ...extra }, null, 2))
   return 0
 }
