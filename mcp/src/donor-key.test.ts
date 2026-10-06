@@ -100,9 +100,10 @@ describe('donor key file', () => {
   ])('refuses a file with %s and names the path only', (_label, content) => {
     const file = writeDonorKeyFile(FILE_VALUE)
     fs.writeFileSync(file, content)
-    const message = messageOf(() => loadDonorMnemonic())
-    expect(message).toContain(file)
-    for (const word of FILE_VALUE.split(' ')) expect(message).not.toContain(` ${word} `)
-    expect(message).not.toContain(FILE_VALUE)
+    // An exact match proves that no word of the key reaches the message. A
+    // per-word check is flaky: the fixed text shares words with the word list.
+    expect(messageOf(() => loadDonorMnemonic())).toBe(
+      `donor key file ${file} must hold one line with 25 valid mnemonic words`,
+    )
   })
 })
