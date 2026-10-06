@@ -71,11 +71,40 @@ describe('network text', () => {
     expect(usdc).toContain(`algorand://${ADDRESS}?amount=1000000&asset=10458941`)
   })
 
-  it('names the CI secret of the network', () => {
-    expect(ciStep('4.', mainnet).join('\n')).toContain('gh secret set AUPM_DONOR_MNEMONIC_MAINNET')
-    const testnetText = ciStep('4.', testnet).join('\n')
-    expect(testnetText).toContain('gh secret set AUPM_DONOR_MNEMONIC_TESTNET')
-    expect(testnetText).toContain('NETWORK=testnet XDG_CONFIG_HOME=')
+  it('prints the POSIX CI wallet commands, with the network prefix on TestNet', () => {
+    const main = ciStep('4.', mainnet, false).join('\n')
+    expect(main).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
+    expect(main).not.toContain('NETWORK=')
+    expect(main).not.toContain('$env:')
+    const test = ciStep('4.', testnet, false).join('\n')
+    expect(test).toContain(
+      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init',
+    )
+    expect(test).toContain(
+      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin',
+    )
+  })
+
+  it('prints the PowerShell CI wallet commands on Windows', () => {
+    const main = ciStep('4.', mainnet, true).join('\n')
+    expect(main).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init')
+    expect(main).toContain('Remove-Item Env:XDG_CONFIG_HOME')
+    expect(main).toContain('close that PowerShell window')
+    expect(main).not.toContain('NETWORK=')
+    expect(main).not.toContain('NETWORK = ')
+    const test = ciStep('4.', testnet, true).join('\n')
+    expect(test).toContain(
+      '$env:NETWORK = "testnet"; $env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init',
+    )
+    expect(test).toContain('Remove-Item Env:NETWORK')
+  })
+
+  it('uses gh secret set -f on every platform and never sed', () => {
+    for (const windows of [false, true]) {
+      const text = ciStep('4.', mainnet, windows).join('\n')
+      expect(text).toContain('gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"')
+      expect(text).not.toContain('sed')
+    }
   })
 
   it('prints a CI key path that init writes with that XDG_CONFIG_HOME', () => {

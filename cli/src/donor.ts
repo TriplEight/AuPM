@@ -111,7 +111,7 @@ function runInit(io: DonorIo, network: Network): number {
     ...addressLines(address, network),
     ...envNotice(),
     '',
-    ...initNextSteps(address, network),
+    ...initNextSteps(address, network, process.platform === 'win32'),
   ])
   return 0
 }
