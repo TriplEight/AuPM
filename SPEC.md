@@ -609,6 +609,7 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 | `GET /v1/attest?name=&version=` | $0.001, free unless reviewed |
 | `GET /<pkg>/-/<tarball>` | $0.001 only with `X-AuPM-Donate: 1` and a reviewed version; else free |
 | `GET /api/v1/status/...` | free |
+| `GET /api/v1/health` | free (nightly job state, plus the release `version` and `commit` of the running image; 503 when the last nightly success is older than 26 hours) |
 | `GET /api/v1/earnings/github/:login` | free (ledger read) |
 | `GET /.well-known/aupm-keys.json` | free (attestation pubkeys) |
 | `GET /.well-known/x402` | free (x402 descriptor of the paid routes) |
