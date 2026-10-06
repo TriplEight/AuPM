@@ -51,7 +51,9 @@ server.tool(
   attestLockfileTool.name,
   attestLockfileTool.description,
   {
-    lockfilePath: z.string().describe('Path to a package-lock.json on disk'),
+    lockfilePath: z
+      .string()
+      .describe('Path to a package-lock.json or a pnpm-lock.yaml (lockfileVersion 9.0) on disk'),
     allowDonation: z
       .boolean()
       .optional()

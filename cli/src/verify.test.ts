@@ -388,3 +388,77 @@ describe('runVerify: partial attestation (X-AuPM-Donate: 0 shape)', () => {
     }
   })
 })
+
+describe('runVerify: pnpm-lock.yaml subject', () => {
+  const PNPM_BODY =
+    "lockfileVersion: '9.0'\n\npackages:\n\n  ms@2.1.3:\n    resolution: {integrity: sha512-ms}\n"
+
+  async function signedEnvelope(
+    subjectName: string,
+    body: string,
+  ): Promise<{ envelope: Envelope; keyArg: string }> {
+    const privateKey = ed.utils.randomSecretKey()
+    const publicKey = await ed.getPublicKeyAsync(privateKey)
+    const keyid = 'pnpm-test-key'
+    const statement = {
+      _type: 'https://in-toto.io/Statement/v1',
+      subject: [
+        { name: subjectName, digest: { sha256: createHash('sha256').update(body).digest('hex') } },
+      ],
+      predicateType: 'https://aupm.dev/attestation/lockfile/v1',
+      predicate: { format: 'pnpm', lockfileVersion: '9.0', packages: [] },
+    }
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(statement))
+    const payloadType = 'application/vnd.in-toto+json'
+    const sig = await ed.signAsync(pae(payloadType, payloadBytes), privateKey)
+    return {
+      envelope: {
+        payloadType,
+        payload: Buffer.from(payloadBytes).toString('base64'),
+        signatures: [{ keyid, sig: Buffer.from(sig).toString('base64') }],
+      },
+      keyArg: `${keyid}:${Buffer.from(publicKey).toString('base64')}`,
+    }
+  }
+
+  async function verifyWith(
+    subjectName: string,
+    signedBody: string,
+    fileBody: string,
+  ): Promise<{ code: number; output: string }> {
+    const { envelope, keyArg } = await signedEnvelope(subjectName, signedBody)
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-pnpm-test-'))
+    const envelopePath = join(dir, 'attestation.json')
+    const lockfilePath = join(dir, 'pnpm-lock.yaml')
+    writeFileSync(envelopePath, JSON.stringify(envelope))
+    writeFileSync(lockfilePath, fileBody)
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      const code = await runVerify([envelopePath, '--lockfile', lockfilePath, '--key', keyArg])
+      return { code, output: logs.join('\n') }
+    } finally {
+      console.log = originalLog
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  test('accepts a matching pnpm-lock.yaml', async () => {
+    const { code, output } = await verifyWith('pnpm-lock.yaml', PNPM_BODY, PNPM_BODY)
+    expect(code).toBe(0)
+    expect(output).toContain('lockfile digest: OK')
+  })
+
+  test('rejects a changed pnpm-lock.yaml', async () => {
+    const { code, output } = await verifyWith('pnpm-lock.yaml', PNPM_BODY, `${PNPM_BODY}# edit\n`)
+    expect(code).toBe(1)
+    expect(output).toContain('sha256 mismatch')
+  })
+
+  test('rejects a pnpm-lock.yaml checked against a package-lock.json attestation', async () => {
+    const { code, output } = await verifyWith('package-lock.json', PNPM_BODY, PNPM_BODY)
+    expect(code).toBe(1)
+    expect(output).toContain('no pnpm-lock.yaml subject digest')
+  })
+})
