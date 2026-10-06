@@ -62,7 +62,7 @@ runs:
       continue-on-error: true
       shell: bash
       working-directory: ${{ github.action_path }}/../../..
-      run: npm exec --yes --package=pnpm@12.5.1 -- pnpm install --frozen-lockfile --filter aupm... --filter aupm-mcp...
+      run: npm exec --yes --package=pnpm@12.5.1 -- pnpm install --frozen-lockfile --filter aupm-cli... --filter aupm-mcp...
 
     - name: Check and donate to reviewed packages
       id: donate
