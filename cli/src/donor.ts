@@ -1,21 +1,39 @@
 // cli/src/donor.ts
 //
-// `aupm donor init [--timeout <minutes>]` and `aupm donor optin [--timeout <minutes>]`
-// (SPEC.md §11.4, ADR 0016). `init` creates a donor account, stores its key in the donor env
-// file and then runs `optin`. `optin` waits for the ALGO that the opt-in needs and sends one
-// 0-amount USDC transfer to self straight to algod. That transaction is not an x402 payment.
+// `aupm donor init|optin|status` (SPEC.md §11.4, ADR 0016). `init` creates a donor account and
+// stores its key in the donor key file. `optin` checks the balance once and sends one 0-amount
+// USDC transfer to self straight to algod. `status` reads the state and names the next step.
+// No command waits or polls. The opt-in is not an x402 payment.
 //
 // WARNING: never print or log the mnemonic or the secret key.
 import algosdk from 'algosdk'
-import { donorAlgodUrl, IS_TESTNET, USDC_ASSET_ID } from 'aupm-mcp/donor'
-import { loadDonorMnemonic, writeDonorEnvFile } from 'aupm-mcp/donor-key'
-import { renderUnicodeCompact } from 'uqr'
+import { donorAlgodUrl } from 'aupm-mcp/donor'
+import {
+  AUPM_DONOR_MNEMONIC_ENV,
+  donorKeyFilePath,
+  loadDonorMnemonic,
+  readDonorKeyFile,
+  writeDonorKeyFile,
+} from 'aupm-mcp/donor-key'
+import {
+  addressLines,
+  algoStep,
+  currentNetwork,
+  envNoticeLines,
+  existingFileLines,
+  formatMicro,
+  initNextSteps,
+  type Network,
+  optInRequiredMicro,
+  paint,
+  type Snapshot,
+  statusLines,
+  testnetNote,
+  usdcStep,
+  warningBlock,
+} from './donor-text.js'
 
-const USAGE = 'Usage: aupm donor init|optin [--timeout <minutes>]'
-const DEFAULT_TIMEOUT_MINUTES = 15
-const DEFAULT_POLL_MS = 5_000
-const ASA_MIN_BALANCE_INCREASE = 100_000n
-const OPT_IN_FEE = 1_000n
+const USAGE = 'Usage: aupm donor [init|optin|status]'
 
 export interface DonorIo {
   out(line: string): void
@@ -24,9 +42,6 @@ export interface DonorIo {
 
 export interface DonorOptions {
   io?: DonorIo
-  pollIntervalMs?: number
-  now?: () => number
-  sleep?: (ms: number, signal: AbortSignal) => Promise<void>
 }
 
 const consoleIo: DonorIo = {
@@ -34,169 +49,153 @@ const consoleIo: DonorIo = {
   err: (line) => console.error(line),
 }
 
-function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, ms)
-    signal.addEventListener('abort', done, { once: true })
-    function done(): void {
-      clearTimeout(timer)
-      signal.removeEventListener('abort', done)
-      resolve()
-    }
-  })
+function emit(io: DonorIo, lines: string[]): void {
+  for (const line of lines) io.out(line)
 }
 
-/** Formats integer microALGO as an ALGO decimal string, with no floats. */
-function formatAlgo(micro: bigint): string {
-  const whole = micro / 1_000_000n
-  const fraction = (micro % 1_000_000n).toString().padStart(6, '0')
-  return `${whole}.${fraction}`
-}
-
-function parseTimeoutMinutes(args: string[]): number {
-  const index = args.indexOf('--timeout')
-  if (index === -1) return DEFAULT_TIMEOUT_MINUTES
-  const value = args[index + 1] ?? ''
-  if (!/^[1-9][0-9]*$/.test(value)) {
-    throw new Error(`--timeout needs a positive whole number of minutes. ${USAGE}`)
+function accountOf(mnemonic: string): algosdk.Account {
+  try {
+    return algosdk.mnemonicToSecretKey(mnemonic)
+  } catch {
+    throw new Error('The donor key is not a valid 25-word mnemonic. Nothing was printed or sent.')
   }
-  return Number(value)
 }
 
-interface OptInContext {
-  algod: algosdk.Algodv2
-  address: string
-  secretKey: Uint8Array
-  io: DonorIo
-  signal: AbortSignal
-  deadline: number
-  pollIntervalMs: number
-  now: () => number
-  sleep: (ms: number, signal: AbortSignal) => Promise<void>
+function addressOf(mnemonic: string): string {
+  return accountOf(mnemonic).addr.toString()
 }
 
-function fundingLines(address: string, neededMicro: bigint): string[] {
-  const network = IS_TESTNET ? 'TestNet' : 'MainNet'
-  return [
-    `Fund ${address} on Algorand ${network}:`,
-    `  - at least ${formatAlgo(neededMicro)} ALGO (minimum balance with one asset plus the opt-in fee)`,
-    `  - then USDC (ASA ${USDC_ASSET_ID}) for donations`,
-  ]
+function envAddress(): string | null {
+  try {
+    return addressOf(process.env[AUPM_DONOR_MNEMONIC_ENV] ?? '')
+  } catch {
+    return null
+  }
 }
 
-async function submitOptIn(context: OptInContext): Promise<void> {
-  const { algod, address, secretKey } = context
-  const suggestedParams = await algod.getTransactionParams().do()
+function envNotice(): string[] {
+  if (!process.env[AUPM_DONOR_MNEMONIC_ENV]) return []
+  return ['', ...envNoticeLines(envAddress())]
+}
+
+function newAlgod(): algosdk.Algodv2 {
+  return new algosdk.Algodv2('', donorAlgodUrl(), '')
+}
+
+async function readSnapshot(address: string, usdcAsset: string): Promise<Snapshot> {
+  const info = await newAlgod().accountInformation(address).do()
+  const holding = (info.assets ?? []).find((asset) => asset.assetId === BigInt(usdcAsset))
+  return {
+    address,
+    algo: info.amount,
+    required: optInRequiredMicro(info.minBalance),
+    optedIn: holding !== undefined,
+    usdc: holding?.amount ?? 0n,
+  }
+}
+
+function runInit(io: DonorIo, network: Network): number {
+  const file = donorKeyFilePath()
+  const existing = readDonorKeyFile()
+  if (existing !== null) {
+    emit(io, [...existingFileLines(file, addressOf(existing)), ...envNotice()])
+    return 1
+  }
+  const account = algosdk.generateAccount()
+  writeDonorKeyFile(algosdk.secretKeyToMnemonic(account.sk))
+  const address = account.addr.toString()
+  emit(io, [
+    'Created the donor wallet.',
+    ...testnetNote(network),
+    ...warningBlock(file, process.platform === 'win32'),
+    '',
+    ...addressLines(address, network),
+    ...envNotice(),
+    ...initNextSteps(address, network, process.platform === 'win32', file),
+  ])
+  return 0
+}
+
+async function sendOptIn(address: string, secretKey: Uint8Array, network: Network) {
+  const algod = newAlgod()
   const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
     sender: address,
     receiver: address,
     amount: 0,
-    assetIndex: BigInt(USDC_ASSET_ID),
-    suggestedParams,
+    assetIndex: BigInt(network.usdcAsset),
+    suggestedParams: await algod.getTransactionParams().do(),
   })
   await algod.sendRawTransaction(txn.signTxn(secretKey)).do()
   await algosdk.waitForConfirmation(algod, txn.txID(), 4)
-  context.io.out(`Opted in to USDC (ASA ${USDC_ASSET_ID}). Transaction ${txn.txID()}.`)
+  return txn.txID()
 }
 
-// Returns the exit code, or null to keep polling.
-async function pollOnce(
-  context: OptInContext,
-  announced: { value: boolean },
-): Promise<number | null> {
-  const info = await context.algod.accountInformation(context.address).do()
-  const optedIn = (info.assets ?? []).some((asset) => asset.assetId === BigInt(USDC_ASSET_ID))
-  if (optedIn) {
-    context.io.out(`Donor is already opted in to USDC (ASA ${USDC_ASSET_ID}).`)
+async function runOptin(io: DonorIo, network: Network): Promise<number> {
+  const { addr, sk } = accountOf(loadDonorMnemonic())
+  const snapshot = await readSnapshot(addr.toString(), network.usdcAsset)
+  emit(io, [...testnetNote(network), ...addressLines(snapshot.address, network), ''])
+  if (snapshot.optedIn) {
+    emit(io, [
+      `The wallet is already opted in to USDC (ASA ${network.usdcAsset}).`,
+      'Run `aupm donor status` for the next step.',
+    ])
     return 0
   }
-  const needed = info.minBalance + ASA_MIN_BALANCE_INCREASE + OPT_IN_FEE
-  if (info.amount >= needed) {
-    await submitOptIn(context)
-    return 0
-  }
-  if (context.now() >= context.deadline) {
-    context.io.err('Timed out while waiting for ALGO.')
-    for (const line of fundingLines(context.address, needed)) context.io.err(line)
+  if (snapshot.algo < snapshot.required) {
+    const short = snapshot.required - snapshot.algo
+    io.err('The wallet has too little ALGO to opt in. Nothing was sent.')
+    emit(io, [
+      `ALGO balance: ${formatMicro(snapshot.algo)} ALGO. Needed: ${formatMicro(snapshot.required)} ALGO. ` +
+        `Shortfall: ${formatMicro(short)} ALGO.`,
+      ...algoStep('Next step.', snapshot.address, network, short),
+      'Run `aupm donor optin` again when the ALGO arrives.',
+    ])
     return 1
   }
-  if (!announced.value) {
-    announced.value = true
-    context.io.out(`Waiting for ${formatAlgo(needed)} ALGO on ${context.address} ...`)
-  }
-  return null
-}
-
-async function waitAndOptIn(context: OptInContext): Promise<number> {
-  const announced = { value: false }
-  while (!context.signal.aborted) {
-    const exitCode = await pollOnce(context, announced)
-    if (exitCode !== null) return exitCode
-    await context.sleep(context.pollIntervalMs, context.signal)
-  }
-  context.io.out('Stopped. Run `aupm donor optin` to continue.')
+  const txid = await sendOptIn(snapshot.address, sk, network)
+  emit(io, [
+    `Opted in to USDC (ASA ${network.usdcAsset}).`,
+    `Transaction: ${txid}`,
+    `Explorer: https://lora.algokit.io/${network.explorer}/transaction/${txid}`,
+    '',
+    ...usdcStep('Next step.', snapshot.address, network),
+  ])
   return 0
 }
 
-async function optInWithMnemonic(
-  mnemonic: string,
-  timeoutMinutes: number,
-  options: DonorOptions,
-): Promise<number> {
-  const io = options.io ?? consoleIo
-  const now = options.now ?? Date.now
-  const { addr, sk } = algosdk.mnemonicToSecretKey(mnemonic)
-  const controller = new AbortController()
-  const onSigint = (): void => controller.abort()
-  process.once('SIGINT', onSigint)
-  try {
-    return await waitAndOptIn({
-      algod: new algosdk.Algodv2('', donorAlgodUrl(), ''),
-      address: addr.toString(),
-      secretKey: sk,
-      io,
-      signal: controller.signal,
-      deadline: now() + timeoutMinutes * 60_000,
-      pollIntervalMs: options.pollIntervalMs ?? DEFAULT_POLL_MS,
-      now,
-      sleep: options.sleep ?? defaultSleep,
-    })
-  } finally {
-    process.removeListener('SIGINT', onSigint)
+async function runStatus(io: DonorIo, network: Network): Promise<number> {
+  const file = donorKeyFilePath()
+  const address = addressOf(loadDonorMnemonic())
+  const snapshot = await readSnapshot(address, network.usdcAsset)
+  const fileLine = process.env[AUPM_DONOR_MNEMONIC_ENV] ? [] : [`Key file: ${file}`]
+  emit(io, [
+    paint('bold', 'Donor wallet'),
+    ...testnetNote(network),
+    ...fileLine,
+    ...envNotice(),
+    '',
+  ])
+  emit(io, statusLines(snapshot, network))
+  if (process.platform === 'win32') {
+    io.out('')
+    io.out('On Windows, the permissions of the key file are not protected.')
   }
+  return 0
 }
 
-function runInit(io: DonorIo): { mnemonic: string } {
-  const account = algosdk.generateAccount()
-  const mnemonic = algosdk.secretKeyToMnemonic(account.sk)
-  const file = writeDonorEnvFile(mnemonic)
-  const address = account.addr.toString()
-  const uri = `algorand://${address}`
-  io.out(`Donor address: ${address}`)
-  io.out(`Key file (0600): ${file}`)
-  io.out(`Payment URI (ARC-26): ${uri}`)
-  io.out(renderUnicodeCompact(uri))
-  for (const line of fundingLines(address, ASA_MIN_BALANCE_INCREASE * 2n + OPT_IN_FEE)) {
-    io.out(line)
-  }
-  return { mnemonic }
-}
-
-/** Runs `aupm donor <init|optin>`. Returns the process exit code. */
+/** Runs `aupm donor <init|optin|status>`. Returns the process exit code. */
 export async function runDonor(argv: string[], options: DonorOptions = {}): Promise<number> {
-  const [subcommand, ...rest] = argv
+  const [subcommand = 'status', ...rest] = argv
   const io = options.io ?? consoleIo
-  if (subcommand !== 'init' && subcommand !== 'optin') {
+  if (rest.length > 0 || !['init', 'optin', 'status'].includes(subcommand)) {
     io.err(USAGE)
     return 1
   }
+  const network = currentNetwork()
   try {
-    const timeoutMinutes = parseTimeoutMinutes(rest)
-    if (subcommand === 'init') {
-      const { mnemonic } = runInit(io)
-      return await optInWithMnemonic(mnemonic, timeoutMinutes, options)
-    }
-    return await optInWithMnemonic(loadDonorMnemonic(), timeoutMinutes, options)
+    if (subcommand === 'init') return runInit(io, network)
+    if (subcommand === 'optin') return await runOptin(io, network)
+    return await runStatus(io, network)
   } catch (error) {
     io.err(error instanceof Error ? error.message : String(error))
     return 1

@@ -38,7 +38,17 @@ for example `AUPM_DONOR_MNEMONIC_MAINNET` and `AUPM_DONOR_MNEMONIC_TESTNET`.
 Then a secret cannot pay on the wrong network.
 
 The value of the donor secret is a 25-word Algorand mnemonic of a funded
-account.
+account. You may use a separate wallet for CI.
+
+`aupm donor init` prints the steps. In bash or zsh, `aupm donor optin` and
+`gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm/donor.key"`
+store the key as a secret. For a separate wallet, put
+`XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` before the `aupm` commands and use
+that key file. In PowerShell, set `$env:XDG_CONFIG_HOME` the same way, close
+the window afterwards, and run
+`Get-Content "<key file>" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`.
+For TestNet, name the secret `AUPM_DONOR_MNEMONIC_TESTNET`. Everyone who can
+change the workflows of the repository can read the secret.
 
 MainNet pays real USDC. Set `NETWORK: mainnet` in the job's `env:`, so the
 network is explicit in the log:
