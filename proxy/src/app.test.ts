@@ -545,6 +545,40 @@ describe('x402 gate', () => {
     expect(paymentRequired.accepts[0]?.asset).toBe(USDC_ASA_ID)
   })
 
+  // L13a: a pnpm-lock.yaml prices exactly like the equivalent package-lock.
+  function pnpmLockWith(entries: string[]) {
+    const packages = entries.map(
+      (name) => `  ${name}@1.0.0:\n    resolution: {integrity: ${REVIEWED_INTEGRITY}}\n`,
+    )
+    return `lockfileVersion: '9.0'\npackages:\n${packages.join('\n')}`
+  }
+
+  test('POST /v1/attest/lockfile: a pnpm lockfile with 3 reviewed entries quotes 3,000', async () => {
+    for (const name of ['pkg-a', 'pkg-b', 'pkg-c']) {
+      setStatus(name, '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    }
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/yaml' },
+      body: pnpmLockWith(['pkg-a', 'pkg-b', 'pkg-c', 'pkg-d']),
+    })
+    expect(res.status).toBe(402)
+    const paymentRequired = decodePaymentRequiredHeader(
+      res.headers.get('PAYMENT-REQUIRED') as string,
+    ) as unknown as { accepts: Array<{ amount?: string }> }
+    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+  })
+
+  test('POST /v1/attest/lockfile: a pnpm lockfile with 0 reviewed entries is a free 200', async () => {
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'text/yaml' },
+      body: pnpmLockWith(['pkg-a']),
+    })
+    expect(res.status).toBe(200)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
   // SPEC §10.4, §12.3: an INTEGRITY_MISMATCH or UNRESOLVABLE entry is never
   // charged — N counts only COMMUNITY_REVIEWED entries whose integrity
   // matches, never the tree's total entry count.

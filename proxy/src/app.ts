@@ -193,7 +193,7 @@ export function createApp(
       {
         error: 'method not allowed',
         message:
-          'POST a package-lock.json body to this route. It returns one signed attestation ' +
+          'POST a package-lock.json or pnpm-lock.yaml body to this route. It returns one signed attestation ' +
           'for every package in the lockfile. See SPEC.md section 11.2.',
       },
       405,

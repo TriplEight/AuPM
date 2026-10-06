@@ -29,13 +29,20 @@ import {
   signEnvelope,
 } from '../attest/dsse.js'
 import type { IntegrityLookup, LockfileAnalysis } from '../attest/lockfile.js'
-import { analyzeLockfile, LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
+import {
+  analyzeLockfile,
+  analyzePnpmLockfile,
+  isYamlContentType,
+  LOCKFILE_MAX_BYTES,
+  LOCKFILE_MAX_YAML_BYTES,
+} from '../attest/lockfile.js'
 import {
   createRateLimiter,
   DEFAULT_FREE_LOCKFILE_RATE_LIMIT,
   DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT,
   type RateLimiter,
 } from '../attest/ratelimit.js'
+import type { YamlParser } from '../attest/yaml-parse.js'
 import {
   CAIP2_NETWORK,
   ISSUER,
@@ -85,7 +92,7 @@ function isEmptyLockfileBody(bytes: Uint8Array): boolean {
   return EMPTY_LOCKFILE_BODY.test(new TextDecoder().decode(bytes))
 }
 
-const EMPTY_LOCKFILE_ERROR = 'request body is empty: send a package-lock.json'
+const EMPTY_LOCKFILE_ERROR = 'request body is empty: send a package-lock.json or a pnpm-lock.yaml'
 const EMPTY_SINGLE_ERROR = 'query parameters "name" and "version" are required'
 
 /**
@@ -280,6 +287,7 @@ function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record
     issuer: ISSUER,
     issuedAt: new Date().toISOString(),
     network: CAIP2_NETWORK,
+    format: analysis.format,
     lockfileVersion: analysis.lockfileVersion,
     summary: analysis.summary,
     packages,
@@ -297,7 +305,7 @@ async function signLockfileStatement(
   partial: boolean,
 ): ReturnType<typeof signEnvelope> {
   const statement = buildLockfileStatement({
-    subjectName: 'package-lock.json',
+    subjectName: analysis.format === 'pnpm' ? 'pnpm-lock.yaml' : 'package-lock.json',
     sha256: analysis.sha256,
     predicateType: LOCKFILE_PREDICATE_TYPE,
     predicate: lockfilePredicate(analysis, partial),
@@ -487,6 +495,8 @@ export interface AttestRoutesOptions {
   lockfileRequestRateLimiter?: RateLimiter
   /** Known-good tarball integrity lookup for reviewed packages. */
   integrityLookup?: IntegrityLookup
+  /** Test seam: replaces the worker-thread YAML parser. */
+  yamlParser?: YamlParser
 }
 
 export interface AttestRoutes {
@@ -515,7 +525,8 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (!lockfileRequestRateLimiter.attempt(clientIp(c))) {
       return c.json({ error: 'rate limit exceeded for the lockfile attestation route' }, 429)
     }
-    const limited = await readLimitedBody(c, LOCKFILE_MAX_BYTES)
+    const isYaml = isYamlContentType(c.req.header('content-type'))
+    const limited = await readLimitedBody(c, isYaml ? LOCKFILE_MAX_YAML_BYTES : LOCKFILE_MAX_BYTES)
     if (!limited.ok) {
       return limited.response
     }
@@ -527,12 +538,19 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       await next()
       return
     }
-    const result = analyzeLockfile(limited.bytes, options.integrityLookup)
+    const result = isYaml
+      ? await analyzePnpmLockfile(limited.bytes, options.integrityLookup, options.yamlParser)
+      : analyzeLockfile(limited.bytes, options.integrityLookup)
 
     if (!result.ok) {
       // WARNING: return before the payment gate runs — a caller must never
-      // be asked to pay for a malformed lockfile.
-      return c.json({ error: result.message }, 400)
+      // be asked to pay for a lockfile that is malformed, too complex, or
+      // refused because another YAML parse is running.
+      const headers =
+        result.retryAfterSeconds === undefined
+          ? undefined
+          : { 'Retry-After': String(result.retryAfterSeconds) }
+      return c.json({ error: result.message }, result.status ?? 400, headers)
     }
 
     const { analysis } = result

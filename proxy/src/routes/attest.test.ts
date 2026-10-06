@@ -15,6 +15,7 @@
 // physical database and writes from one file can be wiped by another file's
 // beforeEach mid-test.
 import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import algosdk from 'algosdk'
@@ -24,7 +25,7 @@ import type { Attribution } from '../attest/attribution.js'
 import type { Envelope, Statement } from '../attest/dsse.js'
 import { verifyEnvelope } from '../attest/dsse.js'
 import { loadSigningKey, type SigningKey } from '../attest/keys.js'
-import { LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
+import { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_YAML_BYTES } from '../attest/lockfile.js'
 import { createRateLimiter } from '../attest/ratelimit.js'
 import type { AttestRoutesOptions } from './attest.js'
 
@@ -93,6 +94,7 @@ function buildTestApp(options: Partial<AttestRoutesOptions> = {}) {
     rateLimiter: options.rateLimiter,
     lockfileRequestRateLimiter: options.lockfileRequestRateLimiter,
     integrityLookup: options.integrityLookup,
+    yamlParser: options.yamlParser,
   })
 
   let capturedAttribution: Attribution | undefined
@@ -239,7 +241,9 @@ describe('POST /v1/attest/lockfile', () => {
       body: ' \n { \t } \r\n',
     })
     expect(res.status).toBe(400)
-    expect(await res.json()).toEqual({ error: 'request body is empty: send a package-lock.json' })
+    expect(await res.json()).toEqual({
+      error: 'request body is empty: send a package-lock.json or a pnpm-lock.yaml',
+    })
   })
 
   test('lockfileVersion 1 returns 400', async () => {
@@ -1247,5 +1251,223 @@ describe('free-path rate limit: socket-address fallback (TRUST_PROXY unset)', ()
 
     expect(res.status).toBe(200)
     expect(res.status).not.toBe(500)
+  })
+})
+describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/yaml)', () => {
+  const fixtureBytes = readFileSync(
+    path.join(import.meta.dirname, '..', 'attest', 'fixtures', 'pnpm-lock.v9.yaml'),
+  )
+
+  function seedPnpmFixture() {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TX1', 'sha512-ms')
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null, 'sha512-lodash')
+    setStatus('tampered', '1.0.0', 'COMMUNITY_REVIEWED', null, null, 'sha512-good')
+  }
+
+  function postYaml(
+    app: ReturnType<typeof buildTestApp>['app'],
+    body: string | Uint8Array,
+    headers: Record<string, string> = {},
+    contentType = 'application/yaml',
+  ) {
+    return app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': contentType, ...headers },
+      body: body as BodyInit,
+    })
+  }
+
+  test('a reviewed pnpm lockfile returns a verifying envelope with subject pnpm-lock.yaml', async () => {
+    seedPnpmFixture()
+    const { app, getAttribution } = buildTestApp()
+
+    const res = await postYaml(app, fixtureBytes)
+
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      summary: { reviewed: number; integrityMismatch: number; unresolvable: number }
+      attestation: Envelope
+    }
+    expect(
+      await verifyEnvelope(body.attestation, [
+        { keyid: signingKey.keyid, publicKey: signingKey.publicKey },
+      ]),
+    ).toBe(true)
+    const statement = decodeStatement(body.attestation)
+    expect(statement.subject[0]?.name).toBe('pnpm-lock.yaml')
+    expect(statement.subject[0]?.digest.sha256).toBe(
+      createHash('sha256').update(fixtureBytes).digest('hex'),
+    )
+    const predicate = statement.predicate as { format: string; lockfileVersion: string }
+    expect(predicate.format).toBe('pnpm')
+    expect(predicate.lockfileVersion).toBe('9.0')
+    expect(body.summary).toMatchObject({ reviewed: 2, integrityMismatch: 1, unresolvable: 1 })
+    expect(getAttribution()?.priceMicro).toBe(2_000)
+  })
+
+  test('the same tree as a package-lock.json yields the same summary and price', async () => {
+    seedPnpmFixture()
+    const { app, getAttribution } = buildTestApp()
+    const yamlRes = await postYaml(app, fixtureBytes)
+    const yamlBody = (await yamlRes.json()) as { summary: unknown }
+    const yamlPrice = getAttribution()?.priceMicro
+
+    const registry = (name: string, version: string, integrity: string) => ({
+      version,
+      resolved: `https://registry.npmjs.org/${name}/-/${name}-${version}.tgz`,
+      integrity,
+    })
+    const jsonRes = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/@babel/core': registry('@babel/core', '7.25.2', 'sha512-babelcore'),
+          'node_modules/gitdep': { version: '1.0.0', resolved: 'https://example.com/g.tgz' },
+          'node_modules/left-pad': registry('left-pad', '1.3.0', 'sha512-leftpad'),
+          'node_modules/lodash': registry('lodash', '4.17.21', 'sha512-lodash'),
+          'node_modules/ms': registry('ms', '2.1.3', 'sha512-ms'),
+          'node_modules/react': registry('react', '18.3.1', 'sha512-react'),
+          'node_modules/react-dom': registry('react-dom', '18.3.1', 'sha512-reactdom'),
+          'node_modules/tampered': registry('tampered', '1.0.0', 'sha512-bad'),
+        },
+      }),
+    })
+    const jsonBody = (await jsonRes.json()) as { summary: unknown }
+
+    expect(yamlBody.summary).toEqual(jsonBody.summary)
+    expect(yamlPrice).toBe(getAttribution()?.priceMicro)
+  })
+
+  test.each(['text/yaml', 'application/yaml; charset=utf-8'])(
+    'content-type %s selects the pnpm parser',
+    async (contentType) => {
+      seedPnpmFixture()
+      const { app } = buildTestApp()
+      const res = await postYaml(app, fixtureBytes, {}, contentType)
+      expect(res.status).toBe(200)
+    },
+  )
+
+  test('a pnpm lockfile with no reviewed entry is a free 200', async () => {
+    const { app, getAttribution } = buildTestApp()
+    const res = await postYaml(app, fixtureBytes)
+    expect(res.status).toBe(200)
+    expect(getAttribution()).toEqual({ route: 'lockfile', priceMicro: 0, packages: [] })
+  })
+
+  test('X-AuPM-Donate: 0 withholds reviewed entries and keeps mismatch and unresolvable', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp()
+    const res = await postYaml(app, fixtureBytes, { 'X-AuPM-Donate': '0' })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { attestation: Envelope }
+    const predicate = decodeStatement(body.attestation).predicate as {
+      withheld: number
+      packages: { name: string; tier: string }[]
+    }
+    expect(predicate.withheld).toBe(2)
+    expect(predicate.packages.map((p) => p.tier).sort()).toEqual([
+      'INTEGRITY_MISMATCH',
+      'UNRESOLVABLE',
+    ])
+  })
+
+  test('bad YAML returns 400', async () => {
+    const { app } = buildTestApp()
+    const res = await postYaml(app, 'lockfileVersion: [unclosed\n')
+    expect(res.status).toBe(400)
+  })
+
+  test("lockfileVersion '6.0' returns 400 and names the accepted version", async () => {
+    const { app } = buildTestApp()
+    const res = await postYaml(app, "lockfileVersion: '6.0'\npackages: {}\n")
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toContain("'9.0'")
+  })
+
+  test('a YAML body sent as application/json takes the JSON path and returns 400', async () => {
+    const { app } = buildTestApp()
+    const res = await postYaml(app, fixtureBytes, {}, 'application/json')
+    expect(res.status).toBe(400)
+  })
+
+  test('an oversized Content-Length is rejected with 413', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/yaml',
+        'content-length': String(LOCKFILE_MAX_BYTES + 1),
+      },
+      body: new Uint8Array(LOCKFILE_MAX_BYTES + 1),
+    })
+    expect(res.status).toBe(413)
+  })
+
+  test('a busy parser answers 503 with Retry-After, never 402, and leaves JSON requests alone', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({ yamlParser: async () => ({ kind: 'busy' }) })
+
+    const res = await postYaml(app, fixtureBytes)
+
+    expect(res.status).toBe(503)
+    expect(res.headers.get('Retry-After')).toBe('3')
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+
+    const json = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lockfileVersion: 3, packages: {} }),
+    })
+    expect(json.status).toBe(200)
+  })
+
+  test('a parse that exceeds the time limit answers 422 and says the lockfile is too complex', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({ yamlParser: async () => ({ kind: 'too_complex' }) })
+    const res = await postYaml(app, fixtureBytes)
+    expect(res.status).toBe(422)
+    expect(((await res.json()) as { error: string }).error).toContain('too complex')
+  })
+
+  test('a server fault in the parser answers 500, never 400 or 402', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({
+      yamlParser: async () => ({ kind: 'error', code: 'ERR_MODULE_NOT_FOUND', message: 'x' }),
+    })
+    const res = await postYaml(app, fixtureBytes)
+    expect(res.status).toBe(500)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('a body over the 2 MiB YAML cap answers 413 before the parser runs', async () => {
+    let parserCalls = 0
+    const { app } = buildTestApp({
+      yamlParser: async () => {
+        parserCalls += 1
+        return { kind: 'invalid' }
+      },
+    })
+    const res = await postYaml(app, new Uint8Array(LOCKFILE_MAX_YAML_BYTES + 1))
+    expect(res.status).toBe(413)
+    expect(parserCalls).toBe(0)
+  })
+
+  test('a JSON body between 2 MiB and 5 MiB is not capped at the YAML limit', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: `{"padding":"${'x'.repeat(LOCKFILE_MAX_YAML_BYTES + 1)}"}`,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('an empty body answers 400 (the 402-first rule of ADR 0013 applies at the gate)', async () => {
+    const { app } = buildTestApp()
+    const res = await postYaml(app, '')
+    expect(res.status).toBe(400)
   })
 })

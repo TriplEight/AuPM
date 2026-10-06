@@ -1,0 +1,83 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@babel/core':
+        specifier: 7.25.2
+        version: 7.25.2
+      gitdep:
+        specifier: https://codeload.github.com/example/gitdep/tar.gz/abc123
+        version: https://codeload.github.com/example/gitdep/tar.gz/abc123
+      left-pad:
+        specifier: 1.3.0
+        version: 1.3.0
+      lodash:
+        specifier: 4.17.21
+        version: 4.17.21
+      ms:
+        specifier: 2.1.3
+        version: 2.1.3
+      react-dom:
+        specifier: 18.3.1
+        version: 18.3.1(react@18.3.1)
+      tampered:
+        specifier: 1.0.0
+        version: 1.0.0
+
+packages:
+
+  '@babel/core@7.25.2':
+    resolution: {integrity: sha512-babelcore}
+    engines: {node: '>=6.9.0'}
+
+  gitdep@https://codeload.github.com/example/gitdep/tar.gz/abc123:
+    resolution: {tarball: https://codeload.github.com/example/gitdep/tar.gz/abc123}
+    version: 1.0.0
+
+  left-pad@1.3.0:
+    resolution: {integrity: sha512-leftpad}
+    deprecated: use String.prototype.padStart()
+
+  lodash@4.17.21:
+    resolution: {integrity: sha512-lodash}
+
+  ms@2.1.3:
+    resolution: {integrity: sha512-ms}
+
+  react-dom@18.3.1:
+    resolution: {integrity: sha512-reactdom}
+    peerDependencies:
+      react: ^18.3.1
+
+  react@18.3.1:
+    resolution: {integrity: sha512-react}
+    engines: {node: '>=0.10.0'}
+
+  tampered@1.0.0:
+    resolution: {integrity: sha512-bad}
+
+snapshots:
+
+  '@babel/core@7.25.2': {}
+
+  gitdep@https://codeload.github.com/example/gitdep/tar.gz/abc123: {}
+
+  left-pad@1.3.0: {}
+
+  lodash@4.17.21: {}
+
+  ms@2.1.3: {}
+
+  react-dom@18.3.1(react@18.3.1):
+    dependencies:
+      react: 18.3.1
+
+  react@18.3.1: {}
+
+  tampered@1.0.0: {}
