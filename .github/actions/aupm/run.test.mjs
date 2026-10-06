@@ -348,3 +348,14 @@ test('reportCounts writes nothing without a step summary file or a summary', () 
   reportCounts({ reviewed: 1 }, false, {})
   reportCounts(null, false, { GITHUB_STEP_SUMMARY: '/nonexistent/never-written' })
 })
+
+test('reportCounts shows a malformed count as unknown, never as 0', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const summaryPath = join(dir, 'summary.md')
+  reportCounts({ reviewed: 1, unreviewed: -1, integrityMismatch: '2' }, true, {
+    GITHUB_STEP_SUMMARY: summaryPath,
+  })
+  const text = readFileSync(summaryPath, 'utf8')
+  assert.match(text, /\| 1 \| unknown \| unknown \| unknown \|/)
+})

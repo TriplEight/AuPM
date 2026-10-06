@@ -228,17 +228,18 @@ describe('aupm donor init', () => {
     expect(text).toContain('aupm attest package-lock.json --donate')
     expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
     expect(text).toContain('every install is free, reviewed packages included.')
+    expect(text).toContain('Always donate: `aupm config set donate true` or AUPM_DONATE=true.')
     expect(text).not.toContain('plain install')
     expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
   })
 
-  it('stays within 40 lines and 80 columns, not counting the QR code and long commands', async () => {
+  it('stays within 41 lines and 80 columns, not counting the QR code and long commands', async () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     const lines = allText(io)
       .split('\n')
       .filter((line) => !/[█▀▄]/.test(line) && !line.trim().startsWith('algorand://'))
-    expect(lines.length).toBeLessThanOrEqual(40)
+    expect(lines.length).toBeLessThanOrEqual(41)
     for (const line of lines) {
       if (isUnbreakable(line)) continue
       expect(line.length, line).toBeLessThanOrEqual(80)
