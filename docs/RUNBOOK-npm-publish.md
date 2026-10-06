@@ -1,4 +1,4 @@
-# Runbook: publish `aupm` and `aupm-mcp` to npm
+# Runbook: publish `aupm-cli` and `aupm-mcp` to npm
 
 Design: [ADR 0017](adr/0017-publish-cli-with-trusted-publishing.md). Both packages share one
 version. `aupm-mcp` publishes first.
@@ -15,7 +15,9 @@ manual.
    `package.json` only.
 4. Publish in this order, with the 2FA code when npm asks:
    `npm publish "$TMPDIR/pack/aupm-mcp-0.3.0.tgz" --access public`, then
-   `npm publish "$TMPDIR/pack/aupm-0.3.0.tgz" --access public`.
+   `npm publish "$TMPDIR/pack/aupm-cli-0.3.0.tgz" --access public`.
+   If `aupm-mcp` already has this version on npm (`npm view aupm-mcp versions`), skip its
+   publish. A version cannot be published twice.
 5. For each package, open `https://www.npmjs.com/package/<name>/access`. Under "Trusted
    Publisher" choose GitHub Actions and enter:
    - Organization or user: `TriplEight`
@@ -36,8 +38,8 @@ tag release. The `repository.url` in each `package.json` must equal the GitHub r
    `git push origin cli-v<version>`.
 3. The workflow `Publish CLI` runs. It fails at the first step if the tag does not equal both
    versions. It publishes with provenance. No npm token is stored anywhere.
-4. Check: `npm view aupm@<version> dist.attestations` and
-   `npm install -g aupm@<version> && aupm`.
+4. Check: `npm view aupm-cli@<version> dist.attestations` and
+   `npm install -g aupm-cli@<version> && aupm`.
 
 A version cannot be published twice. After a failed run that published only `aupm-mcp`, bump both
 versions and tag again.

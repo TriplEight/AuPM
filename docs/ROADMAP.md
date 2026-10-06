@@ -20,7 +20,7 @@ change to the plan.
 
 ## Next
 
-- **Publish the CLI to npm**, so that `npm install -g aupm` works and the GitHub Action runs a
+- **Publish the CLI to npm**, so that `npm install -g aupm-cli` works and the GitHub Action runs a
   pinned, published package. The release workflow and runbook exist
   ([ADR 0017](adr/0017-publish-cli-with-trusted-publishing.md)). The first release waits for the
   maintainer's manual first publish.
