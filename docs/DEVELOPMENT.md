@@ -161,6 +161,11 @@ withdrawal to a fresh address.
 
 Set the account's 25-word mnemonic in `AUPM_DONOR_MNEMONIC`. Never commit it and never log it.
 
+`aupm donor init` does these steps for you. It creates the account, writes the key to
+`~/.config/aupm/donor.env` (`$XDG_CONFIG_HOME/aupm/donor.env`) with mode 0600, prints the address
+and a QR code, waits for the ALGO, and sends the USDC opt-in. When the env var is set, it wins
+over the file. Run `aupm donor optin` to repeat the wait and the opt-in for an existing key.
+
 ## Verify an attestation offline
 
 `aupm verify` verifies one DSSE envelope against a published key. It makes no network request.

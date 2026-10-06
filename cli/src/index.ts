@@ -7,8 +7,10 @@ const USAGE_LINES = [
   '  aupm install ms@2.1.3 [--donate] [--attest-out <path>]',
   '  aupm attest <lockfile> [--donate] [--out <path>]',
   '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
+  '  aupm donor init [--timeout <minutes>]    create a donor key, show a funding QR, opt in to USDC',
+  '  aupm donor optin [--timeout <minutes>]   wait for ALGO, then opt the donor in to USDC',
   '',
-  'Every first argument other than attest and verify goes to npm unchanged.',
+  'Every first argument other than attest, verify and donor goes to npm unchanged.',
   'AuPM adds only --donate and --attest-out <path>; both are removed before npm runs.',
 ]
 
@@ -23,6 +25,11 @@ async function main(): Promise<void> {
     const { runAttest } = await import('./attest.js')
     const exitCode = await runAttest(argv.slice(1))
     process.exit(exitCode)
+  }
+
+  if (command === 'donor') {
+    const { runDonor } = await import('./donor.js')
+    process.exit(await runDonor(argv.slice(1)))
   }
 
   if (!command) {
