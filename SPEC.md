@@ -819,8 +819,7 @@ a warning block, the address and the network, and five numbered next steps.
   is not permission-protected there.
 - Step 1 sends 0.3 ALGO (the minimum is 0.201: 0.1 for the account, 0.1 for the USDC opt-in and
   the 1,000 microALGO fee). A terminal QR code carries an ARC-26 URI with the amount in
-  microALGO. MainNet names Pera Wallet (formerly the official Algorand Wallet; the long form
-  appears once) and a withdrawal on the "Algorand" network. The output gives no TestNet source
+  microALGO. MainNet names Pera Wallet ("(recommended)" on the first mention only) and a withdrawal on the "Algorand" network. The output gives no TestNet source
   of funds (`docs/DEVELOPMENT.md` lists them).
 - Step 2 is `aupm donor optin`. Step 3 sends 1 to 5 USDC (ASA 31566704; TestNet 10458941). `init`
   prints the step without a QR code. `optin` (after the opt-in) and `status` (opted in, no USDC)

@@ -150,7 +150,7 @@ export function existingFileLines(file: string, address: string): string[] {
   ]
 }
 
-const PERA_FIRST = 'Pera Wallet (formerly the official Algorand Wallet)'
+const PERA_FIRST = 'Pera Wallet (recommended)'
 
 export function algoStep(
   label: string,
