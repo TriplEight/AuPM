@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
+import { resolveBuildInfo } from '../build-info.js'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-routes-health-test-${randomUUID()}.db`)
 
@@ -14,7 +15,11 @@ const {
   recordNightlyRunEnd,
   recordNightlyRunStart,
 } = await import('../claims/schema.js')
-const { default: healthRouter, HEALTHY_SUCCESS_MAX_AGE_MS } = await import('./health.js')
+const {
+  default: healthRouter,
+  createHealthRouter,
+  HEALTHY_SUCCESS_MAX_AGE_MS,
+} = await import('./health.js')
 
 beforeEach(() => {
   db.exec('DELETE FROM nightly_runs')
@@ -87,5 +92,33 @@ describe('GET /api/v1/health: item N1.6', () => {
     const body = await res.json()
     expect(body.lastSuccess.startedAt).toBe(successAt)
     expect(body.lastRun.result).toBe('failed')
+  })
+})
+
+describe('GET /api/v1/health: release identity', () => {
+  const sha = 'a'.repeat(40)
+
+  test('503 body carries version and commit', async () => {
+    const res = await createHealthRouter({ version: 'v0.2.10', commit: sha }).request('/')
+    expect(res.status).toBe(503)
+    const body = await res.json()
+    expect(body.version).toBe('v0.2.10')
+    expect(body.commit).toBe(sha)
+  })
+
+  test('200 body carries version and commit', async () => {
+    recordRun(Date.now() - 1000, Date.now(), 'success')
+    const res = await createHealthRouter({ version: 'pr-12', commit: sha }).request('/')
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.version).toBe('pr-12')
+    expect(body.commit).toBe(sha)
+  })
+
+  test('dev and null when the build info is unset', async () => {
+    const res = await createHealthRouter(resolveBuildInfo({})).request('/')
+    const body = await res.json()
+    expect(body.version).toBe('dev')
+    expect(body.commit).toBeNull()
   })
 })
