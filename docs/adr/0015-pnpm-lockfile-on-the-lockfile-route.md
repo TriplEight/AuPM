@@ -18,13 +18,27 @@ price. Limits (`LOCKFILE_MAX_BYTES`, `LOCKFILE_MAX_ENTRIES`), the 402 gate, ADR 
 is `pnpm-lock.yaml`, and its digest is the sha256 of the exact body bytes. The predicate gains one
 field, `format` (`"npm"` or `"pnpm"`). For pnpm, `lockfileVersion` is the string `"9.0"`.
 
-The parser calls `parseDocument` with `uniqueKeys: false` and checks duplicate keys itself, in
-the root and in `packages`. The library check is quadratic: 20,000 keys took 25 s. A duplicate
-key is a 400, because pnpm rejects it too.
+YAML parsing is slow: about 0.3 MB/s on the development host, so a 5 MiB body blocks the event
+loop for 7 to 9 s. This route is free and public. Three limits contain the cost.
 
-Known cost: YAML parsing is synchronous and slow, about 0.3 MB/s on the development host. A
-5 MiB body can block the event loop for seconds. The per-IP request limiter bounds the rate. A
-worker thread or a smaller YAML byte limit is the next step if this matters in production.
+- **Worker thread.** The parse runs in a `node:worker_threads` worker
+  (`proxy/src/attest/yaml-worker.mjs`, plain JavaScript, so it needs no TypeScript loader). The
+  main thread never calls `yaml` for a request body. The worker has a 256 MiB heap limit.
+- **Time limit.** A parse that takes more than 5 s is terminated. The route answers 422 with
+  "lockfile is too complex to parse in time". We chose 422 over 413. The body is within the size
+  cap and syntactically plausible, so 413 would tell the caller to send less, and that is not what
+  fixes it. 422 says the server understood the type and could not process the content.
+- **One parse at a time.** A YAML request that arrives while a parse runs gets 503 with
+  `Retry-After: 3`. JSON requests never wait for the parser and are not affected.
+- **Separate byte cap.** `LOCKFILE_MAX_YAML_BYTES` is 2 MiB, checked before the worker starts
+  (413). The JSON cap stays 5 MiB.
+
+All four checks run in the pre-middleware, before the x402 gate. A refused YAML request never
+returns 402, and a refused request is never charged.
+
+The worker calls `parseDocument` with `uniqueKeys: false` and checks duplicate keys itself, in the
+root and in `packages`. The library check is quadratic: 20,000 keys took 25 s. A duplicate key is
+a 400, because pnpm rejects it too.
 
 We rejected pnpm lockfileVersion 6 and 7 for now. Their `packages` keys use a different shape
 (`/name@version`), and no user asked for them.

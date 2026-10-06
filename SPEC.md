@@ -901,7 +901,10 @@ shape with one package.
   non-npm `tarball` resolution is `UNRESOLVABLE`. A duplicate key is a 400. The subject name is
   `pnpm-lock.yaml`, `predicate.format` is `"pnpm"`, and `predicate.lockfileVersion` is `"9.0"`.
   Any other content type takes the JSON path, with `predicate.format: "npm"`.
-- Limits: body ≤ 5 MB, ≤ 10,000 entries, `lockfileVersion` 2 or 3 (pnpm: `'9.0'` only, and the
+- **pnpm limits (ADR 0015):** body ≤ 2 MiB (`LOCKFILE_MAX_YAML_BYTES`, 413). The YAML parse runs
+  in a worker thread with a 5 s limit (422 "too complex to parse in time"). One YAML parse runs
+  at a time; a second YAML request gets 503 with `Retry-After`. All three answer before the 402.
+- Limits: body ≤ 5 MB (JSON), ≤ 10,000 entries, `lockfileVersion` 2 or 3 (pnpm: `'9.0'` only, and the
   400 message names it); otherwise 400
   (pre-middleware, before any 402 — §10.5). An empty body (§10.5) gets 402 first (ADR 0013).
 - **`predicate.packages` lists only reviewed, `INTEGRITY_MISMATCH`, and `UNRESOLVABLE` entries.**

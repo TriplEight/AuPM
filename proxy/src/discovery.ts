@@ -6,7 +6,11 @@
 // the paid routes use (proxy/src/x402/routes.ts, proxy/src/config.ts).
 // This file holds no second copy of a price, an address or a description.
 
-import { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } from './attest/lockfile.js'
+import {
+  LOCKFILE_MAX_BYTES,
+  LOCKFILE_MAX_ENTRIES,
+  LOCKFILE_MAX_YAML_BYTES,
+} from './attest/lockfile.js'
 import { CAIP2_NETWORK, FACILITATOR_URL, ISSUER, PAY_TO, TAG, USDC_ASA_ID } from './config.js'
 import { PRICE_PER_REVIEWED_PACKAGE_MICRO } from './routes/attest.js'
 import {
@@ -101,7 +105,8 @@ export function buildX402Descriptor(issuer: string = ISSUER): X402Descriptor {
 
 const BYTES_PER_MIB = 1024 * 1024
 const LOCKFILE_LIMITS_TEXT =
-  `package-lock.json lockfileVersion 2 or 3, or pnpm-lock.yaml lockfileVersion '9.0', body at most ${LOCKFILE_MAX_BYTES / BYTES_PER_MIB} MiB, ` +
+  `package-lock.json lockfileVersion 2 or 3, body at most ${LOCKFILE_MAX_BYTES / BYTES_PER_MIB} MiB; ` +
+  `pnpm-lock.yaml lockfileVersion '9.0', body at most ${LOCKFILE_MAX_YAML_BYTES / BYTES_PER_MIB} MiB, ` +
   `at most ${groupDigits(LOCKFILE_MAX_ENTRIES)} entries`
 
 const SUMMARY_SECTION = `# ${MERCHANT_NAME}

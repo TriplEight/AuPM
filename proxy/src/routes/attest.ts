@@ -34,6 +34,7 @@ import {
   analyzePnpmLockfile,
   isYamlContentType,
   LOCKFILE_MAX_BYTES,
+  LOCKFILE_MAX_YAML_BYTES,
 } from '../attest/lockfile.js'
 import {
   createRateLimiter,
@@ -41,6 +42,7 @@ import {
   DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT,
   type RateLimiter,
 } from '../attest/ratelimit.js'
+import type { YamlParser } from '../attest/yaml-parse.js'
 import {
   CAIP2_NETWORK,
   ISSUER,
@@ -79,8 +81,10 @@ export const EMPTY_REQUEST_KEY = 'aupmEmptyRequest' as const
 
 // ADR 0013: an empty lockfile request is a body with only JSON whitespace,
 // or a body that is exactly one JSON object with no keys. The pattern equals
-// a parse to `{}` and needs no second parse. `null` and `[]` do not match.
-const EMPTY_LOCKFILE_BODY = /^[ \t\r\n]*(?:\{[ \t\r\n]*\})?[ \t\r\n]*$/
+// a parse to `{}` and needs no second parse. Two adjacent whitespace runs
+// would backtrack in quadratic time on a long run of spaces plus one other
+// character, so the trailing run sits inside the group. `null` and `[]` do not match.
+const EMPTY_LOCKFILE_BODY = /^[ \t\r\n]*(?:\{[ \t\r\n]*\}[ \t\r\n]*)?$/
 
 function isEmptyLockfileBody(bytes: Uint8Array): boolean {
   return EMPTY_LOCKFILE_BODY.test(new TextDecoder().decode(bytes))
@@ -489,6 +493,8 @@ export interface AttestRoutesOptions {
   lockfileRequestRateLimiter?: RateLimiter
   /** Known-good tarball integrity lookup for reviewed packages. */
   integrityLookup?: IntegrityLookup
+  /** Test seam: replaces the worker-thread YAML parser. */
+  yamlParser?: YamlParser
 }
 
 export interface AttestRoutes {
@@ -517,7 +523,8 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (!lockfileRequestRateLimiter.attempt(clientIp(c))) {
       return c.json({ error: 'rate limit exceeded for the lockfile attestation route' }, 429)
     }
-    const limited = await readLimitedBody(c, LOCKFILE_MAX_BYTES)
+    const isYaml = isYamlContentType(c.req.header('content-type'))
+    const limited = await readLimitedBody(c, isYaml ? LOCKFILE_MAX_YAML_BYTES : LOCKFILE_MAX_BYTES)
     if (!limited.ok) {
       return limited.response
     }
@@ -529,15 +536,19 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       await next()
       return
     }
-    const analyze = isYamlContentType(c.req.header('content-type'))
-      ? analyzePnpmLockfile
-      : analyzeLockfile
-    const result = analyze(limited.bytes, options.integrityLookup)
+    const result = isYaml
+      ? await analyzePnpmLockfile(limited.bytes, options.integrityLookup, options.yamlParser)
+      : analyzeLockfile(limited.bytes, options.integrityLookup)
 
     if (!result.ok) {
       // WARNING: return before the payment gate runs — a caller must never
-      // be asked to pay for a malformed lockfile.
-      return c.json({ error: result.message }, 400)
+      // be asked to pay for a lockfile that is malformed, too complex, or
+      // refused because another YAML parse is running.
+      const headers =
+        result.retryAfterSeconds === undefined
+          ? undefined
+          : { 'Retry-After': String(result.retryAfterSeconds) }
+      return c.json({ error: result.message }, result.status ?? 400, headers)
     }
 
     const { analysis } = result

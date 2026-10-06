@@ -25,7 +25,7 @@ import type { Attribution } from '../attest/attribution.js'
 import type { Envelope, Statement } from '../attest/dsse.js'
 import { verifyEnvelope } from '../attest/dsse.js'
 import { loadSigningKey, type SigningKey } from '../attest/keys.js'
-import { LOCKFILE_MAX_BYTES } from '../attest/lockfile.js'
+import { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_YAML_BYTES } from '../attest/lockfile.js'
 import { createRateLimiter } from '../attest/ratelimit.js'
 import type { AttestRoutesOptions } from './attest.js'
 
@@ -94,6 +94,7 @@ function buildTestApp(options: Partial<AttestRoutesOptions> = {}) {
     rateLimiter: options.rateLimiter,
     lockfileRequestRateLimiter: options.lockfileRequestRateLimiter,
     integrityLookup: options.integrityLookup,
+    yamlParser: options.yamlParser,
   })
 
   let capturedAttribution: Attribution | undefined
@@ -1375,6 +1376,61 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
       body: new Uint8Array(LOCKFILE_MAX_BYTES + 1),
     })
     expect(res.status).toBe(413)
+  })
+
+  test('a busy parser answers 503 with Retry-After, never 402, and leaves JSON requests alone', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({ yamlParser: async () => ({ kind: 'busy' }) })
+
+    const res = await postYaml(app, fixtureBytes)
+
+    expect(res.status).toBe(503)
+    expect(res.headers.get('Retry-After')).toBe('3')
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+
+    const json = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ lockfileVersion: 3, packages: {} }),
+    })
+    expect(json.status).toBe(200)
+  })
+
+  test('a parse that exceeds the time limit answers 422 and says the lockfile is too complex', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({ yamlParser: async () => ({ kind: 'too_complex' }) })
+    const res = await postYaml(app, fixtureBytes)
+    expect(res.status).toBe(422)
+    expect(((await res.json()) as { error: string }).error).toContain('too complex')
+  })
+
+  test('a body over the 2 MiB YAML cap answers 413 before the parser runs', async () => {
+    let parserCalls = 0
+    const { app } = buildTestApp({
+      yamlParser: async () => {
+        parserCalls += 1
+        return { kind: 'invalid' }
+      },
+    })
+    const res = await postYaml(app, new Uint8Array(LOCKFILE_MAX_YAML_BYTES + 1))
+    expect(res.status).toBe(413)
+    expect(parserCalls).toBe(0)
+  })
+
+  test('a JSON body between 2 MiB and 5 MiB is not capped at the YAML limit', async () => {
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: `{"padding":"${'x'.repeat(LOCKFILE_MAX_YAML_BYTES + 1)}"}`,
+    })
+    expect(res.status).toBe(400)
+  })
+
+  test('a long run of spaces followed by one character answers 400 without a stall', async () => {
+    const { app } = buildTestApp()
+    const res = await postYaml(app, `${' '.repeat(200_000)}x`, {}, 'application/json')
+    expect(res.status).toBe(400)
   })
 
   test('an empty body answers 400 (the 402-first rule of ADR 0013 applies at the gate)', async () => {
