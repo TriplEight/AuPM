@@ -5,6 +5,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PassThrough } from 'node:stream'
 import algosdk from 'algosdk'
 import { USDC_ASSET_ID } from 'aupm-mcp/donor'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -90,6 +91,32 @@ function installFakeAlgod(state: FakeAlgod): void {
 
 function captureIo() {
   return { out: vi.fn<DonorIo['out']>(), err: vi.fn<DonorIo['err']>() }
+}
+
+type Answer = string | (() => string)
+
+/** Feeds one answer per prompt line. When the answers run out, the input closes. */
+function scriptedInput(answers: Answer[]) {
+  const input = new PassThrough()
+  const io = captureIo()
+  const queue = [...answers]
+  io.out.mockImplementation((line) => {
+    if (!/^(Press Enter|Type yes)/.test(line)) return
+    const next = queue.shift()
+    if (next === undefined) input.end()
+    else input.write(`${typeof next === 'function' ? next() : next}\n`)
+  })
+  return { input, io }
+}
+
+function guided(answers: Answer[]) {
+  const { input, io } = scriptedInput(answers)
+  return { io, options: { io, input, interactive: true } }
+}
+
+function writeKey(account: { mnemonic: string }): void {
+  fs.mkdirSync(path.dirname(keyFile), { recursive: true })
+  fs.writeFileSync(keyFile, `${account.mnemonic}\n`, { mode: 0o600 })
 }
 
 function allText(io: ReturnType<typeof captureIo>): string {
@@ -246,13 +273,28 @@ describe('aupm donor init', () => {
     }
   })
 
-  it('does not wait, poll or continue into the opt-in', async () => {
+  it('keeps the headless text, with no wait and no network call, without a terminal', async () => {
     const state = freshState(0n)
     installFakeAlgod(state)
-    const io = captureIo()
-    expect(await runDonor(['init'], { io })).toBe(0)
+    const { io, options } = guided([])
+    expect(await runDonor(['init', '--yes'], { ...options, interactive: true })).toBe(0)
+    expect(allText(io)).toContain('Next steps.')
+    expect(allText(io)).not.toContain('Press Enter')
     expect(state.requests).toEqual([])
+    fs.rmSync(keyFile)
+    const plain = captureIo()
+    expect(await runDonor(['init'], { io: plain, interactive: false })).toBe(0)
+    expect(allText(plain)).toContain('Next steps.')
+    expect(state.requests).toEqual([])
+  })
+
+  it('prints usage for an unknown flag or a flag on another subcommand', async () => {
+    const io = captureIo()
     expect(await runDonor(['init', '--timeout', '2'], { io })).toBe(1)
+    expect(await runDonor(['init', '--yes', '--yes'], { io })).toBe(1)
+    expect(await runDonor(['optin', '--yes'], { io })).toBe(1)
+    expect(await runDonor(['status', '--yes'], { io })).toBe(1)
+    expect(io.err).toHaveBeenCalledTimes(4)
     expect(allText(io)).toContain('Usage: aupm donor')
   })
 
@@ -260,8 +302,9 @@ describe('aupm donor init', () => {
     const io = captureIo()
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    installFakeAlgod(freshState(0n))
     await runDonor(['init'], { io })
-    await runDonor(['init'])
+    await runDonor(['init'], { interactive: false })
     const printed = [allText(io), ...log.mock.calls.flat(), ...error.mock.calls.flat()].join('\n')
     expectNoMnemonic(printed, storedMnemonic())
   })
@@ -286,22 +329,21 @@ describe('aupm donor init', () => {
     expect(allText(io)).toContain(ESCAPE)
   })
 
-  it('says that an existing file holds funds, shows its address and never says remove', async () => {
+  it('headless: an existing key file shows the address and the next step, and stays as it is', async () => {
     const account = newAccount()
-    fs.mkdirSync(path.dirname(keyFile), { recursive: true })
-    fs.writeFileSync(keyFile, `${account.mnemonic}\n`, { mode: 0o600 })
+    writeKey(account)
+    const before = fs.readFileSync(keyFile)
+    installFakeAlgod(freshState(0n))
     const io = captureIo()
-    const code = await runDonor(['init'], { io })
+    const code = await runDonor(['init'], { io, interactive: false })
     const text = allText(io)
-    expect(code).toBe(1)
+    expect(code).toBe(0)
     expect(text).toContain(keyFile)
     expect(text).toContain(account.address)
-    expect(text).toContain('aupm donor status')
-    expect(text).toContain('Deleting it loses the funds in this wallet')
-    expect(text).toContain('Back up the file before you change anything.')
-    expect(text).not.toMatch(/remove/i)
+    expect(text).toContain('Send 0.201 ALGO to this address.')
+    expect(text).not.toContain('Created the donor wallet.')
     expectNoMnemonic(text, account.mnemonic)
-    expect(storedMnemonic()).toBe(account.mnemonic)
+    expect(fs.readFileSync(keyFile).equals(before)).toBe(true)
   })
 
   it('says that the env var wins over the file and shows the address in use', async () => {
@@ -326,6 +368,151 @@ describe('aupm donor init', () => {
       `Get-Content "${keyFile}" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`,
     )
     expectCleanSecretText(allText(io))
+  })
+})
+
+describe('aupm donor init on a terminal', () => {
+  it('asks for the backup, waits for Enter, checks once, opts in and shows the USDC step', async () => {
+    const state = freshState(300_000n)
+    installFakeAlgod(state)
+    const { io, options } = guided(['yes', ''])
+    const code = await runDonor(['init'], options)
+    const text = allText(io)
+    expect(code).toBe(0)
+    expect(state.submitted).toHaveLength(1)
+    expect(
+      state.requests.filter((request) => request.startsWith('GET /v2/accounts/')),
+    ).toHaveLength(1)
+    const order = [
+      'Created the donor wallet.',
+      'Type yes when',
+      'Press Enter when',
+      'Opted in to USDC',
+    ]
+    const positions = order.map((phrase) => text.indexOf(phrase))
+    expect(positions).toEqual([...positions].sort((a, b) => a - b))
+    expect(positions.every((position) => position > -1)).toBe(true)
+    expect(text).toContain('Send 1 to 5 USDC to this address.')
+    expectNoMnemonic(text, storedMnemonic())
+  })
+
+  it('asks again after a wrong answer and goes on after yes', async () => {
+    installFakeAlgod(freshState(300_000n))
+    const { io, options } = guided(['no', 'yes', ''])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Type yes to go on. Press Ctrl-C to stop.')
+    expect(allText(io)).toContain('Opted in to USDC')
+  })
+
+  it('stops after a wrong answer when the input closes, and sends nothing', async () => {
+    const state = freshState(300_000n)
+    installFakeAlgod(state)
+    const { io, options } = guided(['nope'])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Stopped.')
+    expect(state.requests).toEqual([])
+  })
+
+  it('shows the shortfall after Enter, sends no transaction, and waits again', async () => {
+    const state = freshState(100_000n)
+    installFakeAlgod(state)
+    let sentWhenAsked = -1
+    const { io, options } = guided([
+      'yes',
+      '',
+      () => {
+        sentWhenAsked = state.submitted.length
+        state.balance = 300_000n
+        return ''
+      },
+    ])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Shortfall: 0.101 ALGO.')
+    expect(sentWhenAsked).toBe(0)
+    expect(state.submitted).toHaveLength(1)
+  })
+
+  it('exits with no transaction when the input closes at the shortfall', async () => {
+    const state = freshState(100_000n)
+    installFakeAlgod(state)
+    const { io, options } = guided(['yes', ''])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Shortfall: 0.101 ALGO.')
+    expect(allText(io)).toContain('Stopped.')
+    expect(state.submitted).toEqual([])
+  })
+
+  it('stops cleanly when the input closes before any answer, and keeps the key file', async () => {
+    const state = freshState(0n)
+    installFakeAlgod(state)
+    const { io, options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Stopped.')
+    expect(state.requests).toEqual([])
+    expect(fs.existsSync(keyFile)).toBe(true)
+  })
+
+  it('stops on SIGINT while it waits', async () => {
+    installFakeAlgod(freshState(0n))
+    const input = new PassThrough()
+    const io = captureIo()
+    io.out.mockImplementation((line) => {
+      if (line.startsWith('Type yes')) setImmediate(() => process.emit('SIGINT'))
+    })
+    expect(await runDonor(['init'], { io, input, interactive: true })).toBe(0)
+    expect(allText(io)).toContain('Stopped.')
+    expect(process.listenerCount('SIGINT')).toBe(0)
+  })
+
+  it('continues from the wallet state when the key file exists, and never rewrites it', async () => {
+    const account = newAccount()
+    writeKey(account)
+    const before = fs.readFileSync(keyFile)
+    const state = freshState(300_000n)
+    installFakeAlgod(state)
+    const { io, options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(0)
+    const text = allText(io)
+    expect(text).toContain(account.address)
+    expect(text).not.toContain('Created the donor wallet.')
+    expect(text).not.toContain('Type yes when')
+    expect(text).toContain('Opted in to USDC')
+    expect(state.submitted).toHaveLength(1)
+    expectNoMnemonic(text, account.mnemonic)
+    expect(fs.readFileSync(keyFile).equals(before)).toBe(true)
+  })
+
+  it('waits at the ALGO step on a rerun with an unfunded wallet', async () => {
+    writeKey(newAccount())
+    const state = freshState(0n)
+    installFakeAlgod(state)
+    const { io, options } = guided([''])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Shortfall: 0.201 ALGO.')
+    expect(allText(io)).toContain('Stopped.')
+    expect(state.submitted).toEqual([])
+  })
+
+  it('sends nothing when the wallet is opted in already, and names the next step', async () => {
+    writeKey(newAccount())
+    const state = freshState(300_000n, optedIn())
+    installFakeAlgod(state)
+    const { io, options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(allText(io)).toContain('Send 1 to 5 USDC to this address.')
+    expect(state.submitted).toEqual([])
+    installFakeAlgod(freshState(300_000n, optedIn(2_000_000)))
+    const funded = guided([])
+    expect(await runDonor(['init'], funded.options)).toBe(0)
+    expect(allText(funded.io)).toContain('Donate.')
+  })
+
+  it('reports an algod failure and exits 1', async () => {
+    writeKey(newAccount())
+    vi.stubGlobal('fetch', async () => new Response('down', { status: 500 }))
+    const { io, options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(1)
+    expect(io.err).toHaveBeenCalled()
   })
 })
 

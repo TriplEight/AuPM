@@ -24,7 +24,7 @@ aupm attest pnpm-lock.yaml [--donate|--no-donate] [--out <path>]     # lockfileV
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
 aupm config set donate <true|false>                      # always donate, or never
 aupm config get donate                                   # effective value and its source
-aupm donor init                                          # create a donor key, show the next steps
+aupm donor init [--yes]                                  # create a donor key; guided on a terminal
 aupm donor optin                                         # opt the donor in to USDC (one check)
 aupm donor status                                        # balances and the next step (read-only)
 ```
@@ -50,7 +50,14 @@ mismatch and unresolvable. `--donate` pays for every audited package in the whol
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
 
-For CI, `aupm donor init` prints the commands. You may use a separate wallet: put
+On a terminal, `aupm donor init` guides you one step at a time. It asks you to type `yes` when
+the 25 words are on paper. It waits for Enter after you send the ALGO. Then it checks the balance
+once and opts in to USDC. It uses no timer. Press Ctrl-C to stop. Run `init` again to continue
+from the state of the wallet. It never prints the 25 words and never overwrites the key file.
+Without a terminal, or with `--yes`, `init` prints the steps and exits. With an existing key file
+it prints the address and the next step.
+
+For CI, `aupm donor init --yes` prints the commands. You may use a separate wallet: put
 `XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` before the onboarding commands. Then
 `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm/donor.key"` stores the key as a
 GitHub secret. Back up each key file offline: write the 25 words on paper, or copy the file to
