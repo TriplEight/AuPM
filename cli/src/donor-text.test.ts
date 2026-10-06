@@ -6,7 +6,6 @@ import {
   algoStep,
   arc26Uri,
   CI_CONFIG_HOME,
-  CI_KEY_FILE,
   ciStep,
   donateStep,
   formatMicro,
@@ -16,6 +15,7 @@ import {
   usdcStep,
 } from './donor-text.js'
 
+const KEY = '/home/u/.config/aupm/donor.key'
 const ADDRESS = 'A'.repeat(58)
 const testnet = networkFor(true, '10458941', 'testnet')
 const mainnet = networkFor(false, '31566704', 'mainnet')
@@ -69,60 +69,46 @@ describe('network text', () => {
     expect(usdc).toContain(`algorand://${ADDRESS}?amount=1000000&asset=10458941`)
   })
 
-  it('prints the POSIX CI wallet commands, with the network prefix on TestNet', () => {
-    const main = ciStep('4.', mainnet, false).join('\n')
-    expect(main).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
-    expect(main).not.toContain('NETWORK=')
-    expect(main).not.toContain('$env:')
-    const test = ciStep('4.', testnet, false).join('\n')
-    expect(test).toContain(
-      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init',
+  it('offers a separate wallet with one line, in the shell form of the platform', () => {
+    const posix = ciStep('4.', mainnet, false, KEY).join('\n')
+    expect(posix).toContain(
+      'You may use a separate wallet: put XDG_CONFIG_HOME="$HOME/.config/aupm-ci" before the same onboarding commands.',
     )
-    expect(test).toContain(
-      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin',
-    )
+    expect(posix).not.toContain('$env:')
+    expect(posix).not.toContain('aupm donor init')
+    const windows = ciStep('4.', mainnet, true, KEY).join('\n')
+    expect(windows).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"')
+    expect(windows).toContain('Close the window afterwards.')
+    expect(windows).not.toContain('XDG_CONFIG_HOME="')
   })
 
-  it('prints the PowerShell CI wallet commands on Windows', () => {
-    const main = ciStep('4.', mainnet, true).join('\n')
-    expect(main).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init')
-    expect(main).toContain('Remove-Item Env:XDG_CONFIG_HOME')
-    expect(main).toContain('close that PowerShell window')
-    expect(main).not.toContain('NETWORK=')
-    expect(main).not.toContain('NETWORK = ')
-    const test = ciStep('4.', testnet, true).join('\n')
-    expect(test).toContain(
-      '$env:NETWORK = "testnet"; $env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init',
-    )
-    expect(test).toContain('Remove-Item Env:NETWORK')
-  })
-
-  it('reads the key file through stdin on each platform and network', () => {
-    const key = '"$HOME/.config/aupm-ci/aupm/donor.key"'
+  it('reads the main key file through stdin on each platform and network', () => {
+    const quoted = `"${KEY}"`
     for (const [network, name] of [
       [mainnet, 'AUPM_DONOR_MNEMONIC_MAINNET'],
       [testnet, 'AUPM_DONOR_MNEMONIC_TESTNET'],
     ] as const) {
-      const posix = ciStep('4.', network, false).join('\n')
-      const windows = ciStep('4.', network, true).join('\n')
-      expect(posix).toContain(`gh secret set ${name} < ${key}`)
-      expect(windows).toContain(`Get-Content ${key} | gh secret set ${name}`)
+      const posix = ciStep('4.', network, false, KEY).join('\n')
+      const windows = ciStep('4.', network, true, KEY).join('\n')
+      expect(posix).toContain(`gh secret set ${name} < ${quoted}`)
+      expect(windows).toContain(`Get-Content ${quoted} | gh secret set ${name}`)
       for (const text of [posix, windows]) {
         expect(text).toContain(`secrets.${name} }}`)
+        expect(text).toContain('Everyone who can change the workflows')
         expect(text).not.toContain('sed')
         expect(text).not.toContain('secret set -f')
         expect(text).not.toContain('AUPM_DONOR_MNEMONIC=')
-        expect(text).not.toMatch(/rename/i)
+        expect(text).not.toMatch(/rename|limits the loss/i)
       }
     }
   })
 
-  it('prints a CI key path that init writes with that XDG_CONFIG_HOME', () => {
+  it('prints a separate-wallet path that the key loader reads', () => {
     const home = os.homedir()
     const previous = process.env.XDG_CONFIG_HOME
     process.env.XDG_CONFIG_HOME = CI_CONFIG_HOME.replace('$HOME', home)
     try {
-      expect(donorKeyFilePath()).toBe(CI_KEY_FILE.replace('$HOME', home))
+      expect(donorKeyFilePath()).toBe(`${CI_CONFIG_HOME.replace('$HOME', home)}/aupm/donor.key`)
     } finally {
       if (previous === undefined) delete process.env.XDG_CONFIG_HOME
       else process.env.XDG_CONFIG_HOME = previous
@@ -132,13 +118,23 @@ describe('network text', () => {
   it('shows the USDC QR only when asked', () => {
     const uri = `algorand://${ADDRESS}?amount=1000000&asset=31566704`
     expect(usdcStep('3.', ADDRESS, mainnet).join('\n')).toContain(uri)
-    const short = usdcStep('3.', ADDRESS, mainnet, false).join('\n')
+    const short = usdcStep('3.', ADDRESS, mainnet, { withQr: false }).join('\n')
     expect(short).not.toContain('asset=')
-    expect(short).toContain('Send only USDC on Algorand (ASA 31566704)')
-    expect(short).toContain('USDC from another chain is lost')
+    expect(short).toContain('Only USDC on Algorand (ASA 31566704)')
+    expect(short).toContain('USDC from other chains is lost')
+  })
+
+  it('names Pera Wallet in full on the first mention only', () => {
+    const first = algoStep('1.', ADDRESS, mainnet, 300_000n).join('\n')
+    expect(first).toContain('Pera Wallet (formerly the official Algorand Wallet)')
+    const later = usdcStep('3.', ADDRESS, mainnet, { peraKnown: true }).join('\n')
+    expect(later).toContain('With Pera Wallet:')
+    expect(later).not.toContain('formerly')
   })
 
   it('names the price of one reviewed package from the price constant', () => {
     expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
+    expect(donateStep('5.').join('\n')).toContain('Without --donate, every install is free')
+    expect(donateStep('5.').join('\n')).not.toContain('plain install')
   })
 })

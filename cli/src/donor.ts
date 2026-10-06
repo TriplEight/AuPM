@@ -113,7 +113,7 @@ function runInit(io: DonorIo, network: Network): number {
     ...addressLines(address, network),
     ...envNotice(),
     '',
-    ...initNextSteps(address, network, process.platform === 'win32'),
+    ...initNextSteps(address, network, process.platform === 'win32', file),
   ])
   return 0
 }
@@ -137,20 +137,20 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
   const snapshot = await readSnapshot(addr.toString(), network.usdcAsset)
   emit(io, [...testnetNote(network), ...addressLines(snapshot.address, network), ''])
   if (snapshot.optedIn) {
-    io.out(`The wallet is already opted in to USDC (ASA ${network.usdcAsset}).`)
-    io.out('Run `aupm donor status` to see the next step.')
+    io.out(
+      `The wallet is already opted in to USDC (ASA ${network.usdcAsset}). ` +
+        'Run `aupm donor status` for the next step.',
+    )
     return 0
   }
   if (snapshot.algo < snapshot.required) {
     const short = snapshot.required - snapshot.algo
     io.err('The wallet has too little ALGO to opt in. Nothing was sent.')
     emit(io, [
-      `ALGO balance: ${formatMicro(snapshot.algo)} ALGO. Needed: ${formatMicro(snapshot.required)} ALGO.`,
-      `Shortfall: ${formatMicro(short)} ALGO.`,
-      '',
+      `ALGO balance: ${formatMicro(snapshot.algo)} ALGO. Needed: ${formatMicro(snapshot.required)} ALGO. ` +
+        `Shortfall: ${formatMicro(short)} ALGO.`,
       ...algoStep('Next step.', snapshot.address, network, short),
-      '',
-      'Run `aupm donor optin` again after the ALGO arrives.',
+      'Run `aupm donor optin` again when the ALGO arrives.',
     ])
     return 1
   }

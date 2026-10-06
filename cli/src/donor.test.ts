@@ -176,24 +176,20 @@ describe('aupm donor init', () => {
     expect(steps).toBeGreaterThan(where)
     expect(text).toContain('Network: Algorand MainNet')
     for (const phrase of [
-      'secret key of your donor wallet',
-      keyFile,
-      '25-word mnemonic',
+      `The file ${keyFile} holds the secret key of your donor wallet: 25 words.`,
       'hot wallet by design',
-      'not encrypted on this disk',
-      'Any program that runs as this user can read the key and spend the funds',
+      'Any program that runs as this user can read the key',
+      'and spend the funds',
       '1 USDC pays for 1,000 reviewed packages',
-      'Without a backup, a lost or deleted file loses the funds',
-      'Back up the key now. Open the file in a text editor, write the 25 words on paper,',
-      'store the paper in a safe place. You can also copy the file to an external drive.',
-      'Keep the backup away from this computer.',
-      'Never paste the mnemonic into a chat, an issue or a log',
+      'This file is the only copy.',
+      'Back up the 25 words offline: on paper, or on an external drive.',
+      'Never paste the key into a chat, an issue or a log.',
     ]) {
       expect(text.slice(warning, where)).toContain(phrase)
     }
   })
 
-  it('prints five numbered steps with the ARC-26 URIs for ALGO and for USDC', async () => {
+  it('prints five numbered steps with the ARC-26 URI for ALGO', async () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     const text = allText(io)
@@ -202,32 +198,41 @@ describe('aupm donor init', () => {
     expect(text).toContain(`algorand://${address}?amount=300000\n`)
     expect(text).not.toContain('asset=')
     expect(text).toContain('`aupm donor optin` shows a QR code for this step.')
-    expect(text.split(keyFile)).toHaveLength(2)
+    expect(text.split(keyFile)).toHaveLength(3)
     expect(text.startsWith('Created the donor wallet.\n')).toBe(true)
-    expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
-    expect(text).toContain('works with package-lock.json and pnpm-lock.yaml')
-    expect(text).toContain('Send 0.3 ALGO')
-    expect(text).toContain('The minimum is 0.201 ALGO')
-    expect(text).toContain('Pera Wallet')
-    expect(text).toContain('Send 1 to 5 USDC')
-    expect(text).toContain('USDC from another chain is lost')
-    expect(text).toContain('aupm donor optin')
-    expect(text.indexOf('separate wallet for CI')).toBeLessThan(text.indexOf('gh secret set'))
-    expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
-    expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin')
+    expect(text).not.toContain('deadline')
+    expect(text).toContain('Run `aupm donor status` at any time to see the next step.')
+    expect(text).toContain('1. Send 0.3 ALGO to this address. The minimum is 0.201 ALGO')
+    expect(text).toContain('With Pera Wallet (formerly the official Algorand Wallet): buy ALGO')
+    expect(text.split('formerly').length).toBe(2)
+    expect(text).toContain('Send 1 to 5 USDC to this address.')
+    expect(text).toContain('USDC from other chains is lost')
+    expect(text).toContain('2. Run `aupm donor optin`.')
     expect(text).toContain(
-      'gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm-ci/aupm/donor.key"',
+      'You may use a separate wallet: put XDG_CONFIG_HOME="$HOME/.config/aupm-ci" before the same onboarding commands.',
     )
-    expect(text).toContain('It creates the repository secret AUPM_DONOR_MNEMONIC_MAINNET.')
-    expect(text).toContain('The mnemonic does not appear on the screen')
+    expect(text).toContain(`gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "${keyFile}"`)
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
     expect(text).toContain('donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}')
     expectCleanSecretText(text)
     expect(text).toContain('Settings > Secrets and variables > Actions > New repository secret')
     expect(text).toContain('can change the workflows of the repository can read the secret')
-    expect(text).toContain('separate wallet for CI')
+    expect(text).toContain('5. Donate. Add --donate to an install or attest command')
+    expect(text).toContain('`aupm install --donate`')
     expect(text).toContain('aupm attest package-lock.json --donate')
+    expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
+    expect(text).toContain('Without --donate, every install is free, reviewed packages included.')
+    expect(text).not.toContain('plain install')
     expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
+  })
+
+  it('stays within 40 lines, not counting the QR code', async () => {
+    const io = captureIo()
+    await runDonor(['init'], { io })
+    const lines = allText(io)
+      .split('\n')
+      .filter((line) => !/[█▀▄]/.test(line) && !line.trim().startsWith('algorand://'))
+    expect(lines.length).toBeLessThanOrEqual(40)
   })
 
   it('does not wait, poll or continue into the opt-in', async () => {
@@ -305,9 +310,9 @@ describe('aupm donor init', () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     expect(allText(io)).toContain('On Windows, the permissions of this file are not protected')
-    expect(allText(io)).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init')
+    expect(allText(io)).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"')
     expect(allText(io)).toContain(
-      'Get-Content "$HOME/.config/aupm-ci/aupm/donor.key" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET',
+      `Get-Content "${keyFile}" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`,
     )
     expectCleanSecretText(allText(io))
   })
@@ -348,10 +353,9 @@ describe('aupm donor optin', () => {
     expect(code).toBe(1)
     expect(state.submitted).toHaveLength(0)
     expect(state.requests.filter((request) => request.includes('/v2/accounts/'))).toHaveLength(1)
-    expect(text).toContain('ALGO balance: 0.15 ALGO. Needed: 0.201 ALGO.')
-    expect(text).toContain('Shortfall: 0.051 ALGO.')
+    expect(text).toContain('ALGO balance: 0.15 ALGO. Needed: 0.201 ALGO. Shortfall: 0.051 ALGO.')
     expect(text).toContain(`algorand://${account.address}?amount=51000`)
-    expect(text).toContain('Send ALGO to this address')
+    expect(text).toContain('Next step. Send 0.051 ALGO to this address.')
   })
 
   it('counts the whole minimum for an account that algod does not know yet', async () => {
@@ -442,7 +446,7 @@ describe('aupm donor status', () => {
     expect(text).toContain('Network: Algorand MainNet')
     expect(text).toContain('ALGO balance: 0.1 ALGO (needed: 0.201 ALGO)')
     expect(text).toContain('USDC opt-in: not done')
-    expect(text).toContain('The wallet needs 0.101 more ALGO')
+    expect(text).toContain('Next step. Send 0.101 ALGO to this address.')
     expect(text).toContain(`algorand://${account.address}?amount=101000`)
     expectNoMnemonic(text, account.mnemonic)
   })
@@ -544,12 +548,8 @@ describe('aupm donor on TestNet', () => {
     const io = captureIo()
     await donor.runDonor(['init'], { io })
     const text = allText(io)
-    expect(text).toContain(
-      'NETWORK=testnet XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init',
-    )
-    expect(text).toContain(
-      'gh secret set AUPM_DONOR_MNEMONIC_TESTNET < "$HOME/.config/aupm-ci/aupm/donor.key"',
-    )
+    expect(text).toContain(`gh secret set AUPM_DONOR_MNEMONIC_TESTNET < "${keyFile}"`)
+    expect(text).not.toContain('MAINNET')
   })
 
   it('init prints the TestNet PowerShell commands on Windows', async () => {
@@ -557,12 +557,8 @@ describe('aupm donor on TestNet', () => {
     const io = captureIo()
     await donor.runDonor(['init'], { io })
     const text = allText(io)
-    expect(text).toContain(
-      '$env:NETWORK = "testnet"; $env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init',
-    )
-    expect(text).toContain(
-      'Get-Content "$HOME/.config/aupm-ci/aupm/donor.key" | gh secret set AUPM_DONOR_MNEMONIC_TESTNET',
-    )
+    expect(text).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"')
+    expect(text).toContain(`Get-Content "${keyFile}" | gh secret set AUPM_DONOR_MNEMONIC_TESTNET`)
   })
 
   it('optin and status print the note and the network', async () => {
