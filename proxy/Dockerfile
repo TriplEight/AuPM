@@ -65,6 +65,12 @@ COPY scripts/network.mjs scripts/network.mjs
 
 FROM base AS runtime
 ENV NODE_ENV=production
+# Release identity, read once at boot (proxy/src/build-info.ts). Declared in
+# this stage only, so a version change does not bust the dependency layers.
+ARG AUPM_VERSION=dev
+ARG AUPM_COMMIT=
+ENV AUPM_VERSION=${AUPM_VERSION}
+ENV AUPM_COMMIT=${AUPM_COMMIT}
 WORKDIR /app/proxy
 # Named-volume mount point for the SQLite file (compose.yaml). Created and
 # chowned here so Docker copies this ownership onto the volume on first

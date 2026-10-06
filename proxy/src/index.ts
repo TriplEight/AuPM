@@ -6,6 +6,7 @@
 // proxy/src/x402/server.ts). serve() runs only after boot() resolves.
 import { serve } from '@hono/node-server'
 import { createApp } from './app.js'
+import { buildInfo } from './build-info.js'
 import { buildRealNightlyDeps } from './claims/nightly-wiring.js'
 import { type SchedulerHandle, startNightlyScheduler } from './claims/scheduler.js'
 import {
@@ -70,7 +71,10 @@ async function main(): Promise<void> {
     const app = createApp(httpServer)
 
     const server = serve({ fetch: app.fetch, port: PORT }, () => {
-      console.log(`AuPM proxy listening on http://localhost:${PORT}`)
+      console.log(
+        `AuPM proxy ${buildInfo.version} (${buildInfo.commit ?? 'no commit'}) ` +
+          `listening on http://localhost:${PORT}`,
+      )
     })
 
     // The in-process nightly scheduler (item N1, ADR 0009): daily at 03:17
