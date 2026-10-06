@@ -81,4 +81,4 @@ jobs:
           PACK_DIR: ${{ runner.temp }}/pack
         run: |
           VERSION="$(node -p 'require("./cli/package.json").version')"
-          npm publish "$PACK_DIR/aupm-$VERSION.tgz" --provenance --access public
+          npm publish "$PACK_DIR/aupm-cli-$VERSION.tgz" --provenance --access public

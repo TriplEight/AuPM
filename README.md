@@ -118,7 +118,7 @@ at most 2 MiB).
 
 `AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
 MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm
-release, `npm install -g aupm` installs it. Until then, run it from a clone. See
+release, `npm install -g aupm-cli` installs it. Until then, run it from a clone. See
 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). The release process is in
 [docs/RUNBOOK-npm-publish.md](docs/RUNBOOK-npm-publish.md).
 
