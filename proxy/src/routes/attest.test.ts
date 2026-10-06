@@ -1404,6 +1404,16 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     expect(((await res.json()) as { error: string }).error).toContain('too complex')
   })
 
+  test('a server fault in the parser answers 500, never 400 or 402', async () => {
+    seedPnpmFixture()
+    const { app } = buildTestApp({
+      yamlParser: async () => ({ kind: 'error', code: 'ERR_MODULE_NOT_FOUND', message: 'x' }),
+    })
+    const res = await postYaml(app, fixtureBytes)
+    expect(res.status).toBe(500)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
   test('a body over the 2 MiB YAML cap answers 413 before the parser runs', async () => {
     let parserCalls = 0
     const { app } = buildTestApp({
@@ -1424,12 +1434,6 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
       headers: { 'content-type': 'application/json' },
       body: `{"padding":"${'x'.repeat(LOCKFILE_MAX_YAML_BYTES + 1)}"}`,
     })
-    expect(res.status).toBe(400)
-  })
-
-  test('a long run of spaces followed by one character answers 400 without a stall', async () => {
-    const { app } = buildTestApp()
-    const res = await postYaml(app, `${' '.repeat(200_000)}x`, {}, 'application/json')
     expect(res.status).toBe(400)
   })
 

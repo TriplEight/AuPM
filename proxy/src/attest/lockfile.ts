@@ -73,7 +73,7 @@ export type LockfileValidationResult =
       ok: false
       message: string
       /** HTTP status the route answers with. Absent means 400. */
-      status?: 413 | 422 | 503
+      status?: 413 | 422 | 500 | 503
       /** Set with status 503: seconds for the Retry-After header. */
       retryAfterSeconds?: number
     }
@@ -448,6 +448,9 @@ export async function analyzePnpmLockfile(
       status: 422,
       message: 'lockfile is too complex to parse in time',
     }
+  }
+  if (outcome.kind === 'error') {
+    return { ok: false, status: 500, message: 'internal error: the lockfile could not be parsed' }
   }
   if (outcome.kind === 'invalid') {
     return { ok: false, message: 'lockfile is not valid YAML' }
