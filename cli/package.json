@@ -14,7 +14,8 @@
   "dependencies": {
     "@noble/ed25519": "3.2.0",
     "algosdk": "3.5.2",
-    "aupm-mcp": "workspace:*"
+    "aupm-mcp": "workspace:*",
+    "uqr": "0.1.3"
   },
   "devDependencies": {
     "@types/node": "22.15.21",

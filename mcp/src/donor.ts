@@ -20,6 +20,7 @@ import { x402Client } from '@x402-avm/core/client'
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from '@x402-avm/core/http'
 import type { PaymentRequirements } from '@x402-avm/core/types'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
+import { loadDonorMnemonic } from './donor-key.js'
 import { signerFromMnemonic } from './signer.js'
 
 // NETWORK selects Algorand MainNet (default) or TestNet rehearsal.
@@ -35,8 +36,11 @@ export const EXPLORER_NETWORK = IS_TESTNET ? 'testnet' : 'mainnet'
 // and ALGOD_TESTNET_URL for these defaults.
 const DONOR_ALGOD_URL = IS_TESTNET ? DEFAULT_ALGOD_TESTNET : DEFAULT_ALGOD_MAINNET
 
-/** Env var holding the donor's 25-word Algorand mnemonic. */
-export const AUPM_DONOR_MNEMONIC_ENV = 'AUPM_DONOR_MNEMONIC'
+/** Algod URL for the selected network; ALGOD_MAINNET_URL or ALGOD_TESTNET_URL overrides it. */
+export function donorAlgodUrl(): string {
+  const override = IS_TESTNET ? process.env.ALGOD_TESTNET_URL : process.env.ALGOD_MAINNET_URL
+  return override || DONOR_ALGOD_URL
+}
 
 /**
  * Price of one reviewed entry, in microUSDC (SPEC.md §11.2, §11.4). The
@@ -57,12 +61,6 @@ export function donationCapMicro(entryCount: number): bigint {
     throw new Error(`entryCount must be a non-negative integer, got ${entryCount}`)
   }
   return BigInt(PRICE_PER_ENTRY_MICRO) * BigInt(entryCount)
-}
-
-function readDonorMnemonic(): string {
-  const value = process.env[AUPM_DONOR_MNEMONIC_ENV]
-  if (!value) throw new Error(`${AUPM_DONOR_MNEMONIC_ENV} env var not set`)
-  return value
 }
 
 /** A decoded PAYMENT-REQUIRED requirement, used to report a price without paying it. */
@@ -122,7 +120,7 @@ function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) =
 function lazyDonorSigner(): ClientAvmSigner {
   let cached: ClientAvmSigner | undefined
   function resolve(): ClientAvmSigner {
-    if (!cached) cached = signerFromMnemonic(readDonorMnemonic())
+    if (!cached) cached = signerFromMnemonic(loadDonorMnemonic())
     return cached
   }
   return {
