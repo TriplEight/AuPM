@@ -72,7 +72,8 @@ describe('network text', () => {
   it('offers a separate wallet with one line, in the shell form of the platform', () => {
     const posix = ciStep('4.', mainnet, false, KEY).join('\n')
     expect(posix).toContain('You may use a separate wallet. Put this before the same onboarding')
-    expect(posix).toContain('\n     XDG_CONFIG_HOME="$HOME/.config/aupm-ci"\n')
+    expect(posix.endsWith('\n     XDG_CONFIG_HOME="$HOME/.config/aupm-ci"')).toBe(true)
+    expect(posix.indexOf('gh secret set')).toBeLessThan(posix.indexOf('XDG_CONFIG_HOME='))
     expect(posix).not.toContain('$env:')
     expect(posix).not.toContain('aupm donor init')
     const windows = ciStep('4.', mainnet, true, KEY).join('\n')
