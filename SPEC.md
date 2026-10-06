@@ -261,7 +261,7 @@ in PaymentRouter → the auditor and ops claim.
 
 ### Phase 2 — peer review and funding
 
-GitHub Action pinned to a published CLI; Dependabot/Renovate integration; Stripe x402
+Dependabot/Renovate integration; Stripe x402
 subscriptions/donations + business tiers; IDE/MCP status badges; forge integrations (Codeberg,
 Radicle) + pay-at-forge; onboarding of contributor, maintainer, adversarial reviewer and
 treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm register`)
@@ -364,11 +364,12 @@ Nothing is deployed to MainNet.
   `mcp/src/donor.ts`, §11.4).
 - `cli/` — `aupm status`, `aupm install`, `aupm verify` (offline L1),
   `aupm attest <lockfile> [--donate] [--out <path>]` (§11.4).
-- Publishing: `mcp/` publishes as `aupm-mcp` and `cli/` as `aupm`, both at one exact version, from
+- Publishing: `mcp/` publishes as `aupm-mcp` and `cli/` as `aupm-cli` (bin `aupm`), both at one exact version, from
   the tag `cli-v<version>` (`.github/workflows/publish-cli.yml`, npm trusted publishing with
   provenance; ADR 0017, `docs/RUNBOOK-npm-publish.md`). The first publish of each name is manual.
 - `.github/actions/aupm/` — composite Action (`action.yml`, `install.mjs`, `run.mjs`). It replaces an
-  `npm ci` step. It runs `aupm attest` from its own checkout and sends no wallet credential unless
+  `npm ci` step. It runs `aupm attest` from the published `aupm-cli` package, pinned to one exact version
+  (`npm exec --yes --package=aupm-cli@<version> -- aupm`), and sends no wallet credential unless
   `donate` is `'true'`. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning.
 - `scripts/verify.sh`, `scripts/guard.sh`, `scripts/e2e.mjs`, `scripts/payout.ts`,
   `scripts/demo.sh` — `verify.sh` prints PASS, FAIL, or SKIP per check. It never passes silently.
@@ -1262,8 +1263,8 @@ usage.
 
 ## 20. Post-MVP TODO
 
-1. Publish the CLI to npm. The Action then runs a pinned published package, not a build from
-   source.
+1. ~~Publish the CLI to npm. The Action then runs a pinned published package, not a build from
+   source.~~ Done: the CLI is on npm as `aupm-cli`, and the Action runs it pinned (`run.mjs`).
 
 ## 21. Next version (v7 candidates)
 
