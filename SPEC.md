@@ -617,7 +617,7 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 the Bazaar.
 
 At $0.001/download, volume requires thousands of developers to change `.npmrc` — the
-highest-friction ask AuPM has. `POST /v1/attest/lockfile` takes a `package-lock.json` and returns
+highest-friction ask AuPM has. `POST /v1/attest/lockfile` takes a `package-lock.json` or a `pnpm-lock.yaml` and returns
 a signed attestation for the whole tree; one integration in CI produces a call per PR. It
 matches Algorand's published use-case list ("paid endpoints for trust scores, proofs, audit
 trails… validation services before an agent or user takes action") and it is the SOC2 CC9.1 /
@@ -718,7 +718,8 @@ const routes = {
     // never reach the middleware (pre-middleware free paths).
     accepts: accepts(reviewedEntriesPrice),
     description:
-      'Signed in-toto attestation for every package in a package-lock.json: ' +
+      'Signed in-toto attestation for every package in a package-lock.json or a ' +
+      "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml): " +
       'human review tier, reviewer, tarball integrity match, and the Algorand ' +
       'txid anchoring each review. $0.001 per reviewed package; free when none is reviewed.',
     mimeType: 'application/json',
@@ -888,12 +889,13 @@ PAE with raw ed25519 (`@noble/ed25519`) using the 32-byte seed from the account 
 ```json
 {
   "_type": "https://in-toto.io/Statement/v1",
-  "subject": [{ "name": "package-lock.json", "digest": { "sha256": "<hex of exact request body bytes>" } }],
+  "subject": [{ "name": "package-lock.json" /* or "pnpm-lock.yaml" */, "digest": { "sha256": "<hex of exact request body bytes>" } }],
   "predicateType": "https://<domain>/attestation/lockfile/v1",
   "predicate": {
     "issuer": "https://<domain>",
     "issuedAt": "2026-09-25T12:00:00Z",
     "network": "algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8=",
+    "format": "npm",
     "lockfileVersion": 3,
     "summary": { "total": 512, "reviewed": 14, "unreviewed": 497, "unresolvable": 1, "integrityMismatch": 0 },
     "packages": [{
@@ -918,7 +920,17 @@ shape with one package.
   unchanged.
 - `integrityMatch: false` → tier reported as `INTEGRITY_MISMATCH`, never `COMMUNITY_REVIEWED`.
 - Git, tarball-URL, or non-npm `resolved` entries → `UNRESOLVABLE`.
-- Limits: body ≤ 5 MB, ≤ 10,000 entries, `lockfileVersion` 2 or 3; otherwise 400
+- **pnpm-lock.yaml** (`Content-Type: application/yaml` or `text/yaml`, any parameters): the entries
+  are the keys of `packages` (`name@version`; a scoped name keeps its `@`; a peer suffix `(...)` is
+  dropped). The integrity is `resolution.integrity`. A `directory`, `repo`/`commit`/`type`, or
+  non-npm `tarball` resolution is `UNRESOLVABLE`. A duplicate key is a 400. The subject name is
+  `pnpm-lock.yaml`, `predicate.format` is `"pnpm"`, and `predicate.lockfileVersion` is `"9.0"`.
+  Any other content type takes the JSON path, with `predicate.format: "npm"`.
+- **pnpm limits (ADR 0015):** body ≤ 2 MiB (`LOCKFILE_MAX_YAML_BYTES`, 413). The YAML parse runs
+  in a worker thread with a 5 s limit (422 "too complex to parse in time"). One YAML parse runs
+  at a time; a second YAML request gets 503 with `Retry-After`. All three answer before the 402.
+- Limits: body ≤ 5 MB (JSON), ≤ 10,000 entries, `lockfileVersion` 2 or 3 (pnpm: `'9.0'` only, and the
+  400 message names it); otherwise 400
   (pre-middleware, before any 402 — §10.5). An empty body (§10.5) gets 402 first (ADR 0013).
 - **`predicate.packages` lists only reviewed, `INTEGRITY_MISMATCH`, and `UNRESOLVABLE` entries.**
   `summary` carries the counts; `predicate.absentMeans: "UNREVIEWED"`.
