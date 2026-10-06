@@ -78,17 +78,11 @@ export function warningBlock(file: string, windows: boolean): string[] {
     paint(['bold', 'yellow'], rule),
     paint(['bold', 'yellow'], 'PLEASE READ. THIS PROTECTS YOUR FUNDS.'),
     paint(['bold', 'yellow'], rule),
-    `This file holds the secret key of your donor wallet: ${file}`,
-    'The secret key is the 25-word mnemonic.',
-    '',
-    '- This is a hot wallet by design. The key is not encrypted on this disk.',
-    '- Any program that runs as this user can read the key and spend the funds.',
-    '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
-    '- This file is the only copy of the key. Without a backup, a lost or deleted file loses the funds.',
-    '- Back up the key now. Open the file in a text editor, write the 25 words on paper,',
-    '  and store the paper in a safe place. You can also copy the file to an external drive.',
-    '  Keep the backup away from this computer.',
-    '- Never paste the mnemonic into a chat, an issue or a log.',
+    `The file ${file} holds the secret key of your donor wallet: 25 words.`,
+    '- This is a hot wallet by design. Any program that runs as this user can read the key',
+    '  and spend the funds. Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
+    '- This file is the only copy. Back up the 25 words offline: on paper, or on an external drive.',
+    '- Never paste the key into a chat, an issue or a log.',
   ]
   if (windows) lines.push('- On Windows, the permissions of this file are not protected.')
   lines.push(paint(['bold', 'yellow'], rule))
@@ -124,44 +118,51 @@ export function existingFileLines(file: string, address: string): string[] {
   ]
 }
 
-export function algoStep(label: string, address: string, network: Network, micro: bigint) {
+const PERA_FIRST = 'Pera Wallet (formerly the official Algorand Wallet)'
+
+export function algoStep(
+  label: string,
+  address: string,
+  network: Network,
+  micro: bigint,
+  detail = false,
+): string[] {
   const lines = [
-    paint('bold', `${label} Send ALGO to this address.`),
-    `   Send ${formatMicro(micro)} ALGO. The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO:`,
-    '   0.1 for the account, 0.1 for the USDC opt-in and 0.001 for the fee.',
-    '   Scan this QR code with your wallet. It fills in the address and the amount.',
+    paint('bold', `${label} Send ${formatMicro(micro)} ALGO to this address.`) +
+      (detail
+        ? ` The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO (0.1 account, 0.1 USDC opt-in, 0.001 fee).`
+        : ''),
+    '   Scan the QR code with your wallet.',
     ...qrLines(arc26Uri(address, micro)).map((line) => `   ${line}`),
   ]
   if (!network.testnet) {
     lines.push(
-      '   With Pera Wallet: buy ALGO in the app. Then scan the QR code to send it here.',
-      '   With an exchange: withdraw ALGO on the "Algorand" network. No other network works.',
+      `   With ${PERA_FIRST}: buy ALGO in the app, then scan the QR code.`,
+      '   With an exchange: withdraw ALGO on the "Algorand" network only.',
     )
   }
   return lines
 }
 
 export function optinStep(label: string): string[] {
-  return [
-    paint('bold', `${label} Run \`aupm donor optin\`.`),
-    '   This lets the wallet hold USDC. It sends one transaction. It needs the ALGO in the wallet.',
-  ]
+  const heading = paint('bold', `${label} Run \`aupm donor optin\`.`)
+  return [`${heading} It lets the wallet hold USDC.`]
 }
 
 export function usdcStep(
   label: string,
   address: string,
   network: Network,
-  withQr = true,
+  options: { withQr?: boolean; peraKnown?: boolean } = {},
 ): string[] {
+  const { withQr = true, peraKnown = false } = options
   const lines = [
-    paint('bold', `${label} Send 1 to 5 USDC to this address.`),
-    `   Send only USDC on Algorand (ASA ${network.usdcAsset}).`,
-    '   USDC from another chain is lost when you send it here.',
+    paint('bold', `${label} Send 1 to 5 USDC to this address.`) +
+      ` Only USDC on Algorand (ASA ${network.usdcAsset}). USDC from other chains is lost.`,
   ]
   if (withQr) {
     lines.push(
-      '   This QR code asks for 1 USDC. You can change the amount in your wallet.',
+      '   The QR code asks for 1 USDC. You can change the amount in your wallet.',
       ...qrLines(arc26Uri(address, USDC_SUGGESTED_MICRO, network.usdcAsset)).map(
         (line) => `   ${line}`,
       ),
@@ -170,56 +171,40 @@ export function usdcStep(
     lines.push('   `aupm donor optin` shows a QR code for this step.')
   }
   if (!network.testnet) {
+    const pera = peraKnown ? 'Pera Wallet' : PERA_FIRST
     lines.push(
-      '   With Pera Wallet: buy USDC in the app, or swap ALGO to USDC. Then send it here.',
-      '   With an exchange: withdraw USDC on the Algorand network.',
+      `   With ${pera}: buy USDC, or swap ALGO to USDC. With an exchange: withdraw USDC on the Algorand network.`,
     )
   }
   return lines
 }
 
 export const CI_CONFIG_HOME = '$HOME/.config/aupm-ci'
-export const CI_KEY_FILE = `${CI_CONFIG_HOME}/aupm/donor.key`
 
-function ciWalletLines(network: Network, windows: boolean): string[] {
+function separateWalletLine(windows: boolean): string {
   if (windows) {
-    const networkEnv = network.testnet ? '$env:NETWORK = "testnet"; ' : ''
-    return [
-      '   Create it with this command in PowerShell. It writes a second key file:',
-      `     ${networkEnv}$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"; aupm donor init`,
-      '   Fund that wallet as in steps 1 to 3. Run `aupm donor optin` in the same window.',
-      '   Then close that PowerShell window, or run `Remove-Item Env:XDG_CONFIG_HOME`',
-      network.testnet
-        ? '   Also run `Remove-Item Env:NETWORK`. Later commands then use the main wallet.'
-        : '   Later commands then use the main wallet.',
-    ]
+    return `   You may use a separate wallet: run \`$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"\` first, then the same onboarding commands. Close the window afterwards.`
   }
-  const networkEnv = network.testnet ? 'NETWORK=testnet ' : ''
-  return [
-    '   Create it with this command. It writes a second key file:',
-    `     ${networkEnv}XDG_CONFIG_HOME="${CI_CONFIG_HOME}" aupm donor init`,
-    '   Fund that wallet as in steps 1 to 3. Put the same prefix before each command:',
-    `     ${networkEnv}XDG_CONFIG_HOME="${CI_CONFIG_HOME}" aupm donor optin`,
-  ]
+  return `   You may use a separate wallet: put XDG_CONFIG_HOME="${CI_CONFIG_HOME}" before the same onboarding commands.`
 }
 
-function secretCommand(network: Network, windows: boolean): string {
-  if (windows) return `Get-Content "${CI_KEY_FILE}" | gh secret set ${network.ciSecret}`
-  return `gh secret set ${network.ciSecret} < "${CI_KEY_FILE}"`
+function secretCommand(network: Network, windows: boolean, keyFile: string): string {
+  if (windows) return `Get-Content "${keyFile}" | gh secret set ${network.ciSecret}`
+  return `gh secret set ${network.ciSecret} < "${keyFile}"`
 }
 
-export function ciStep(label: string, network: Network, windows: boolean): string[] {
+export function ciStep(
+  label: string,
+  network: Network,
+  windows: boolean,
+  keyFile: string,
+): string[] {
   return [
-    paint('bold', `${label} Optional. Store a key as a secret for CI.`),
-    '   Use a separate wallet for CI. A separate wallet limits the loss.',
-    ...ciWalletLines(network, windows),
-    `   Then run this command. It creates the repository secret ${network.ciSecret}.`,
-    '   The mnemonic does not appear on the screen:',
-    `     ${secretCommand(network, windows)}`,
-    '   In the workflow:',
-    `     donor-secret: \${{ secrets.${network.ciSecret} }}`,
+    paint('bold', `${label} Optional, for CI. Store the key as a GitHub secret.`),
+    separateWalletLine(windows),
+    `     ${secretCommand(network, windows, keyFile)}`,
+    `   Workflow line: donor-secret: \${{ secrets.${network.ciSecret} }}`,
     `   Or use the web page of your repository: ${GITHUB_SECRETS_PATH}.`,
-    `   Name the secret ${network.ciSecret}.`,
     '   Everyone who can change the workflows of the repository can read the secret.',
   ]
 }
@@ -227,26 +212,31 @@ export function ciStep(label: string, network: Network, windows: boolean): strin
 export function donateStep(label: string): string[] {
   const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
   return [
-    paint('bold', `${label} Make the first donation.`),
-    `   It pays ${price} USDC for each reviewed package in the lockfile.`,
-    '   Unreviewed packages are free. It works with package-lock.json and pnpm-lock.yaml.',
-    '   Run: aupm attest package-lock.json --donate',
-    '   A plain install stays free.',
+    paint('bold', `${label} Donate.`) +
+      ' Add --donate to an install or attest command, for example `aupm install --donate`',
+    '   or `aupm attest package-lock.json --donate`.' +
+      ` It pays ${price} USDC for each reviewed package in the lockfile.`,
+    '   Without --donate, every install is free, reviewed packages included.',
   ]
 }
 
-export function initNextSteps(address: string, network: Network, windows: boolean): string[] {
+export function initNextSteps(
+  address: string,
+  network: Network,
+  windows: boolean,
+  keyFile: string,
+): string[] {
   return [
-    paint(['bold', 'cyan'], 'Next steps. Nothing here has a deadline.'),
-    'Run `aupm donor status` at any time to see the next step.',
+    paint(['bold', 'cyan'], 'Next steps.') +
+      ' Run `aupm donor status` at any time to see the next step.',
     '',
-    ...algoStep('1.', address, network, ALGO_SUGGESTED_MICRO),
+    ...algoStep('1.', address, network, ALGO_SUGGESTED_MICRO, true),
     '',
     ...optinStep('2.'),
     '',
-    ...usdcStep('3.', address, network, false),
+    ...usdcStep('3.', address, network, { withQr: false, peraKnown: true }),
     '',
-    ...ciStep('4.', network, windows),
+    ...ciStep('4.', network, windows, keyFile),
     '',
     ...donateStep('5.'),
   ]
@@ -272,10 +262,7 @@ export function statusLines(snapshot: Snapshot, network: Network): string[] {
   ]
   if (!optedIn && algo < required) {
     const short = required - algo
-    lines.push(
-      `The wallet needs ${formatMicro(short)} more ALGO to opt in to USDC.`,
-      ...algoStep('Next step.', address, network, short),
-    )
+    lines.push(...algoStep('Next step.', address, network, short))
   } else if (!optedIn) {
     lines.push(...optinStep('Next step.'))
   } else if (usdc === 0n) {

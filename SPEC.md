@@ -811,31 +811,33 @@ only the path.
 never prints the mnemonic. No `aupm donor` command waits or polls. `init` prints, in this order:
 a warning block, the address and the network, and five numbered next steps.
 
-- The warning block says that the file holds the wallet's secret key, that this is a hot wallet by
-  design (the key is unencrypted on this disk, and any program that runs as this user can spend
-  the funds), that only small amounts belong in it (1 USDC pays for 1,000 reviewed packages),
-  that the file is the only copy of the key and must be backed up offline (the 25 words on
-  paper, or the file on an external drive), and that the mnemonic never goes into a chat, an
-  issue or a log. On Windows it adds that the file is not permission-protected there.
+- The warning block says that the file holds the wallet's secret key (25 words), that this is a
+  hot wallet by design (any program that runs as this user can read the key and spend the
+  funds), that only small amounts belong in it (1 USDC pays for 1,000 reviewed packages), that
+  the file is the only copy and must be backed up offline (on paper, or on an external drive),
+  and that the key never goes into a chat, an issue or a log. On Windows it adds that the file
+  is not permission-protected there.
 - Step 1 sends 0.3 ALGO (the minimum is 0.201: 0.1 for the account, 0.1 for the USDC opt-in and
   the 1,000 microALGO fee). A terminal QR code carries an ARC-26 URI with the amount in
-  microALGO. MainNet names Pera Wallet and a withdrawal on the "Algorand" network. The output
-  gives no TestNet source of funds (`docs/DEVELOPMENT.md` lists them).
+  microALGO. MainNet names Pera Wallet (formerly the official Algorand Wallet; the long form
+  appears once) and a withdrawal on the "Algorand" network. The output gives no TestNet source
+  of funds (`docs/DEVELOPMENT.md` lists them).
 - Step 2 is `aupm donor optin`. Step 3 sends 1 to 5 USDC (ASA 31566704; TestNet 10458941). `init`
   prints the step without a QR code. `optin` (after the opt-in) and `status` (opted in, no USDC)
   print the QR code: an ARC-26 URI with `amount` (microUSDC) and `asset`.
-- Step 4 is optional: make a separate CI wallet with
-  `XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init` (on Windows, the PowerShell form
-  `$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init`, and the text says to close
-  that window afterwards). `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm-ci/aupm/donor.key"`
-  (PowerShell: `Get-Content "<same path>" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`) then
-  creates the GitHub secret; the mnemonic does not appear on the screen or in the command line.
-  On TestNet the name is `AUPM_DONOR_MNEMONIC_TESTNET`. The text shows the workflow line
-  `donor-secret: ${{ secrets.<name> }}`. It says that everyone who can change the workflows of
-  the repository can read the secret. The warning block and the "key file exists"
-  message tell the user to back up the key offline (paper or an external drive). Step 5 is
-  `aupm attest package-lock.json --donate`; the text says that it pays 0.001 USDC for each
-  reviewed package.
+- Step 4 is optional, for CI. One line says that the user may use a separate wallet by putting
+  `XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` before the same onboarding commands (Windows:
+  `$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"`, with a note to close the window). Then
+  `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "<key file>"` (PowerShell:
+  `Get-Content "<key file>" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`) creates the GitHub
+  secret; the mnemonic does not appear on the screen or in the command line. On TestNet the name
+  is `AUPM_DONOR_MNEMONIC_TESTNET`. The text shows the workflow line
+  `donor-secret: ${{ secrets.<name> }}` and says that everyone who can change the workflows of
+  the repository can read the secret.
+- Step 5 says to add `--donate` to an install or attest command, for example
+  `aupm install --donate`. It pays 0.001 USDC for each reviewed package in the lockfile. Without
+  `--donate`, every install is free, reviewed packages included.
+- The output without the QR code is at most 40 lines. A test checks it.
 
 On TestNet (`NETWORK=testnet`), `init`, `optin` and `status` print one note near the top: TestNet
 is for development, put `NETWORK=testnet` before every `aupm` command and set `AUPM_PROXY_URL` to
