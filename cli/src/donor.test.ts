@@ -204,6 +204,7 @@ describe('aupm donor init', () => {
     expect(text).toContain('aupm donor optin')
     expect(text.indexOf('separate wallet for CI')).toBeLessThan(text.indexOf('gh secret set'))
     expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
+    expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin')
     expect(text).toContain(
       `"$HOME/.config/aupm-ci/aupm/donor.env" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`,
     )
