@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // mcp/src/index.ts
+import { createRequire } from 'node:module'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
@@ -7,7 +8,11 @@ import { attestLockfileTool } from './tools/attest.js'
 import { checkTool } from './tools/check.js'
 import { installTool } from './tools/install.js'
 
-const server = new McpServer({ name: 'aupm', version: '0.3.0' })
+// `../package.json` is mcp/package.json from both src/ and dist/, so the
+// server reports the version that was published.
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
+
+const server = new McpServer({ name: 'aupm', version })
 
 server.tool(
   checkTool.name,

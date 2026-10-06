@@ -14,8 +14,8 @@ manual.
    `cli`. Check the file lists with `tar tzf`. They hold `dist`, `README.md`, `LICENSE` and
    `package.json` only.
 4. Publish in this order, with the 2FA code when npm asks:
-   `npm publish "$TMPDIR/pack/aupm-mcp-0.3.0.tgz" --access public`, then
-   `npm publish "$TMPDIR/pack/aupm-cli-0.3.0.tgz" --access public`.
+   `npm publish "$TMPDIR/pack/aupm-mcp-<version>.tgz" --access public`, then
+   `npm publish "$TMPDIR/pack/aupm-cli-<version>.tgz" --access public`.
    If `aupm-mcp` already has this version on npm (`npm view aupm-mcp versions`), skip its
    publish. A version cannot be published twice.
 5. For each package, open `https://www.npmjs.com/package/<name>/access`. Under "Trusted
