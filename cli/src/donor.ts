@@ -106,13 +106,11 @@ function runInit(io: DonorIo, network: Network): number {
   const address = account.addr.toString()
   emit(io, [
     'Created the donor wallet.',
-    '',
     ...testnetNote(network),
     ...warningBlock(file, process.platform === 'win32'),
     '',
     ...addressLines(address, network),
     ...envNotice(),
-    '',
     ...initNextSteps(address, network, process.platform === 'win32', file),
   ])
   return 0
@@ -137,10 +135,10 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
   const snapshot = await readSnapshot(addr.toString(), network.usdcAsset)
   emit(io, [...testnetNote(network), ...addressLines(snapshot.address, network), ''])
   if (snapshot.optedIn) {
-    io.out(
-      `The wallet is already opted in to USDC (ASA ${network.usdcAsset}). ` +
-        'Run `aupm donor status` for the next step.',
-    )
+    emit(io, [
+      `The wallet is already opted in to USDC (ASA ${network.usdcAsset}).`,
+      'Run `aupm donor status` for the next step.',
+    ])
     return 0
   }
   if (snapshot.algo < snapshot.required) {
@@ -156,7 +154,8 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
   }
   const txid = await sendOptIn(snapshot.address, sk, network)
   emit(io, [
-    `Opted in to USDC (ASA ${network.usdcAsset}). Transaction: ${txid}`,
+    `Opted in to USDC (ASA ${network.usdcAsset}).`,
+    `Transaction: ${txid}`,
     `Explorer: https://lora.algokit.io/${network.explorer}/transaction/${txid}`,
     '',
     ...usdcStep('Next step.', snapshot.address, network),

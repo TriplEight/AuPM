@@ -837,7 +837,9 @@ a warning block, the address and the network, and five numbered next steps.
 - Step 5 says to add `--donate` to an install or attest command, for example
   `aupm install --donate`. It pays 0.001 USDC for each reviewed package in the lockfile. Without
   `--donate`, every install is free, reviewed packages included.
-- The output without the QR code is at most 40 lines. A test checks it.
+- The output without the QR code is at most 40 lines. Prose lines are at most 80 columns; only
+  the key file path, the shell commands, the workflow line and the `algorand://` URI may be
+  longer. A test checks both.
 
 On TestNet (`NETWORK=testnet`), `init`, `optin` and `status` print one note near the top: TestNet
 is for development, put `NETWORK=testnet` before every `aupm` command and set `AUPM_PROXY_URL` to
