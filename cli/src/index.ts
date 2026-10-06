@@ -6,13 +6,16 @@ const USAGE_LINES = [
   'Usage:',
   '  aupm <npm args>                     runs npm against the AuPM registry',
   '  aupm install ms@2.1.3 [--donate] [--attest-out <path>]',
+  '  aupm pnpm <pnpm args> [--donate] [--attest-out <path>]   runs pnpm against the AuPM registry',
+  '  aupm npx <npx args>                 runs npx against the AuPM registry (no --donate)',
   '  aupm attest <lockfile> [--donate] [--out <path>]',
   '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
   '  aupm donor init [--timeout <minutes>]    create a donor key, show a funding QR, opt in to USDC',
   '  aupm donor optin [--timeout <minutes>]   wait for ALGO, then opt the donor in to USDC',
   '',
-  'Every first argument other than attest, verify and donor goes to npm unchanged.',
-  'AuPM adds only --donate and --attest-out <path>; both are removed before npm runs.',
+  'Every first argument other than attest, verify, donor, pnpm and npx goes to npm unchanged.',
+  'AuPM adds only --donate and --attest-out <path>; both are removed before npm or pnpm runs.',
+  'attest and verify accept package-lock.json and pnpm-lock.yaml (lockfileVersion 9.0).',
 ]
 
 async function main(): Promise<void> {
@@ -38,8 +41,11 @@ async function main(): Promise<void> {
     process.exit(1)
   }
 
-  const { runNpmWrapper } = await import('./npm-wrapper.js')
-  process.exit(await runNpmWrapper(argv))
+  const { runWrapper } = await import('./npm-wrapper.js')
+  if (command === 'pnpm' || command === 'npx') {
+    process.exit(await runWrapper(command, argv.slice(1)))
+  }
+  process.exit(await runWrapper('npm', argv))
 }
 
 main().catch((e: unknown) => {

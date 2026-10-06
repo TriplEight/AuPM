@@ -43,6 +43,7 @@
     "@x402-avm/avm": "2.6.1",
     "@x402-avm/core": "2.6.1",
     "@x402-avm/fetch": "2.6.1",
+    "yaml": "2.9.1",
     "zod": "4.4.3"
   },
   "devDependencies": {

@@ -1,6 +1,12 @@
 // mcp/src/lockfile-entries.test.ts
 import { describe, expect, it } from 'vitest'
-import { countLockfileEntries, LockfileParseError } from './lockfile-entries.js'
+import {
+  countEntriesForFile,
+  countLockfileEntries,
+  countPnpmLockfileEntries,
+  isPnpmLockfilePath,
+  LockfileParseError,
+} from './lockfile-entries.js'
 
 describe('countLockfileEntries', () => {
   it('counts the packages map keys, excluding the root ""', () => {
@@ -44,5 +50,85 @@ describe('countLockfileEntries', () => {
     expect(() =>
       countLockfileEntries(JSON.stringify({ lockfileVersion: 3, packages: [] })),
     ).toThrow(LockfileParseError)
+  })
+})
+
+const PNPM_LOCKFILE = `lockfileVersion: '9.0'
+
+importers:
+  .:
+    dependencies:
+      ms:
+        specifier: 2.1.3
+        version: 2.1.3
+
+packages:
+
+  '@babel/core@7.25.2':
+    resolution: {integrity: sha512-babelcore}
+
+  ms@2.1.3:
+    resolution: {integrity: sha512-ms}
+
+  react-dom@18.3.1:
+    resolution: {integrity: sha512-reactdom}
+
+snapshots:
+
+  ms@2.1.3: {}
+
+  react-dom@18.3.1(react@18.3.1): {}
+`
+
+describe('countPnpmLockfileEntries', () => {
+  it('counts the keys of the packages map, not snapshots or importers', () => {
+    expect(countPnpmLockfileEntries(PNPM_LOCKFILE)).toBe(3)
+  })
+
+  it('counts from raw bytes the same way as from a string', () => {
+    expect(countPnpmLockfileEntries(Buffer.from(PNPM_LOCKFILE, 'utf8'))).toBe(3)
+  })
+
+  it('counts 0 when the project has no packages key', () => {
+    expect(countPnpmLockfileEntries("lockfileVersion: '9.0'\n")).toBe(0)
+  })
+
+  it('rejects a lockfileVersion other than 9.0', () => {
+    expect(() => countPnpmLockfileEntries("lockfileVersion: '6.0'\npackages: {}\n")).toThrow(
+      /'9\.0'/,
+    )
+  })
+
+  it('rejects a duplicate key in packages', () => {
+    const body = "lockfileVersion: '9.0'\npackages:\n  ms@2.1.3: {}\n  ms@2.1.3: {}\n"
+    expect(() => countPnpmLockfileEntries(body)).toThrow(LockfileParseError)
+  })
+
+  it('rejects a duplicate key in the root', () => {
+    const body = "lockfileVersion: '9.0'\nlockfileVersion: '9.0'\n"
+    expect(() => countPnpmLockfileEntries(body)).toThrow(LockfileParseError)
+  })
+
+  it('rejects invalid YAML', () => {
+    expect(() => countPnpmLockfileEntries('a: [unclosed')).toThrow(LockfileParseError)
+  })
+
+  it('rejects a packages value that is not a mapping', () => {
+    expect(() => countPnpmLockfileEntries("lockfileVersion: '9.0'\npackages: [a]\n")).toThrow(
+      LockfileParseError,
+    )
+  })
+})
+
+describe('countEntriesForFile', () => {
+  it('chooses the pnpm parser by file name', () => {
+    expect(isPnpmLockfilePath('/work/app/pnpm-lock.yaml')).toBe(true)
+    expect(isPnpmLockfilePath('/work/app/package-lock.json')).toBe(false)
+    expect(countEntriesForFile('/work/app/pnpm-lock.yaml', PNPM_LOCKFILE)).toBe(3)
+  })
+
+  it('keeps the JSON parser for any other file name', () => {
+    const json = JSON.stringify({ lockfileVersion: 3, packages: { '': {}, 'node_modules/ms': {} } })
+    expect(countEntriesForFile('/work/app/package-lock.json', json)).toBe(1)
   })
 })

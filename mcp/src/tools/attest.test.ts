@@ -422,3 +422,140 @@ describe('attest_lockfile', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('attest_lockfile with a pnpm-lock.yaml', () => {
+  const PNPM_BODY = `lockfileVersion: '9.0'
+
+packages:
+
+  ms@2.1.3:
+    resolution: {integrity: sha512-ms}
+`
+  let dir: string
+  let pnpmLockfilePath: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-pnpm-test-'))
+    pnpmLockfilePath = path.join(dir, 'pnpm-lock.yaml')
+    fs.writeFileSync(pnpmLockfilePath, PNPM_BODY)
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    process.env.AUPM_PROXY_URL = 'http://localhost:4873'
+    delete process.env.NETWORK
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env.AUPM_DONOR_MNEMONIC
+    delete process.env.AUPM_PROXY_URL
+    delete process.env.NETWORK
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  function okResponse(): Response {
+    return new Response(
+      JSON.stringify({
+        summary: { total: 1, reviewed: 0, unreviewed: 1, unresolvable: 0, integrityMismatch: 0 },
+        attestation: attestationWithWithheld(0),
+      }),
+      { status: 200 },
+    )
+  }
+
+  it('sends the YAML content type and the exact file bytes', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('content-type')).toBe('application/yaml')
+      expect(request.headers.get('X-AuPM-Donate')).toBe('0')
+      expect(await request.text()).toBe(PNPM_BODY)
+      return okResponse()
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath })
+
+    expect(result.status).toBe('attested')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('counts pnpm entries for the donation cap: 1 entry refuses a 2,000 microUSDC price', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (requestUrl(input).includes('/v2/transactions/params')) return algodParamsResponse()
+      return new Response(null, {
+        status: 402,
+        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('2000') },
+      })
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(
+      attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath, allowDonation: true }),
+    ).rejects.toThrow()
+    expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(2)
+  })
+
+  it('refuses a pnpm-lock.yaml over 2 MiB without sending it', async () => {
+    fs.writeFileSync(pnpmLockfilePath, `lockfileVersion: '9.0'\n#${'x'.repeat(2 * 1024 * 1024)}\n`)
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath })).rejects.toThrow(
+      /2097152 bytes/,
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+
+  it('reports 413 and 422 with a clear message', async () => {
+    for (const [status, text] of [
+      [413, /too large/],
+      [422, /time limit/],
+    ] as const) {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => new Response('x', { status })),
+      )
+      await expect(attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath })).rejects.toThrow(
+        text,
+      )
+    }
+  })
+
+  it('honors Retry-After on a 503 once, then succeeds', async () => {
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('busy', { status: 503, headers: { 'Retry-After': '0' } }))
+      .mockResolvedValueOnce(okResponse())
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath })
+
+    expect(result.status).toBe('attested')
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('fails with a message when the second attempt is also 503', async () => {
+    const mockFetch = vi.fn(
+      async () => new Response('busy', { status: 503, headers: { 'Retry-After': '0' } }),
+    )
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath })).rejects.toThrow(
+      /busy parsing/,
+    )
+    expect(mockFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps application/json for package-lock.json', async () => {
+    const jsonPath = path.join(dir, 'package-lock.json')
+    fs.writeFileSync(jsonPath, JSON.stringify({ lockfileVersion: 3, packages: {} }))
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('content-type')).toBe('application/json')
+      return okResponse()
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await attestLockfileTool.handler({ lockfilePath: jsonPath })
+
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+})
