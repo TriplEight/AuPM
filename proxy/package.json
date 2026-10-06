@@ -22,7 +22,8 @@
     "algosdk": "3.5.2",
     "aupm-mcp": "workspace:*",
     "better-sqlite3": "12.10.0",
-    "hono": "4.13.8"
+    "hono": "4.13.8",
+    "yaml": "2.9.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",

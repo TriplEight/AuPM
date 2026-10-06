@@ -21,7 +21,8 @@ change to the plan.
   pinned, published package.
 - **`aupm donor init`**: create a donor account, show a funding QR code, and opt in to USDC.
   This makes the wallet setup shorter.
-- **pnpm and npx**: `aupm pnpm` and `aupm npx`, and `pnpm-lock.yaml` on the lockfile route.
+- **pnpm and npx**: `aupm pnpm` and `aupm npx`, and pnpm lockfiles in the MCP server and in
+  `aupm verify`. The lockfile route already parses `pnpm-lock.yaml` (lockfileVersion '9.0').
 - **Delta review**: a new version in the same major version needs a review of its diff against
   the last reviewed version.
 - **Timelocked admin changes** in a new `PaymentRouter` contract.
