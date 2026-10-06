@@ -789,6 +789,17 @@ If volume lands under `dev` or `direct`, attribution is broken.
 The CLI, the MCP server, and the Action share one behaviour. Donation is off by default.
 
 Opt-in names: CLI `--donate`, MCP argument `allowDonation: true`, Action input `donate: 'true'`.
+
+The CLI also has an "always donate" setting. Precedence, highest first: the flag `--donate` or
+`--no-donate`; the env var `AUPM_DONATE` (`true` or `false`); the config file
+`$XDG_CONFIG_HOME/aupm/config.toml` (default `~/.config/aupm/config.toml`); off. Any other
+non-empty `AUPM_DONATE` value is an error, and the CLI exits non-zero before npm or pnpm runs.
+The config file is a strict TOML subset: blank lines, `#` comments and one line
+`donate = true` or `donate = false`. Any other line is an error that names the file and the
+line. A missing file means not set. `aupm config set donate <true|false>` writes the file.
+`aupm config get donate` prints the effective value and its source. Only the aupm CLI reads
+the setting (`install`, `pnpm`, `attest`). `aupm npx` never donates. Plain `npm install`
+stays free (ADR 0006).
 The Action first runs `npm ci --registry <endpoint>` and falls back to plain `npm ci`. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning.
 It applies to reviewed tarball installs and to lockfile and single attestation.
 
@@ -837,8 +848,9 @@ a warning block, the address and the network, and five numbered next steps.
   the repository can read the secret.
 - Step 5 says to add `--donate` to an install or attest command, for example
   `aupm install --donate`. It pays 0.001 USDC for each reviewed package in the lockfile. Without
-  `--donate`, every install is free, reviewed packages included.
-- The output without the QR code is at most 40 lines. Prose lines are at most 80 columns; only
+  `--donate`, every install is free, reviewed packages included. One added line gives the
+  setting: `aupm config set donate true` or `AUPM_DONATE=true`.
+- The output without the QR code is at most 41 lines. Prose lines are at most 80 columns; only
   the key file path, the shell commands, the workflow line and the `algorand://` URI may be
   longer. A test checks both.
 
@@ -874,15 +886,25 @@ Reason: a lockfile that pins a reviewed version must work the same way on every 
 (or `text/yaml`). The client half is built. `aupm pnpm <args>` runs pnpm against the AuPM
 registry like `aupm <npm args>` runs npm: same flag stripping, exit code and stdio. After
 `install`, `i` and `add` it attests `pnpm-lock.yaml` from the working directory with
-`Content-Type: application/yaml` and prints the same summary line. `--donate` pays as for npm.
+`Content-Type: application/yaml` and prints the same summary. `--donate` pays as for npm.
 `aupm npx <args>` runs npx against the AuPM registry. It has no lockfile and no attestation, so
-`--donate` and `--attest-out` exit 2. `aupm attest`, the MCP `attest_lockfile` tool and
+`--donate`, `--no-donate` and `--attest-out` exit 2. `aupm attest`, the MCP `attest_lockfile` tool and
 `aupm verify --lockfile` choose the pnpm path from the file name `pnpm-lock.yaml`. The donation
 cap counts the keys of the top-level `packages` map. The client refuses a `pnpm-lock.yaml` over
 2 MiB before it sends it. On 413 and 422 it prints a clear message. On 503 it waits for
 `Retry-After` once, then fails with a message. `aupm verify` checks the sha256 of the file
 against the `pnpm-lock.yaml` subject of the statement. `aupm <npm args>` covers `npm install`,
 `i`, `ci`, and `add`; `aupm pnpm` covers `install`, `i` and `add`.
+
+**Install summary.** After an install-like command, `aupm install`, `aupm pnpm` and
+`aupm attest` print one summary of the same shape with and without `--donate`. It has four
+counts from the server summary: audited, not audited, integrity mismatch, unresolvable.
+The CLI never withholds a mismatch or an unresolvable entry. With donation, it prints
+"Donated X USDC for N audited packages" and the settlement txid with an explorer link.
+Without donation, it prints "A donation would be X USDC for N audited packages. Add
+--donate to send it." Both modes say that `--donate` pays for every audited package in the
+whole lockfile, not only the package on the command line. The Action writes the same
+counts to the job summary.
 
 ## 12. Attestations
 

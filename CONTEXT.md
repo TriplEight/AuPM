@@ -43,7 +43,8 @@ _Avoid_: payer, customer, user-donor
 
 **Donation opt-in**:
 The signal in a request that the caller is willing to pay for a reviewed tarball. Without it, a
-reviewed tarball is free.
+reviewed tarball is free. The aupm CLI can send it on every run: the env var `AUPM_DONATE=true`
+or the config file `donate = true` (`~/.config/aupm/config.toml`). `--no-donate` overrides both.
 _Avoid_: paywall, payment mode
 
 **Partial attestation**:

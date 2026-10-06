@@ -70,6 +70,34 @@ export function reportDonation(summary, env = process.env) {
   }
 }
 
+/**
+ * Write the lockfile counts to the job summary: audited, not audited, integrity
+ * mismatch and unresolvable. The same four counts show with and without donate.
+ * Without donate, add the amount a donation would cost. Amounts are integer microUSDC.
+ */
+export function reportCounts(summary, donate, env = process.env) {
+  if (!env.GITHUB_STEP_SUMMARY || !summary) return
+  const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 'unknown')
+  const reviewed = count(summary.reviewed)
+  const lines = [
+    '### AuPM lockfile summary',
+    '',
+    '| Audited | Not audited | Integrity mismatch | Unresolvable |',
+    '| --- | --- | --- | --- |',
+    `| ${reviewed} | ${count(summary.unreviewed)} | ${count(summary.integrityMismatch)} | ${count(summary.unresolvable)} |`,
+    '',
+  ]
+  if (!donate && reviewed !== 'unknown' && reviewed > 0) {
+    lines.push(
+      `A donation would be ${formatUsdc(reviewed * 1000)} USDC for ${reviewed} audited ` +
+        "packages. Set donate: 'true' to send it. It pays for every audited package in the " +
+        'whole lockfile.',
+      '',
+    )
+  }
+  appendFileSync(env.GITHUB_STEP_SUMMARY, lines.join('\n'))
+}
+
 /** Convert an input value (string or boolean) to a strict boolean. */
 export function normalizeBool(value) {
   if (typeof value === 'boolean') return value
@@ -237,6 +265,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
       )
     }
 
+    reportCounts(summary, donate)
     reportDonation(summary)
 
     const mismatchCount = summary?.integrityMismatch ?? 0

@@ -4,7 +4,7 @@
 // against the AuPM registry, passes every npm argument and npm's own exit
 // code through unchanged, and inherits stdio. `aupm pnpm <args>` and
 // `aupm npx <args>` do the same for pnpm and npx. AuPM adds
-// only its own flags (`--donate`, `--attest-out <path>`), stripped before
+// only its own flags (`--donate`, `--no-donate`, `--attest-out <path>`), stripped before
 // the tool sees argv, and — after a successful install-like command — one
 // free lockfile summary line, using the same `attest_lockfile` MCP handler
 // as `aupm attest`. npx has no lockfile: it takes neither flag.
@@ -12,10 +12,10 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { PRICE_PER_ENTRY_MICRO } from 'aupm-mcp/donor'
-import { formatMicroUsd } from 'aupm-mcp/money'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
+import { ConfigError, resolveDonate } from './config.js'
+import { countsFromSummary, type LockfileCounts, summaryLines } from './summary.js'
 
 export type Tool = 'npm' | 'pnpm' | 'npx'
 
@@ -35,19 +35,20 @@ const INSTALL_LIKE_COMMANDS: Record<Tool, Set<string>> = {
 
 export interface ParsedNpmArgv {
   npmArgs: string[]
-  allowDonation: boolean
+  /** `--donate` is true, `--no-donate` is false, no flag is undefined. The last flag wins. */
+  donateFlag?: boolean
   attestOutPath?: string
 }
 
 /**
- * Splits AuPM's own flags (`--donate`, `--attest-out <path>`) out of an npm
+ * Splits AuPM's own flags (`--donate`, `--no-donate`, `--attest-out <path>`) out of an npm
  * argv, wherever they appear. A literal `--` ends AuPM's own parsing: npm
  * treats everything after it as the target script's argv, so AuPM never
  * inspects those tokens either.
  */
 export function parseNpmArgv(argv: string[]): ParsedNpmArgv {
   const npmArgs: string[] = []
-  let allowDonation = false
+  let donateFlag: boolean | undefined
   let attestOutPath: string | undefined
   let sawDoubleDash = false
   let index = 0
@@ -62,8 +63,8 @@ export function parseNpmArgv(argv: string[]): ParsedNpmArgv {
       sawDoubleDash = true
       npmArgs.push(arg)
       index += 1
-    } else if (arg === '--donate') {
-      allowDonation = true
+    } else if (arg === '--donate' || arg === '--no-donate') {
+      donateFlag = arg === '--donate'
       index += 1
     } else if (arg === '--attest-out') {
       attestOutPath = argv[index + 1]
@@ -73,7 +74,7 @@ export function parseNpmArgv(argv: string[]): ParsedNpmArgv {
       index += 1
     }
   }
-  return { npmArgs, allowDonation, attestOutPath }
+  return { npmArgs, donateFlag, attestOutPath }
 }
 
 export function isInstallLike(npmArgs: string[], tool: Tool = 'npm'): boolean {
@@ -107,25 +108,21 @@ export function runToolProcess(tool: Tool, npmArgs: string[]): Promise<number> {
   })
 }
 
-/** Reads `predicate`-shaped `summary.reviewed` back out of an attest_lockfile outcome. */
-function reviewedCount(outcome: AttestLockfileOutcome): number {
-  const summary = 'summary' in outcome ? outcome.summary : undefined
-  const value = (summary as { reviewed?: unknown } | undefined)?.reviewed
-  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value
-  if (outcome.status === 'donation_required' && typeof outcome.withheld === 'number') {
-    return outcome.withheld
+/** Reads the four counts out of an attest_lockfile outcome. */
+function outcomeCounts(outcome: AttestLockfileOutcome): LockfileCounts {
+  const counts = countsFromSummary('summary' in outcome ? outcome.summary : undefined)
+  if (counts.reviewed === 'unknown' && outcome.status === 'donation_required') {
+    return { ...counts, reviewed: outcome.withheld ?? 0 }
   }
-  return 0
+  return counts
 }
 
 /**
  * Requests a lockfile attestation after a successful install-like npm
- * command and prints one summary line: how many entries are
- * COMMUNITY_REVIEWED and the donation amount in dollars. Without
- * `allowDonation`, adds one hint line on how to donate; with zero reviewed
- * entries, no hint line. Never throws: a failed donation
- * or a failed summary request logs one line here and lets the caller keep
- * npm's own exit code.
+ * command and prints the lockfile summary (`summaryLines`): the four counts,
+ * then the donation made or the donation on offer. Never throws: a failed
+ * donation or a failed summary request logs one line here and lets the
+ * caller keep npm's own exit code.
  */
 export async function printPostInstallSummary(
   lockfileName: string,
@@ -148,29 +145,10 @@ export async function printPostInstallSummary(
     return
   }
 
-  const reviewed = reviewedCount(outcome)
-
-  if (reviewed === 0) {
-    console.log(`aupm: 0 packages in ${lockfileName} are audited (COMMUNITY_REVIEWED).`)
-    return
-  }
-
-  const amount = formatMicroUsd(reviewed * PRICE_PER_ENTRY_MICRO)
-  const plural = reviewed === 1 ? 'package is' : 'packages are'
   const settlement = outcome.status === 'attested' ? outcome.settlement : null
-  if (allowDonation && settlement) {
-    console.log(
-      `aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). ` +
-        `Donated ${formatMicroUsd(settlement.amountMicro)} ` +
-        `(${settlement.amountMicro} microUSDC), settlement txid ${settlement.txid}.`,
-    )
-  } else if (allowDonation) {
-    console.log(`aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). No donation settled.`)
-  } else {
-    console.log(
-      `aupm: ${reviewed} ${plural} audited (COMMUNITY_REVIEWED). ${amount} available to donate.`,
-    )
-    console.log('aupm: run the install again with --donate to send this to the auditors.')
+  const counts = outcomeCounts(outcome)
+  for (const line of summaryLines({ counts, donate: allowDonation, settlement })) {
+    console.log(`aupm: ${line}`)
   }
 
   if (attestOutPath && 'attestation' in outcome && outcome.attestation !== undefined) {
@@ -183,17 +161,28 @@ export async function printPostInstallSummary(
  * Runs `aupm [pnpm|npx] <args>` end to end: strips AuPM's own flags, runs the
  * tool against the AuPM registry with its argv and exit code passed through
  * unchanged, and — only after a successful install-like command — prints
- * the donation summary. npx has no lockfile, so `--donate` and
- * `--attest-out` exit 2 before anything runs.
+ * the lockfile summary. A malformed `AUPM_DONATE` or config file exits 2
+ * before the tool runs. npx has no lockfile and no donation, so the AuPM flags
+ * exit 2 before anything runs.
  */
 export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
-  const { npmArgs, allowDonation, attestOutPath } = parseNpmArgv(argv)
+  const { npmArgs, donateFlag, attestOutPath } = parseNpmArgv(argv)
   if (tool === 'npx' && npmArgs.length !== argv.length) {
     console.error(
-      'aupm: npx has no lockfile, so --donate and --attest-out do not apply. ' +
+      'aupm: npx has no lockfile, so --donate, --no-donate and --attest-out do not apply. ' +
         'Put a program flag of the same name after `--`.',
     )
     return 2
+  }
+  let allowDonation = false
+  if (tool !== 'npx') {
+    try {
+      allowDonation = resolveDonate(donateFlag).value
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error
+      console.error(`aupm: ${error.message}`)
+      return 2
+    }
   }
   const exitCode = await runToolProcess(tool, npmArgs)
   const lockfileName = LOCKFILE_NAMES[tool]
