@@ -9,7 +9,7 @@ USDC), paid by a donor only when you opt in. Plain `aupm install` stays free.
 Node 22.14.0 or later.
 
 ```bash
-npm install -g aupm
+npm install -g aupm-cli
 aupm            # prints usage
 ```
 

@@ -1,11 +1,15 @@
-# `aupm` and `aupm-mcp` publish to npm through trusted publishing
+# `aupm-cli` and `aupm-mcp` publish to npm through trusted publishing
 
 Before this change, a user ran `aupm` from a clone through `tsx`. The GitHub Action built the CLI
-from source. Both packages now publish to npm, so that `npm install -g aupm` works and the Action
-can run a pinned, published package (L15).
+from source. Both packages now publish to npm, so that `npm install -g aupm-cli` works and the
+Action can run a pinned, published package (L15).
 
 Two packages publish, both at the same exact version: `aupm-mcp` (the MCP server and the donor and
-attestation code) and `aupm` (the CLI, which depends on `aupm-mcp` at that exact version).
+attestation code) and `aupm-cli` (the CLI, which depends on `aupm-mcp` at that exact version).
+
+**Name.** npm refused the name `aupm` as too similar to existing packages (`auto`, `npm`, `pnpm`,
+`yup`). The CLI package is `aupm-cli`, next to `aupm-mcp`. Its `bin` is still `aupm`, so the
+command does not change: `npm install -g aupm-cli`, then `aupm`.
 
 **Build.** Each package builds with `tsc` to `dist/`. The workspace keeps `exports` and `bin` that
 point to `src/*.ts`, so tests and `tsx` need no build. `publishConfig.exports` (mcp) and
@@ -17,7 +21,7 @@ fixture.
 
 **Release.** A tag `cli-v<version>` starts `.github/workflows/publish-cli.yml`. The workflow
 checks that the tag equals both package versions, installs, typechecks and tests mcp and cli,
-packs both, then runs `npm publish --provenance --access public` for `aupm-mcp` and then `aupm`.
+packs both, then runs `npm publish --provenance --access public` for `aupm-mcp` and then `aupm-cli`.
 
 **Credentials.** The workflow uses npm trusted publishing (OIDC). It has `id-token: write` and no
 npm token secret. Trusted publishing needs npm CLI 11.5.1 or later and Node 22.14.0 or later
