@@ -111,6 +111,7 @@ aupm install ms@2.1.3               # installs through the AuPM registry, same a
 aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
 aupm pnpm add ms@2.1.3 [--donate]   # pnpm against the AuPM registry; attests pnpm-lock.yaml
 aupm npx cowsay hi                  # npx against the AuPM registry; no lockfile, no --donate
+aupm config set donate true         # always donate; --no-donate skips it once
 ```
 
 `aupm attest` and `aupm verify --lockfile` also accept a `pnpm-lock.yaml` (lockfileVersion 9.0,
@@ -130,8 +131,8 @@ npm config set registry https://aupm.fyi/
 
 For a local proxy, use `http://localhost:4873/`.
 
-This never donates. Only `aupm --donate`, the MCP server's `allowDonation`, and the CI Action's
-`donate: 'true'` do.
+This never donates. Only `aupm` (with `--donate`, `AUPM_DONATE=true` or `aupm config set donate
+true`), the MCP server's `allowDonation`, and the CI Action's `donate: 'true'` do.
 
 An agent can call the MCP server directly: `check_audit_status` for a free status lookup, and
 `install_audited_package` with `allowDonation: true` to pay and install in one step. For a

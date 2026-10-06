@@ -18,9 +18,12 @@ describe('aupm attest', () => {
     lockfilePath = path.join(outDir, 'package-lock.json')
     fs.writeFileSync(lockfilePath, '{}')
     vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(outDir, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     fs.rmSync(outDir, { recursive: true, force: true })
   })
 
@@ -77,8 +80,9 @@ describe('aupm attest', () => {
     expect(exitCode).toBe(0)
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
     const printed = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(printed).toContain('withheld 2 reviewed entries')
-    expect(printed).toContain('$0.002')
+    expect(printed).toContain('Audited: 2. Not audited: 0. Integrity mismatch: 0. Unresolvable: 0.')
+    expect(printed).toContain('A donation would be 0.002 USDC for 2 audited packages.')
+    expect(printed).toContain('whole lockfile')
     expect(printed).not.toContain('microUSDC')
     logSpy.mockRestore()
   })
@@ -105,7 +109,8 @@ describe('aupm attest', () => {
     expect(attestLockfileTool.handler).toHaveBeenCalledWith({ lockfilePath, allowDonation: true })
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
     const printed = logSpy.mock.calls.map((call) => String(call[0]))
-    expect(printed).toContain('donated $0.03 (30000 microUSDC), settlement txid SETTLETXID')
+    expect(printed).toContain('Donated 0.03 USDC for 30 audited packages.')
+    expect(printed.some((line) => line.startsWith('Settlement txid: SETTLETXID '))).toBe(true)
     expect(JSON.parse(printed.at(-1) ?? '')).toEqual({
       reviewed: 30,
       donatedMicro: 30_000,
@@ -127,7 +132,7 @@ describe('aupm attest', () => {
     await runAttest([lockfilePath, '--donate', '--out', path.join(outDir, 'free.json')])
 
     const printed = logSpy.mock.calls.map((call) => String(call[0]))
-    expect(printed.some((line) => line.startsWith('donated'))).toBe(false)
+    expect(printed.some((line) => line.startsWith('Donated'))).toBe(false)
     expect(JSON.parse(printed.at(-1) ?? '')).toEqual({ reviewed: 0 })
     logSpy.mockRestore()
   })
@@ -155,6 +160,38 @@ describe('aupm attest', () => {
     } finally {
       process.chdir(cwd)
     }
+  })
+
+  it('AUPM_DONATE=true donates without the flag, and --no-donate overrides it', async () => {
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { reviewed: 1 },
+      attestation: {},
+      settlement: null,
+    })
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const out = path.join(outDir, 'o.json')
+    const { runAttest } = await import('./attest.js')
+    vi.stubEnv('AUPM_DONATE', 'true')
+    await runAttest([lockfilePath, '--out', out])
+    expect(attestLockfileTool.handler).toHaveBeenLastCalledWith({
+      lockfilePath,
+      allowDonation: true,
+    })
+    await runAttest([lockfilePath, '--no-donate', '--out', out])
+    expect(attestLockfileTool.handler).toHaveBeenLastCalledWith({
+      lockfilePath,
+      allowDonation: false,
+    })
+  })
+
+  it('a malformed AUPM_DONATE is a usage error, exit 1, and no request', async () => {
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    vi.stubEnv('AUPM_DONATE', '1')
+    const { runAttest } = await import('./attest.js')
+    expect(await runAttest([lockfilePath])).toBe(1)
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('AUPM_DONATE'))
   })
 
   it('a trailing --out with no value is a usage error, exit 1', async () => {
