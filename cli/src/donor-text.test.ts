@@ -127,7 +127,7 @@ describe('network text', () => {
 
   it('names Pera Wallet in full on the first mention only', () => {
     const first = algoStep('1.', ADDRESS, mainnet, 300_000n).join('\n')
-    expect(first).toContain('Pera Wallet (formerly the official Algorand Wallet)')
+    expect(first).toContain('Pera Wallet (recommended)')
     const later = usdcStep('3.', ADDRESS, mainnet, { peraKnown: true }).join('\n')
     expect(later).toContain('With Pera Wallet:')
     expect(later).not.toContain('formerly')
