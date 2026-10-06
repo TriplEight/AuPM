@@ -10,14 +10,23 @@ describe('countsFromSummary', () => {
     expect(countsFromSummary({ total: 10, ...base })).toEqual(base)
   })
 
-  it('treats missing, negative, fractional and non-numeric counts as 0', () => {
+  it('treats missing, negative, fractional and non-numeric counts as unknown, never 0', () => {
     expect(countsFromSummary({ reviewed: -1, unreviewed: 1.5, integrityMismatch: '2' })).toEqual({
-      reviewed: 0,
-      unreviewed: 0,
-      integrityMismatch: 0,
-      unresolvable: 0,
+      reviewed: 'unknown',
+      unreviewed: 'unknown',
+      integrityMismatch: 'unknown',
+      unresolvable: 'unknown',
     })
-    expect(countsFromSummary(undefined).reviewed).toBe(0)
+    expect(countsFromSummary(undefined).reviewed).toBe('unknown')
+  })
+
+  it('prints unknown counts and no donation or offer line for an unknown reviewed count', () => {
+    const counts = countsFromSummary({ unreviewed: 1 })
+    for (const donate of [false, true]) {
+      expect(summaryLines({ counts, donate, settlement: null })).toEqual([
+        'Audited: unknown. Not audited: 1. Integrity mismatch: unknown. Unresolvable: unknown.',
+      ])
+    }
   })
 })
 
