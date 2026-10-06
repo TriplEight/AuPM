@@ -21,9 +21,7 @@ export function donorEnvFilePath(): string {
 export function writeDonorEnvFile(mnemonic: string): string {
   const file = donorEnvFilePath()
   if (fs.existsSync(file)) {
-    throw new Error(
-      `donor key file already exists: ${file}. Remove it first, or run: aupm donor optin`,
-    )
+    throw new Error(`donor key file already exists: ${file}. Run: aupm donor status`)
   }
   fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 })
   // Flag 'wx' fails when the file exists: a racing second init cannot overwrite the key.
@@ -33,7 +31,7 @@ export function writeDonorEnvFile(mnemonic: string): string {
 
 /**
  * Reads the mnemonic from the key file. Returns null when the file does not exist.
- * Refuses a file whose mode is wider than 0600.
+ * Refuses a file whose mode is wider than 0600. Windows has no POSIX mode: it skips this check.
  */
 export function readDonorEnvFile(): string | null {
   const file = donorEnvFilePath()
@@ -44,7 +42,7 @@ export function readDonorEnvFile(): string | null {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw error
   }
-  if ((stat.mode & 0o177) !== 0) {
+  if (process.platform !== 'win32' && (stat.mode & 0o177) !== 0) {
     const mode = (stat.mode & 0o777).toString(8).padStart(4, '0')
     throw new Error(
       `donor key file ${file} has mode ${mode}, wider than 0600. Fix: chmod 600 ${file}`,
