@@ -10,10 +10,12 @@
 // hashing — the digest must match the file bytes on the caller's disk.
 
 import { createHash } from 'node:crypto'
-import { isMap, isScalar, parseDocument } from 'yaml'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from '../status.js'
+import { parseYamlInWorker, type YamlParser } from './yaml-parse.js'
 
 export const LOCKFILE_MAX_BYTES = 5 * 1024 * 1024
+/** Byte cap for a pnpm-lock.yaml body. YAML parsing is slower than JSON (ADR 0015). */
+export const LOCKFILE_MAX_YAML_BYTES = 2 * 1024 * 1024
 export const LOCKFILE_MAX_ENTRIES = 10_000
 
 /** One entry in the signed statement's `predicate.packages` array. */
@@ -52,6 +54,9 @@ export type LockfileFormat = 'npm' | 'pnpm'
 
 export const PNPM_LOCKFILE_VERSION = '9.0'
 
+/** Retry-After for a YAML request refused because another parse is running. */
+export const YAML_BUSY_RETRY_AFTER_SECONDS = 3
+
 export interface LockfileAnalysis {
   format: LockfileFormat
   lockfileVersion: 2 | 3 | typeof PNPM_LOCKFILE_VERSION
@@ -64,7 +69,14 @@ export interface LockfileAnalysis {
 
 export type LockfileValidationResult =
   | { ok: true; analysis: LockfileAnalysis }
-  | { ok: false; message: string }
+  | {
+      ok: false
+      message: string
+      /** HTTP status the route answers with. Absent means 400. */
+      status?: 413 | 422 | 503
+      /** Set with status 503: seconds for the Retry-After header. */
+      retryAfterSeconds?: number
+    }
 
 /** Looks up a known-good tarball integrity for a reviewed (pkg, version). */
 export type IntegrityLookup = (pkg: string, version: string) => string | null
@@ -403,50 +415,44 @@ function pnpmResolution(raw: unknown): { integrity: string | null; registry: boo
   return { integrity, registry }
 }
 
-function hasDuplicateKey(node: unknown): boolean {
-  if (!isMap(node)) return false
-  const seen = new Set<unknown>()
-  for (const pair of node.items) {
-    const key = isScalar(pair.key) ? pair.key.value : pair.key
-    if (seen.has(key)) return true
-    seen.add(key)
-  }
-  return false
-}
-
-/**
- * Parses a YAML body to plain JS, or returns null for a syntax error or a
- * duplicate key in the root or in `packages` (pnpm itself rejects both).
- *
- * CAUTION: `uniqueKeys: false` is deliberate. The library's own duplicate-key
- * check is quadratic in the number of keys, so a 5 MiB `packages` map would
- * block the event loop for minutes. `hasDuplicateKey` does the same check in
- * linear time.
- */
-function parseYamlBody(text: string): unknown {
-  const doc = parseDocument(text, { uniqueKeys: false })
-  if (doc.errors.length > 0) return null
-  if (hasDuplicateKey(doc.contents) || hasDuplicateKey(doc.get('packages', true))) return null
-  return doc.toJS()
-}
-
 /**
  * Parses and classifies a `pnpm-lock.yaml` (lockfileVersion '9.0' only). The
  * entries are the keys of `packages`; `snapshots` and `importers` are not
  * read. Limits, classification, and the digest match `analyzeLockfile`.
  */
-export function analyzePnpmLockfile(
+export async function analyzePnpmLockfile(
   rawBody: Uint8Array,
   integrityLookup: IntegrityLookup = defaultIntegrityLookup,
-): LockfileValidationResult {
-  if (rawBody.byteLength > LOCKFILE_MAX_BYTES) {
-    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_BYTES}-byte limit` }
+  parseYaml: YamlParser = parseYamlInWorker,
+): Promise<LockfileValidationResult> {
+  if (rawBody.byteLength > LOCKFILE_MAX_YAML_BYTES) {
+    return {
+      ok: false,
+      status: 413,
+      message: `lockfile exceeds the ${LOCKFILE_MAX_YAML_BYTES}-byte limit for pnpm-lock.yaml`,
+    }
   }
 
-  const parsed = parseYamlBody(Buffer.from(rawBody).toString('utf8'))
-  if (parsed === null) {
+  const outcome = await parseYaml(Buffer.from(rawBody).toString('utf8'))
+  if (outcome.kind === 'busy') {
+    return {
+      ok: false,
+      status: 503,
+      retryAfterSeconds: YAML_BUSY_RETRY_AFTER_SECONDS,
+      message: 'another pnpm-lock.yaml is being parsed: retry shortly',
+    }
+  }
+  if (outcome.kind === 'too_complex') {
+    return {
+      ok: false,
+      status: 422,
+      message: 'lockfile is too complex to parse in time',
+    }
+  }
+  if (outcome.kind === 'invalid') {
     return { ok: false, message: 'lockfile is not valid YAML' }
   }
+  const parsed = outcome.value
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     return { ok: false, message: 'lockfile must be a YAML mapping' }

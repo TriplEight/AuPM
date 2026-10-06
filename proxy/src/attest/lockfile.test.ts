@@ -9,7 +9,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import type { Attribution } from './attribution.js'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-lockfile-test-${randomUUID()}.db`)
@@ -17,7 +17,8 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-lockfile-test-${randomUUI
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
 const lockfileModule = await import('./lockfile.js')
-const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = lockfileModule
+const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES, LOCKFILE_MAX_YAML_BYTES } =
+  lockfileModule
 const { buildAccrualInputs } = await import('../claims/attribution-rules.js')
 
 const encoder = new TextEncoder()
@@ -643,9 +644,9 @@ describe('analyzePnpmLockfile', () => {
     })
   }
 
-  test('matches the equivalent package-lock summary and reviewed refs', () => {
+  test('matches the equivalent package-lock summary and reviewed refs', async () => {
     seedReviewed()
-    const pnpm = analyzePnpmLockfile(fixture)
+    const pnpm = await analyzePnpmLockfile(fixture)
     const npm = analyzeLockfile(equivalentPackageLock())
     if (!pnpm.ok || !npm.ok) throw new Error('both lockfiles must parse')
     expect(pnpm.analysis.summary).toEqual({
@@ -661,9 +662,9 @@ describe('analyzePnpmLockfile', () => {
     expect(pnpm.analysis.lockfileVersion).toBe('9.0')
   })
 
-  test('lists reviewed, mismatch and unresolvable entries, never the unreviewed', () => {
+  test('lists reviewed, mismatch and unresolvable entries, never the unreviewed', async () => {
     seedReviewed()
-    const result = analyzePnpmLockfile(fixture)
+    const result = await analyzePnpmLockfile(fixture)
     if (!result.ok) throw new Error('fixture must parse')
     const tiers = Object.fromEntries(result.analysis.packages.map((p) => [p.name, p.tier]))
     expect(tiers).toEqual({
@@ -674,7 +675,7 @@ describe('analyzePnpmLockfile', () => {
     })
   })
 
-  test('a scoped name keeps its leading @ and a peer suffix is stripped', () => {
+  test('a scoped name keeps its leading @ and a peer suffix is stripped', async () => {
     setStatus('@scope/pkg', '2.0.0', 'COMMUNITY_REVIEWED', null, null, 'sha512-sc')
     const yaml = [
       "lockfileVersion: '9.0'",
@@ -683,7 +684,7 @@ describe('analyzePnpmLockfile', () => {
       '    resolution: {integrity: sha512-sc}',
       '',
     ].join('\n')
-    const result = analyzePnpmLockfile(encoder.encode(yaml))
+    const result = await analyzePnpmLockfile(encoder.encode(yaml))
     if (!result.ok) throw new Error('must parse')
     expect(result.analysis.reviewedPackageRefs).toEqual([
       { pkg: '@scope/pkg', version: '2.0.0', auditor: null },
@@ -694,22 +695,22 @@ describe('analyzePnpmLockfile', () => {
     ['directory', '{directory: ../local}'],
     ['source repo', '{type: git, repo: https://example.com/r.git, commit: abc}'],
     ['non-registry tarball', '{tarball: https://example.com/x.tgz, integrity: sha512-x}'],
-  ])('a %s resolution is UNRESOLVABLE', (_label, resolution) => {
+  ])('a %s resolution is UNRESOLVABLE', async (_label, resolution) => {
     const yaml = `lockfileVersion: '9.0'\npackages:\n  x@1.0.0:\n    resolution: ${resolution}\n`
-    const result = analyzePnpmLockfile(encoder.encode(yaml))
+    const result = await analyzePnpmLockfile(encoder.encode(yaml))
     if (!result.ok) throw new Error('must parse')
     expect(result.analysis.summary.unresolvable).toBe(1)
     expect(result.analysis.packages[0]?.tier).toBe('UNRESOLVABLE')
   })
 
-  test('the digest covers the exact body bytes', () => {
-    const result = analyzePnpmLockfile(fixture)
+  test('the digest covers the exact body bytes', async () => {
+    const result = await analyzePnpmLockfile(fixture)
     if (!result.ok) throw new Error('fixture must parse')
     expect(result.analysis.sha256).toBe(createHash('sha256').update(fixture).digest('hex'))
   })
 
-  test('a project with no packages key parses with zero entries', () => {
-    const result = analyzePnpmLockfile(encoder.encode("lockfileVersion: '9.0'\n"))
+  test('a project with no packages key parses with zero entries', async () => {
+    const result = await analyzePnpmLockfile(encoder.encode("lockfileVersion: '9.0'\n"))
     if (!result.ok) throw new Error('must parse')
     expect(result.analysis.summary.total).toBe(0)
   })
@@ -718,8 +719,8 @@ describe('analyzePnpmLockfile', () => {
     ["lockfileVersion '6.0'", "lockfileVersion: '6.0'\npackages: {}\n"],
     ['lockfileVersion 9.0 as a number', 'lockfileVersion: 9.0\npackages: {}\n'],
     ['no lockfileVersion', 'packages: {}\n'],
-  ])('rejects %s and names the accepted version', (_label, yaml) => {
-    const result = analyzePnpmLockfile(encoder.encode(yaml))
+  ])('rejects %s and names the accepted version', async (_label, yaml) => {
+    const result = await analyzePnpmLockfile(encoder.encode(yaml))
     expect(result).toEqual({ ok: false, message: expect.stringContaining("'9.0'") })
   })
 
@@ -733,19 +734,51 @@ describe('analyzePnpmLockfile', () => {
       'a duplicate package key',
       "lockfileVersion: '9.0'\npackages:\n  x@1.0.0: {}\n  x@1.0.0: {}\n",
     ],
-  ])('rejects %s', (_label, yaml) => {
-    expect(analyzePnpmLockfile(encoder.encode(yaml)).ok).toBe(false)
+  ])('rejects %s', async (_label, yaml) => {
+    expect((await analyzePnpmLockfile(encoder.encode(yaml))).ok).toBe(false)
   })
 
-  test('rejects a body over the byte limit and over the entry limit', () => {
-    expect(analyzePnpmLockfile(new Uint8Array(LOCKFILE_MAX_BYTES + 1)).ok).toBe(false)
+  test('rejects a body over the YAML byte cap with 413, before any parse starts', async () => {
+    const parseYaml = vi.fn()
+    const result = await analyzePnpmLockfile(
+      new Uint8Array(LOCKFILE_MAX_YAML_BYTES + 1),
+      undefined,
+      parseYaml,
+    )
+    expect(result).toEqual({
+      ok: false,
+      status: 413,
+      message: expect.stringContaining(String(LOCKFILE_MAX_YAML_BYTES)),
+    })
+    expect(parseYaml).not.toHaveBeenCalled()
+  })
+
+  test('the YAML cap is 2 MiB and below the JSON cap', () => {
+    expect(LOCKFILE_MAX_YAML_BYTES).toBe(2 * 1024 * 1024)
+    expect(LOCKFILE_MAX_YAML_BYTES).toBeLessThan(LOCKFILE_MAX_BYTES)
+  })
+
+  test('rejects more than 10,000 entries', async () => {
     const lines = ["lockfileVersion: '9.0'", 'packages:']
     for (let i = 0; i < LOCKFILE_MAX_ENTRIES + 1; i++) {
       lines.push(`  pkg${i}@1.0.0: {}`)
     }
-    const result = analyzePnpmLockfile(encoder.encode(lines.join('\n')))
+    const result = await analyzePnpmLockfile(encoder.encode(lines.join('\n')))
     expect(result).toEqual({ ok: false, message: expect.stringContaining('entry limit') })
   }, 60_000)
+
+  test.each([
+    ['too_complex', 422],
+    ['busy', 503],
+  ] as const)('a %s parse outcome maps to status %i', async (kind, status) => {
+    const result = await analyzePnpmLockfile(fixture, undefined, async () => ({ kind }))
+    expect(result).toMatchObject({ ok: false, status })
+  })
+
+  test('a busy outcome carries Retry-After seconds', async () => {
+    const result = await analyzePnpmLockfile(fixture, undefined, async () => ({ kind: 'busy' }))
+    expect(result).toMatchObject({ retryAfterSeconds: 3 })
+  })
 
   test.each([
     ['application/yaml', true],
