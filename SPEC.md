@@ -364,6 +364,9 @@ Nothing is deployed to MainNet.
   `mcp/src/donor.ts`, §11.4).
 - `cli/` — `aupm status`, `aupm install`, `aupm verify` (offline L1),
   `aupm attest <lockfile> [--donate] [--out <path>]` (§11.4).
+- Publishing: `mcp/` publishes as `aupm-mcp` and `cli/` as `aupm`, both at one exact version, from
+  the tag `cli-v<version>` (`.github/workflows/publish-cli.yml`, npm trusted publishing with
+  provenance; ADR 0017, `docs/RUNBOOK-npm-publish.md`). The first publish of each name is manual.
 - `.github/actions/aupm/` — composite Action (`action.yml`, `install.mjs`, `run.mjs`). It replaces an
   `npm ci` step. It runs `aupm attest` from its own checkout and sends no wallet credential unless
   `donate` is `'true'`. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning.

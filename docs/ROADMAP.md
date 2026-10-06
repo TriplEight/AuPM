@@ -19,7 +19,9 @@ change to the plan.
 ## Next
 
 - **Publish the CLI to npm**, so that `npm install -g aupm` works and the GitHub Action runs a
-  pinned, published package.
+  pinned, published package. The release workflow and runbook exist
+  ([ADR 0017](adr/0017-publish-cli-with-trusted-publishing.md)). The first release waits for the
+  maintainer's manual first publish.
 - **pnpm and npx**: `aupm pnpm` and `aupm npx`, and `pnpm-lock.yaml` on the lockfile route.
 - **Delta review**: a new version in the same major version needs a review of its diff against
   the last reviewed version.

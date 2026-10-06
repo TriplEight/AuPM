@@ -1,13 +1,30 @@
 {
   "name": "aupm",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "license": "AGPL-3.0-only",
+  "description": "AuPM command line: install through the AuPM registry overlay, attest lockfiles, verify offline",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TriplEight/AuPM.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/TriplEight/AuPM#readme",
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "type": "module",
   "packageManager": "pnpm@12.5.1",
   "bin": {
     "aupm": "src/index.ts"
   },
   "scripts": {
+    "build": "pnpm -C ../mcp build && tsc -p tsconfig.build.json",
+    "prepack": "pnpm run build",
     "start": "tsx src/index.ts",
     "test": "vitest run"
   },
@@ -22,5 +39,11 @@
     "tsx": "4.22.4",
     "typescript": "5.8.3",
     "vitest": "4.1.11"
+  },
+  "publishConfig": {
+    "access": "public",
+    "bin": {
+      "aupm": "dist/index.js"
+    }
   }
 }
