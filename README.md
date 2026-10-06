@@ -109,7 +109,12 @@ arguments and npm's own exit code through unchanged.
 ```bash
 aupm install ms@2.1.3               # installs through the AuPM registry, same as npm
 aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
+aupm pnpm add ms@2.1.3 [--donate]   # pnpm against the AuPM registry; attests pnpm-lock.yaml
+aupm npx cowsay hi                  # npx against the AuPM registry; no lockfile, no --donate
 ```
+
+`aupm attest` and `aupm verify --lockfile` also accept a `pnpm-lock.yaml` (lockfileVersion 9.0,
+at most 2 MiB).
 
 `AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
 MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm

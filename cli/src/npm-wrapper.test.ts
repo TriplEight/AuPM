@@ -64,7 +64,7 @@ describe('isInstallLike', () => {
   })
 })
 
-describe('runNpmWrapper', () => {
+describe('runWrapper', () => {
   let cwd: string
   let originalCwd: string
 
@@ -85,9 +85,9 @@ describe('runNpmWrapper', () => {
     vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873/')
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['view', 'ms'])
+    const runPromise = runWrapper('npm', ['view', 'ms'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -101,9 +101,9 @@ describe('runNpmWrapper', () => {
   it('spawns npm with the user argv unchanged, the registry in env, no shell', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['view', 'ms'])
+    const runPromise = runWrapper('npm', ['view', 'ms'])
     child.emit('exit', 0, null)
     const exitCode = await runPromise
 
@@ -120,9 +120,9 @@ describe('runNpmWrapper', () => {
   it('passes argv with -- and trailing args through with no added element', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['run', 'build', '--', '--x'])
+    const runPromise = runWrapper('npm', ['run', 'build', '--', '--x'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -136,9 +136,9 @@ describe('runNpmWrapper', () => {
   it('passes a non-zero npm exit code through unchanged', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['view', 'does-not-exist'])
+    const runPromise = runWrapper('npm', ['view', 'does-not-exist'])
     child.emit('exit', 1, null)
 
     expect(await runPromise).toBe(1)
@@ -148,9 +148,9 @@ describe('runNpmWrapper', () => {
   it('maps a signal-terminated npm process to 128 + the signal number', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install'])
+    const runPromise = runWrapper('npm', ['install'])
     child.emit('exit', null, 'SIGTERM')
 
     expect(await runPromise).toBe(128 + 15)
@@ -159,9 +159,9 @@ describe('runNpmWrapper', () => {
   it('never forwards --donate or --attest-out to npm', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', '--donate', '--attest-out', 'out.json'])
+    const runPromise = runWrapper('npm', ['install', '--donate', '--attest-out', 'out.json'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -175,9 +175,9 @@ describe('runNpmWrapper', () => {
   it('prints no donation summary for a non-install command', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['view', 'ms'])
+    const runPromise = runWrapper('npm', ['view', 'ms'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -188,9 +188,9 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3'])
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3'])
     child.emit('exit', 0, null)
     const exitCode = await runPromise
 
@@ -213,9 +213,9 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', 'is-odd'])
+    const runPromise = runWrapper('npm', ['install', 'is-odd'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -240,9 +240,9 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3'])
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -270,10 +270,16 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
     const outPath = path.join(cwd, 'out.json')
 
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3', '--donate', '--attest-out', outPath])
+    const runPromise = runWrapper('npm', [
+      'install',
+      'ms@2.1.3',
+      '--donate',
+      '--attest-out',
+      outPath,
+    ])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -300,9 +306,9 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3', '--donate'])
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3', '--donate'])
     child.emit('exit', 0, null)
     await runPromise
 
@@ -318,9 +324,9 @@ describe('runNpmWrapper', () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3', '--donate'])
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3', '--donate'])
     child.emit('exit', 0, null)
     const exitCode = await runPromise
 
@@ -332,13 +338,177 @@ describe('runNpmWrapper', () => {
   it('a failed summary request keeps a non-zero npm exit code unaffected', async () => {
     const child = fakeChild()
     vi.mocked(spawn).mockReturnValue(child as never)
-    const { runNpmWrapper } = await import('./npm-wrapper.js')
+    const { runWrapper } = await import('./npm-wrapper.js')
 
     // npm itself failed — the summary must never even run.
-    const runPromise = runNpmWrapper(['install', 'ms@2.1.3'])
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3'])
     child.emit('exit', 1, null)
 
     expect(await runPromise).toBe(1)
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+  })
+})
+
+describe('runWrapper with pnpm and npx', () => {
+  let cwd: string
+  let originalCwd: string
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-pnpm-wrapper-test-'))
+    originalCwd = process.cwd()
+    process.chdir(cwd)
+    vi.mocked(spawn).mockReset()
+    vi.mocked(attestLockfileTool.handler).mockReset()
+  })
+
+  afterEach(() => {
+    process.chdir(originalCwd)
+    fs.rmSync(cwd, { recursive: true, force: true })
+  })
+
+  async function run(tool: 'pnpm' | 'npx', argv: string[], exitCode = 0): Promise<number> {
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const { runWrapper } = await import('./npm-wrapper.js')
+    const runPromise = runWrapper(tool, argv)
+    child.emit('exit', exitCode, null)
+    return runPromise
+  }
+
+  it('spawns pnpm with the user argv, the registry in env, and the exit code unchanged', async () => {
+    const exitCode = await run('pnpm', ['view', 'ms'], 3)
+
+    expect(exitCode).toBe(3)
+    expect(spawn).toHaveBeenCalledWith('pnpm', ['view', 'ms'], {
+      stdio: 'inherit',
+      env: expect.objectContaining({ npm_config_registry: 'https://aupm.fyi' }),
+    })
+  })
+
+  it('strips --donate and --attest-out before pnpm runs', async () => {
+    fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { total: 0, reviewed: 0 },
+      attestation: {},
+      settlement: null,
+    })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await run('pnpm', ['add', 'ms', '--donate', '--attest-out', 'out.json'])
+
+    expect(spawn).toHaveBeenCalledWith('pnpm', ['add', 'ms'], expect.anything())
+    logSpy.mockRestore()
+  })
+
+  it.each(['install', 'i', 'add'])('attests pnpm-lock.yaml after pnpm %s', async (subcommand) => {
+    fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'donation_required',
+      priceMicro: 1_000,
+      resourceUrl: 'http://localhost:4873/v1/attest/lockfile',
+      asset: '31566704',
+      withheld: 1,
+      summary: { total: 2, reviewed: 1 },
+      attestation: {},
+    })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await run('pnpm', [subcommand, 'ms@2.1.3'])
+
+    expect(attestLockfileTool.handler).toHaveBeenCalledWith({
+      lockfilePath: path.join(cwd, 'pnpm-lock.yaml'),
+      allowDonation: false,
+    })
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: 1 package is audited (COMMUNITY_REVIEWED). $0.001 available to donate.',
+    )
+    logSpy.mockRestore()
+  })
+
+  it('passes allowDonation to the handler for pnpm --donate', async () => {
+    fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { total: 1, reviewed: 1 },
+      attestation: {},
+      settlement: { txid: 'TX1', amountMicro: 1_000 },
+    })
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await run('pnpm', ['install', '--donate'])
+
+    expect(attestLockfileTool.handler).toHaveBeenCalledWith({
+      lockfilePath: path.join(cwd, 'pnpm-lock.yaml'),
+      allowDonation: true,
+    })
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('settlement txid TX1'))
+    logSpy.mockRestore()
+  })
+
+  it('does not look at package-lock.json after a pnpm install', async () => {
+    fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+    await run('pnpm', ['install'])
+
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: no pnpm-lock.yaml found; skipping the donation summary.',
+    )
+    logSpy.mockRestore()
+  })
+
+  it.each([
+    ['run', ['run', 'build']],
+    ['ci', ['ci']],
+    ['update', ['update']],
+  ])('prints no summary after pnpm %s', async (_name, argv) => {
+    fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+
+    await run('pnpm', argv)
+
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+  })
+
+  it('prints no summary when pnpm install fails', async () => {
+    fs.writeFileSync(path.join(cwd, 'pnpm-lock.yaml'), "lockfileVersion: '9.0'\n")
+
+    const exitCode = await run('pnpm', ['install'], 1)
+
+    expect(exitCode).toBe(1)
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+  })
+
+  it('spawns npx with the user argv and never attests', async () => {
+    fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
+
+    const exitCode = await run('npx', ['cowsay', 'hi', '--', '--donate'], 4)
+
+    expect(exitCode).toBe(4)
+    expect(spawn).toHaveBeenCalledWith(
+      'npx',
+      ['cowsay', 'hi', '--', '--donate'],
+      expect.objectContaining({
+        env: expect.objectContaining({ npm_config_registry: 'https://aupm.fyi' }),
+      }),
+    )
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['--donate', ['cowsay', '--donate']],
+    ['--attest-out', ['cowsay', '--attest-out', 'out.json']],
+    ['a trailing --attest-out', ['cowsay', '--attest-out']],
+  ])('exits 2 for npx with %s and runs nothing', async (_name, argv) => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { runWrapper } = await import('./npm-wrapper.js')
+
+    const exitCode = await runWrapper('npx', argv)
+
+    expect(exitCode).toBe(2)
+    expect(spawn).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('npx has no lockfile'))
+    errorSpy.mockRestore()
   })
 })

@@ -6,7 +6,11 @@ import {
   type Settlement,
   USDC_ASSET_ID,
 } from '../donor.js'
-import { countLockfileEntries } from '../lockfile-entries.js'
+import {
+  countEntriesForFile,
+  isPnpmLockfilePath,
+  PNPM_LOCKFILE_MAX_BYTES,
+} from '../lockfile-entries.js'
 import { proxyUrl } from '../proxy-url.js'
 
 function lockfileAttestUrl(): string {
@@ -43,6 +47,28 @@ function isLockfileAttestResponseBody(value: unknown): value is LockfileAttestRe
   return typeof value === 'object' && value !== null && 'summary' in value && 'attestation' in value
 }
 
+const DEFAULT_RETRY_AFTER_SECONDS = 2
+const MAX_RETRY_AFTER_SECONDS = 30
+
+function retryDelayMs(res: Response): number {
+  const seconds = Number(res.headers.get('retry-after'))
+  const valid = Number.isFinite(seconds) && seconds >= 0 && res.headers.has('retry-after')
+  return Math.min(valid ? seconds : DEFAULT_RETRY_AFTER_SECONDS, MAX_RETRY_AFTER_SECONDS) * 1000
+}
+
+function failureMessage(status: number, isPnpm: boolean): string {
+  const what = isPnpm ? 'pnpm-lock.yaml' : 'lockfile'
+  if (status === 413)
+    return `Lockfile attest failed: 413, the server refused the ${what} as too large`
+  if (status === 422) {
+    return `Lockfile attest failed: 422, the server could not parse the ${what} within its time limit`
+  }
+  if (status === 503) {
+    return `Lockfile attest failed: 503, the server is busy parsing another ${what}; retry later`
+  }
+  return `Lockfile attest failed: ${status}`
+}
+
 type DsseEnvelopeLike = { payload?: unknown }
 type StatementLike = { predicate?: { withheld?: unknown } }
 
@@ -70,7 +96,8 @@ function decodeWithheld(attestation: unknown): number {
 export const attestLockfileTool = {
   name: 'attest_lockfile',
   description:
-    'Request a signed in-toto attestation for a whole package-lock.json via AuPM. Free ' +
+    'Request a signed in-toto attestation for a whole package-lock.json or pnpm-lock.yaml ' +
+    '(lockfileVersion 9.0, chosen by file name) via AuPM. Free ' +
     'when the tree has zero reviewed packages. Pass allowDonation: true to pay for and ' +
     'receive the full attestation. Without allowDonation, the reviewed entries are ' +
     "withheld and the result reports status: 'donation_required' with the partial " +
@@ -85,18 +112,34 @@ export const attestLockfileTool = {
     allowDonation?: boolean
   }): Promise<AttestLockfileResult> {
     const lockfileBytes = fs.readFileSync(lockfilePath)
-    const entryCount = countLockfileEntries(lockfileBytes)
+    const isPnpm = isPnpmLockfilePath(lockfilePath)
+    if (isPnpm && lockfileBytes.byteLength > PNPM_LOCKFILE_MAX_BYTES) {
+      throw new Error(
+        `pnpm-lock.yaml is ${lockfileBytes.byteLength} bytes; the server accepts at most ` +
+          `${PNPM_LOCKFILE_MAX_BYTES} bytes`,
+      )
+    }
+    const entryCount = countEntriesForFile(lockfilePath, lockfileBytes)
 
-    const result = await fetchWithDonation(
-      lockfileAttestUrl(),
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: lockfileBytes,
-      },
-      allowDonation,
-      entryCount,
-    )
+    const post = () =>
+      fetchWithDonation(
+        lockfileAttestUrl(),
+        {
+          method: 'POST',
+          headers: { 'content-type': isPnpm ? 'application/yaml' : 'application/json' },
+          body: lockfileBytes,
+        },
+        allowDonation,
+        entryCount,
+      )
+    let result = await post()
+    // 503 means another YAML parse runs; the server sends it before any 402,
+    // so no donation settled. Wait as told, once, then fail.
+    if (result.kind === 'response' && result.response.status === 503) {
+      const delayMs = retryDelayMs(result.response)
+      await new Promise((resolve) => setTimeout(resolve, delayMs))
+      result = await post()
+    }
 
     if (result.kind === 'donation_required') {
       return {
@@ -109,7 +152,7 @@ export const attestLockfileTool = {
 
     const res = result.response
     if (!res.ok) {
-      throw new Error(`Lockfile attest failed: ${res.status}`)
+      throw new Error(failureMessage(res.status, isPnpm))
     }
 
     const body: unknown = await res.json()
