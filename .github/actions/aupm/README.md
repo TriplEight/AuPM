@@ -162,9 +162,11 @@ Donations need `package-lock.json`, because the server does not parse
 
 ## What the Action does with the lockfile
 
-The Action installs the `aupm` CLI's own dependencies (`cli/`, `mcp/`) from
-its own repository checkout, not the caller's. It runs pnpm through
-`npm exec`, with the Node of the job. It then runs `aupm attest <lockfile>`.
+The Action runs the published `aupm-cli` package, pinned to an exact
+version, with `npm exec --yes --package=aupm-cli@<version> -- aupm attest
+<lockfile>`. The version is one constant in `run.mjs`. The command runs in
+the working directory of the job, with the Node and npm of the job.
+`npm exec` downloads the package from the npm registry.
 
 The Action does not change the Node version or the `PATH` of later steps.
 It writes nothing to `GITHUB_PATH` or `GITHUB_ENV`.
@@ -234,7 +236,7 @@ WARNING: after the install, each of the following logs a `::warning::` and
 exits 0:
 
 - A missing endpoint.
-- A dependency-install failure for the `aupm` CLI.
+- A failure to start the `aupm` CLI.
 - Reviewed entries withheld because `donate` is not set.
 - A missing `donor-secret` with `donate` set.
 - A facilitator outage or a 5xx response.
@@ -271,17 +273,14 @@ INSTALL=npm \
   node install.mjs
 ```
 
-`SETUP_OK` defaults to `true`. Set it to `false` to simulate a failed
-dependency install for the `aupm` CLI.
-
 Set `donate: 'true'` locally with `DONATE=true` and
 `DONOR_SECRET=<mnemonic>` in the environment. There is no
 `--donor-secret` flag. A secret does not belong in argv, even for local
 development.
 
 `install.mjs` and `run.mjs` use only Node built-in modules. They need no
-install step of their own. `run.mjs` spawns the already-installed `aupm`
-CLI through `npm exec -- pnpm exec`.
+install step of their own. `run.mjs` spawns the published `aupm`
+CLI through `npm exec --package=aupm-cli@<version>`.
 
 ## Testing
 
@@ -300,7 +299,7 @@ The `run.mjs` tests stub the `aupm` CLI with a fake `npm` executable. The
 - Both installs failing.
 - `install: none` and an unknown `install` value.
 - A missing endpoint.
-- A failed dependency setup.
+- A spawn failure.
 - A withheld-count warning when `donate` is not set.
 - A missing `donor-secret` with `donate` set.
 - A generic CLI error.

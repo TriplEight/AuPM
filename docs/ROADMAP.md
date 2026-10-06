@@ -12,6 +12,7 @@ change to the plan.
 - The npm-compatible registry runs on Algorand MainNet at `https://aupm.fyi`.
 - Two review tiers: `UNREVIEWED` and `COMMUNITY_REVIEWED`.
 - Opt-in donations from the `aupm` CLI, the MCP server and the GitHub Action.
+- The CLI is on npm as `aupm-cli`. The GitHub Action runs it, pinned to one exact version.
 - `aupm donor init` creates a donor account and guides the funding with QR codes. `aupm donor
   optin` opts in to USDC. `aupm donor status` shows the next step. No command waits.
 - `aupm pnpm` and `aupm npx` run pnpm and npx against the registry. Lockfile attestations read
@@ -21,10 +22,6 @@ change to the plan.
 
 ## Next
 
-- **Publish the CLI to npm**, so that `npm install -g aupm-cli` works and the GitHub Action runs a
-  pinned, published package. The release workflow and runbook exist
-  ([ADR 0017](adr/0017-publish-cli-with-trusted-publishing.md)). The first release waits for the
-  maintainer's manual first publish.
 - **Delta review**: a new version in the same major version needs a review of its diff against
   the last reviewed version.
 - **Timelocked admin changes** in a new `PaymentRouter` contract.

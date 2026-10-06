@@ -67,9 +67,9 @@ if (mode === 'error') {
   process.exit(0)
 }
 `
-  const pnpmPath = join(binDir, 'npm')
-  writeFileSync(pnpmPath, script)
-  chmodSync(pnpmPath, 0o755)
+  const npmPath = join(binDir, 'npm')
+  writeFileSync(npmPath, script)
+  chmodSync(npmPath, 0o755)
   return { binDir, recordPath }
 }
 
@@ -92,8 +92,6 @@ function baseOptions(overrides) {
     output: 'aupm-receipt.json',
     donate: false,
     donorSecret: '',
-    cliDir: '/nonexistent/cli',
-    setupOk: true,
     cwd: process.cwd(),
     ...overrides,
   }
@@ -276,20 +274,8 @@ test('donate true passes --donate, and the mnemonic reaches the CLI only via env
   )
 })
 
-test('setupOk false warns and exits 0 without spawning', async (t) => {
-  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
-  t.after(() => rmSync(dir, { recursive: true, force: true }))
-  const { binDir, recordPath } = makeFakeCli(dir, 'ok')
-
-  const code = await withFakeCliOnPath(binDir, () => run(baseOptions({ setupOk: false })))
-
-  assert.equal(code, 0)
-  assert.throws(() => readFileSync(recordPath))
-})
-
 test('lockfile and output are resolved to absolute paths against cwd', () => {
   const args = buildCliArgs({
-    cliDir: '/repo/cli',
     lockfile: 'package-lock.json',
     donate: false,
     output: 'out.json',
@@ -299,14 +285,9 @@ test('lockfile and output are resolved to absolute paths against cwd', () => {
   assert.deepEqual(args, [
     'exec',
     '--yes',
-    '--package=pnpm@12.5.1',
+    '--package=aupm-cli@0.3.1',
     '--',
-    'pnpm',
-    '-C',
-    '/repo/cli',
-    'exec',
-    'tsx',
-    'src/index.ts',
+    'aupm',
     'attest',
     '/workspace/package-lock.json',
     '--out',

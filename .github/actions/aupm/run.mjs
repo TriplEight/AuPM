@@ -1,20 +1,19 @@
 #!/usr/bin/env node
-// aupm check step: spawns the workspace `aupm attest` CLI to post a lockfile to
-// the AuPM server and write the signed receipt. Dependency-free
-// itself — it only shells out to a CLI that the action installed first.
+// aupm check step: spawns the published `aupm-cli` package (pinned below) with
+// `npm exec` to post a lockfile to the AuPM server and write the signed
+// receipt. Dependency-free itself.
 // Fails open on every error except an explicit integrity-mismatch failure
 // (see run()).
 
 import { spawn } from 'node:child_process'
 import { appendFileSync } from 'node:fs'
 import { resolve as resolvePath } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { pathToFileURL } from 'node:url'
 
 const DEFAULT_LOCKFILE = 'package-lock.json'
 const DEFAULT_OUTPUT = 'aupm-receipt.json'
 
-// cli/ lives three levels above this file: .github/actions/aupm/ -> repo root -> cli.
-const DEFAULT_CLI_DIR = fileURLToPath(new URL('../../../cli', import.meta.url))
+export const CLI_PACKAGE = 'aupm-cli@0.3.1'
 
 /** Print a GitHub Actions warning annotation. */
 export function warn(message) {
@@ -112,30 +111,21 @@ export function resolveOptions(argv, env) {
     output: cli.output ?? env.OUTPUT ?? env.INPUT_OUTPUT ?? DEFAULT_OUTPUT,
     donate: normalizeBool(cli.donate ?? env.DONATE ?? env.INPUT_DONATE ?? 'false'),
     donorSecret: env.DONOR_SECRET ?? env.INPUT_DONOR_SECRET ?? '',
-    cliDir: cli['cli-dir'] ?? env.CLI_DIR ?? DEFAULT_CLI_DIR,
-    setupOk: normalizeBool(cli['setup-ok'] ?? env.SETUP_OK ?? 'true'),
     cwd: cli.cwd ?? env.CWD ?? process.cwd(),
   }
 }
 
-const PNPM_VERSION = '12.5.1'
-
 /**
- * Build the argv for `npm exec -- pnpm -C <cliDir> exec tsx src/index.ts attest ...`.
- * pnpm runs through npm, so the Action needs no pnpm on PATH and changes no PATH.
+ * Build the argv for `npm exec --yes --package=aupm-cli@<pin> -- aupm attest ...`.
+ * The Action needs no install step and changes no PATH.
  */
-export function buildCliArgs({ cliDir, lockfile, donate, output, cwd }) {
+export function buildCliArgs({ lockfile, donate, output, cwd }) {
   const args = [
     'exec',
     '--yes',
-    `--package=pnpm@${PNPM_VERSION}`,
+    `--package=${CLI_PACKAGE}`,
     '--',
-    'pnpm',
-    '-C',
-    cliDir,
-    'exec',
-    'tsx',
-    'src/index.ts',
+    'aupm',
     'attest',
     resolvePath(cwd, lockfile),
   ]
@@ -185,7 +175,7 @@ function runProcess(command, args, options, spawnFn) {
 /**
  * Run the check and donate flow. Returns an exit code — never calls
  * process.exit itself, so callers (including tests) can inspect the result.
- * Fails open: every caught error, non-zero CLI exit, and infra setup
+ * Fails open: every caught error, non-zero CLI exit, and spawn
  * failure returns 0. Without donate: true, the CLI still exits 0 with a
  * partial result (SPEC.md §11.4); this only warns and reports the
  * withheld count. The single exception is a reported integrityMismatch
@@ -199,8 +189,6 @@ export async function run(options, { spawnFn = spawn } = {}) {
     output = DEFAULT_OUTPUT,
     donate = false,
     donorSecret = '',
-    cliDir = DEFAULT_CLI_DIR,
-    setupOk = true,
     cwd = process.cwd(),
   } = options
 
@@ -210,17 +198,12 @@ export async function run(options, { spawnFn = spawn } = {}) {
       return 0
     }
 
-    if (!setupOk) {
-      warn('dependency setup for the aupm CLI failed; skipping the check')
-      return 0
-    }
-
     if (donate && !donorSecret) {
       warn('donate is enabled but donor-secret is not set; skipping the check')
       return 0
     }
 
-    const args = buildCliArgs({ cliDir, lockfile, donate, output, cwd })
+    const args = buildCliArgs({ lockfile, donate, output, cwd })
     const env = { ...process.env, AUPM_PROXY_URL: endpoint }
     delete env.AUPM_DONOR_MNEMONIC
     if (donate) env.AUPM_DONOR_MNEMONIC = donorSecret
