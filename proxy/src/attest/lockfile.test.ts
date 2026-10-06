@@ -6,6 +6,7 @@
 // physical database and writes from one file can be wiped by another file's
 // beforeEach mid-test.
 import { createHash, randomUUID } from 'node:crypto'
+import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test } from 'vitest'
@@ -15,7 +16,8 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-lockfile-test-${randomUUI
 
 const { default: db } = await import('../db.js')
 const { setStatus } = await import('../status.js')
-const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./lockfile.js')
+const lockfileModule = await import('./lockfile.js')
+const { analyzeLockfile, LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = lockfileModule
 const { buildAccrualInputs } = await import('../claims/attribution-rules.js')
 
 const encoder = new TextEncoder()
@@ -605,5 +607,155 @@ describe('analyzeLockfile — digest', () => {
     if (!result.ok) throw new Error('unreachable')
     const expected = createHash('sha256').update(rawBody).digest('hex')
     expect(result.analysis.sha256).toBe(expected)
+  })
+})
+describe('analyzePnpmLockfile', () => {
+  const { analyzePnpmLockfile, isYamlContentType } = lockfileModule
+  const fixture = readFileSync(
+    path.join(import.meta.dirname, 'fixtures', 'pnpm-lock.v9.yaml'),
+  ) as Uint8Array
+
+  function seedReviewed() {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-ms')
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null, 'sha512-lodash')
+    setStatus('tampered', '1.0.0', 'COMMUNITY_REVIEWED', null, null, 'sha512-good')
+  }
+
+  function equivalentPackageLock() {
+    const registry = (name: string, integrity: string) => ({
+      version: '1.0.0',
+      resolved: `https://registry.npmjs.org/${name}/-/${name}-1.0.0.tgz`,
+      integrity,
+    })
+    return lockfileBytes({
+      lockfileVersion: 3,
+      packages: {
+        '': {},
+        'node_modules/@babel/core': registry('@babel/core', 'sha512-babelcore'),
+        'node_modules/gitdep': { version: '1.0.0', resolved: 'https://codeload.example/x.tgz' },
+        'node_modules/left-pad': registry('left-pad', 'sha512-leftpad'),
+        'node_modules/lodash': { ...registry('lodash', 'sha512-lodash'), version: '4.17.21' },
+        'node_modules/ms': { ...registry('ms', 'sha512-ms'), version: '2.1.3' },
+        'node_modules/react': registry('react', 'sha512-react'),
+        'node_modules/react-dom': registry('react-dom', 'sha512-reactdom'),
+        'node_modules/tampered': registry('tampered', 'sha512-bad'),
+      },
+    })
+  }
+
+  test('matches the equivalent package-lock summary and reviewed refs', () => {
+    seedReviewed()
+    const pnpm = analyzePnpmLockfile(fixture)
+    const npm = analyzeLockfile(equivalentPackageLock())
+    if (!pnpm.ok || !npm.ok) throw new Error('both lockfiles must parse')
+    expect(pnpm.analysis.summary).toEqual({
+      total: 8,
+      reviewed: 2,
+      unreviewed: 4,
+      unresolvable: 1,
+      integrityMismatch: 1,
+    })
+    expect(pnpm.analysis.summary).toEqual(npm.analysis.summary)
+    expect(pnpm.analysis.reviewedPackageRefs).toEqual(npm.analysis.reviewedPackageRefs)
+    expect(pnpm.analysis.format).toBe('pnpm')
+    expect(pnpm.analysis.lockfileVersion).toBe('9.0')
+  })
+
+  test('lists reviewed, mismatch and unresolvable entries, never the unreviewed', () => {
+    seedReviewed()
+    const result = analyzePnpmLockfile(fixture)
+    if (!result.ok) throw new Error('fixture must parse')
+    const tiers = Object.fromEntries(result.analysis.packages.map((p) => [p.name, p.tier]))
+    expect(tiers).toEqual({
+      ms: 'COMMUNITY_REVIEWED',
+      lodash: 'COMMUNITY_REVIEWED',
+      tampered: 'INTEGRITY_MISMATCH',
+      gitdep: 'UNRESOLVABLE',
+    })
+  })
+
+  test('a scoped name keeps its leading @ and a peer suffix is stripped', () => {
+    setStatus('@scope/pkg', '2.0.0', 'COMMUNITY_REVIEWED', null, null, 'sha512-sc')
+    const yaml = [
+      "lockfileVersion: '9.0'",
+      'packages:',
+      "  '@scope/pkg@2.0.0(react@18.3.1)(@types/node@22.0.0)':",
+      '    resolution: {integrity: sha512-sc}',
+      '',
+    ].join('\n')
+    const result = analyzePnpmLockfile(encoder.encode(yaml))
+    if (!result.ok) throw new Error('must parse')
+    expect(result.analysis.reviewedPackageRefs).toEqual([
+      { pkg: '@scope/pkg', version: '2.0.0', auditor: null },
+    ])
+  })
+
+  test.each([
+    ['directory', '{directory: ../local}'],
+    ['source repo', '{type: git, repo: https://example.com/r.git, commit: abc}'],
+    ['non-registry tarball', '{tarball: https://example.com/x.tgz, integrity: sha512-x}'],
+  ])('a %s resolution is UNRESOLVABLE', (_label, resolution) => {
+    const yaml = `lockfileVersion: '9.0'\npackages:\n  x@1.0.0:\n    resolution: ${resolution}\n`
+    const result = analyzePnpmLockfile(encoder.encode(yaml))
+    if (!result.ok) throw new Error('must parse')
+    expect(result.analysis.summary.unresolvable).toBe(1)
+    expect(result.analysis.packages[0]?.tier).toBe('UNRESOLVABLE')
+  })
+
+  test('the digest covers the exact body bytes', () => {
+    const result = analyzePnpmLockfile(fixture)
+    if (!result.ok) throw new Error('fixture must parse')
+    expect(result.analysis.sha256).toBe(createHash('sha256').update(fixture).digest('hex'))
+  })
+
+  test('a project with no packages key parses with zero entries', () => {
+    const result = analyzePnpmLockfile(encoder.encode("lockfileVersion: '9.0'\n"))
+    if (!result.ok) throw new Error('must parse')
+    expect(result.analysis.summary.total).toBe(0)
+  })
+
+  test.each([
+    ["lockfileVersion '6.0'", "lockfileVersion: '6.0'\npackages: {}\n"],
+    ['lockfileVersion 9.0 as a number', 'lockfileVersion: 9.0\npackages: {}\n'],
+    ['no lockfileVersion', 'packages: {}\n'],
+  ])('rejects %s and names the accepted version', (_label, yaml) => {
+    const result = analyzePnpmLockfile(encoder.encode(yaml))
+    expect(result).toEqual({ ok: false, message: expect.stringContaining("'9.0'") })
+  })
+
+  test.each([
+    ['bad YAML', 'lockfileVersion: [unclosed\n'],
+    ['a scalar document', 'just a string\n'],
+    ['a list document', '- a\n- b\n'],
+    ['a list as packages', "lockfileVersion: '9.0'\npackages: [a]\n"],
+    ['a duplicate root key', "lockfileVersion: '9.0'\nlockfileVersion: '9.0'\n"],
+    [
+      'a duplicate package key',
+      "lockfileVersion: '9.0'\npackages:\n  x@1.0.0: {}\n  x@1.0.0: {}\n",
+    ],
+  ])('rejects %s', (_label, yaml) => {
+    expect(analyzePnpmLockfile(encoder.encode(yaml)).ok).toBe(false)
+  })
+
+  test('rejects a body over the byte limit and over the entry limit', () => {
+    expect(analyzePnpmLockfile(new Uint8Array(LOCKFILE_MAX_BYTES + 1)).ok).toBe(false)
+    const lines = ["lockfileVersion: '9.0'", 'packages:']
+    for (let i = 0; i < LOCKFILE_MAX_ENTRIES + 1; i++) {
+      lines.push(`  pkg${i}@1.0.0: {}`)
+    }
+    const result = analyzePnpmLockfile(encoder.encode(lines.join('\n')))
+    expect(result).toEqual({ ok: false, message: expect.stringContaining('entry limit') })
+  }, 60_000)
+
+  test.each([
+    ['application/yaml', true],
+    ['text/yaml', true],
+    ['Application/YAML; charset=utf-8', true],
+    ['application/json', false],
+    ['application/x-yaml', false],
+    ['text/yaml-evil', false],
+    [undefined, false],
+  ])('isYamlContentType(%s) is %s', (value, expected) => {
+    expect(isYamlContentType(value)).toBe(expected)
   })
 })

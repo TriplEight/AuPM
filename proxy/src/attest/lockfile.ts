@@ -1,7 +1,8 @@
 // proxy/src/attest/lockfile.ts
 //
-// Parses and classifies a `package-lock.json` (lockfileVersion 2 or 3) for
-// the POST /v1/attest/lockfile route. Pure logic, no HTTP and no signing —
+// Parses and classifies a `package-lock.json` (lockfileVersion 2 or 3) or a
+// `pnpm-lock.yaml` (lockfileVersion '9.0') for the POST /v1/attest/lockfile
+// route. Both formats feed one classifier. Pure logic, no HTTP and no signing —
 // proxy/src/routes/attest.ts wires this into the request/response cycle.
 //
 // CAUTION: `sha256` below is computed over the exact raw request body bytes
@@ -9,6 +10,7 @@
 // hashing — the digest must match the file bytes on the caller's disk.
 
 import { createHash } from 'node:crypto'
+import { isMap, isScalar, parseDocument } from 'yaml'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from '../status.js'
 
 export const LOCKFILE_MAX_BYTES = 5 * 1024 * 1024
@@ -45,8 +47,14 @@ export interface ReviewedPackageRef {
   auditor: string | null
 }
 
+/** The lockfile format the route parsed. It selects the statement subject name. */
+export type LockfileFormat = 'npm' | 'pnpm'
+
+export const PNPM_LOCKFILE_VERSION = '9.0'
+
 export interface LockfileAnalysis {
-  lockfileVersion: 2 | 3
+  format: LockfileFormat
+  lockfileVersion: 2 | 3 | typeof PNPM_LOCKFILE_VERSION
   sha256: string
   summary: LockfileSummary
   /** Reviewed, INTEGRITY_MISMATCH, and UNRESOLVABLE entries only — never the unreviewed majority. */
@@ -133,49 +141,29 @@ interface RawLockfileEntry {
   link?: unknown
 }
 
+/** One lockfile entry, reduced to what the classifier needs. */
+interface NormalizedEntry {
+  name: string
+  version: string
+  integrity: string | null
+  /** True only when the entry resolves to the npm registry. */
+  registry: boolean
+}
+
+interface Classification {
+  summary: LockfileSummary
+  packages: LockfilePackageEntry[]
+  reviewedPackageRefs: ReviewedPackageRef[]
+}
+
 /**
- * Validates limits and `lockfileVersion`, classifies every entry, and
- * computes the sha256 of the raw body. Returns `{ ok: false, message }` for
- * every case the caller must never be charged for — the pre-middleware in
- * routes/attest.ts turns that into a 400 before the x402 payment gate runs.
+ * Classifies normalized entries. Both lockfile formats call this function, so
+ * the same tree gives the same counts and the same price in either format.
  */
-export function analyzeLockfile(
-  rawBody: Uint8Array,
-  integrityLookup: IntegrityLookup = defaultIntegrityLookup,
-): LockfileValidationResult {
-  if (rawBody.byteLength > LOCKFILE_MAX_BYTES) {
-    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_BYTES}-byte limit` }
-  }
-
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(Buffer.from(rawBody).toString('utf8'))
-  } catch {
-    return { ok: false, message: 'lockfile is not valid JSON' }
-  }
-
-  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-    return { ok: false, message: 'lockfile must be a JSON object' }
-  }
-
-  const doc = parsed as { lockfileVersion?: unknown; packages?: unknown }
-  if (doc.lockfileVersion !== 2 && doc.lockfileVersion !== 3) {
-    return { ok: false, message: 'lockfileVersion must be 2 or 3' }
-  }
-  const lockfileVersion = doc.lockfileVersion
-
-  if (typeof doc.packages !== 'object' || doc.packages === null || Array.isArray(doc.packages)) {
-    return { ok: false, message: 'lockfile is missing a "packages" object' }
-  }
-
-  const entries = Object.entries(doc.packages as Record<string, unknown>).filter(
-    // "" is the root project entry, not a dependency.
-    ([key]) => key !== '',
-  )
-  if (entries.length > LOCKFILE_MAX_ENTRIES) {
-    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_ENTRIES}-entry limit` }
-  }
-
+function classifyEntries(
+  entries: NormalizedEntry[],
+  integrityLookup: IntegrityLookup,
+): Classification {
   const packages: LockfilePackageEntry[] = []
   const reviewedPackageRefs: ReviewedPackageRef[] = []
   const summary: LockfileSummary = {
@@ -196,22 +184,11 @@ export function analyzeLockfile(
   // different versions is two real entries and must stay two.
   const reviewedSeen = new Map<string, { integrity: string | null }>()
 
-  for (const [key, rawEntry] of entries) {
-    if (typeof rawEntry !== 'object' || rawEntry === null) continue
-    const entry = rawEntry as RawLockfileEntry
-
-    // A workspace symlink to another package in the same monorepo — not a
-    // supply-chain dependency, so it is neither reviewed nor unresolvable.
-    if (entry.link === true) continue
-
+  for (const { name, version, integrity, registry } of entries) {
     summary.total += 1
-    const name = packageNameFromKey(key)
-    const version = typeof entry.version === 'string' ? entry.version : 'unknown'
-    const integrity = typeof entry.integrity === 'string' ? entry.integrity : null
-    const resolved = typeof entry.resolved === 'string' ? entry.resolved : undefined
 
-    if (!isNpmResolved(resolved)) {
-      // Git, tarball-URL, or non-npm `resolved` entries.
+    if (!registry) {
+      // Source-repo, tarball-URL, directory, or non-npm entries.
       summary.unresolvable += 1
       packages.push({
         name,
@@ -318,10 +295,202 @@ export function analyzeLockfile(
     reviewedPackageRefs.push({ pkg: name, version, auditor: reviewerIdentity(status) })
   }
 
+  return { summary, packages, reviewedPackageRefs }
+}
+
+/**
+ * Validates limits and `lockfileVersion`, classifies every entry, and
+ * computes the sha256 of the raw body. Returns `{ ok: false, message }` for
+ * every case the caller must never be charged for — the pre-middleware in
+ * routes/attest.ts turns that into a 400 before the x402 payment gate runs.
+ */
+export function analyzeLockfile(
+  rawBody: Uint8Array,
+  integrityLookup: IntegrityLookup = defaultIntegrityLookup,
+): LockfileValidationResult {
+  if (rawBody.byteLength > LOCKFILE_MAX_BYTES) {
+    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_BYTES}-byte limit` }
+  }
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(Buffer.from(rawBody).toString('utf8'))
+  } catch {
+    return { ok: false, message: 'lockfile is not valid JSON' }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, message: 'lockfile must be a JSON object' }
+  }
+
+  const doc = parsed as { lockfileVersion?: unknown; packages?: unknown }
+  if (doc.lockfileVersion !== 2 && doc.lockfileVersion !== 3) {
+    return { ok: false, message: 'lockfileVersion must be 2 or 3' }
+  }
+  const lockfileVersion = doc.lockfileVersion
+
+  if (typeof doc.packages !== 'object' || doc.packages === null || Array.isArray(doc.packages)) {
+    return { ok: false, message: 'lockfile is missing a "packages" object' }
+  }
+
+  const entries = Object.entries(doc.packages as Record<string, unknown>).filter(
+    // "" is the root project entry, not a dependency.
+    ([key]) => key !== '',
+  )
+  if (entries.length > LOCKFILE_MAX_ENTRIES) {
+    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_ENTRIES}-entry limit` }
+  }
+
+  const normalized: NormalizedEntry[] = []
+  for (const [key, rawEntry] of entries) {
+    if (typeof rawEntry !== 'object' || rawEntry === null) continue
+    const entry = rawEntry as RawLockfileEntry
+    // A workspace symlink to another package in the same monorepo — not a
+    // supply-chain dependency, so it is neither reviewed nor unresolvable.
+    if (entry.link === true) continue
+    normalized.push({
+      name: packageNameFromKey(key),
+      version: typeof entry.version === 'string' ? entry.version : 'unknown',
+      integrity: typeof entry.integrity === 'string' ? entry.integrity : null,
+      registry: isNpmResolved(typeof entry.resolved === 'string' ? entry.resolved : undefined),
+    })
+  }
+
+  const { summary, packages, reviewedPackageRefs } = classifyEntries(normalized, integrityLookup)
+
   const sha256 = createHash('sha256').update(rawBody).digest('hex')
 
   return {
     ok: true,
-    analysis: { lockfileVersion, sha256, summary, packages, reviewedPackageRefs },
+    analysis: { format: 'npm', lockfileVersion, sha256, summary, packages, reviewedPackageRefs },
+  }
+}
+
+const YAML_CONTENT_TYPE_RE = /^\s*(?:application|text)\/yaml\s*(?:;|$)/i
+
+/** True when a Content-Type header value selects the pnpm-lock.yaml parser. */
+export function isYamlContentType(contentType: string | undefined): boolean {
+  return contentType !== undefined && YAML_CONTENT_TYPE_RE.test(contentType)
+}
+
+/**
+ * Splits a pnpm `packages` key into name and version. The name ends at the
+ * first `@` after position 0, so a scoped name keeps its leading `@`. A peer
+ * suffix `(...)` is dropped. Returns null for a key with no version part.
+ */
+function parsePnpmKey(key: string): { name: string; version: string } | null {
+  const at = key.indexOf('@', 1)
+  if (at <= 0) return null
+  const version = key.slice(at + 1).replace(/\(.*$/s, '')
+  return version === '' ? null : { name: key.slice(0, at), version }
+}
+
+/**
+ * Reads a pnpm `resolution` object. A `tarball` that is not an npm registry
+ * URL, a `directory`, or a `repo`/`commit`/`type` source has no registry
+ * integrity: the same class as a non-registry package-lock entry.
+ */
+function pnpmResolution(raw: unknown): { integrity: string | null; registry: boolean } {
+  const resolution = (typeof raw === 'object' && raw !== null ? raw : {}) as Record<string, unknown>
+  const integrity = typeof resolution.integrity === 'string' ? resolution.integrity : null
+  const sourceBased =
+    resolution.directory !== undefined ||
+    resolution.repo !== undefined ||
+    resolution.commit !== undefined ||
+    resolution.type !== undefined
+  const tarball = typeof resolution.tarball === 'string' ? resolution.tarball : undefined
+  const registry = !sourceBased && (tarball === undefined || isNpmResolved(tarball))
+  return { integrity, registry }
+}
+
+function hasDuplicateKey(node: unknown): boolean {
+  if (!isMap(node)) return false
+  const seen = new Set<unknown>()
+  for (const pair of node.items) {
+    const key = isScalar(pair.key) ? pair.key.value : pair.key
+    if (seen.has(key)) return true
+    seen.add(key)
+  }
+  return false
+}
+
+/**
+ * Parses a YAML body to plain JS, or returns null for a syntax error or a
+ * duplicate key in the root or in `packages` (pnpm itself rejects both).
+ *
+ * CAUTION: `uniqueKeys: false` is deliberate. The library's own duplicate-key
+ * check is quadratic in the number of keys, so a 5 MiB `packages` map would
+ * block the event loop for minutes. `hasDuplicateKey` does the same check in
+ * linear time.
+ */
+function parseYamlBody(text: string): unknown {
+  const doc = parseDocument(text, { uniqueKeys: false })
+  if (doc.errors.length > 0) return null
+  if (hasDuplicateKey(doc.contents) || hasDuplicateKey(doc.get('packages', true))) return null
+  return doc.toJS()
+}
+
+/**
+ * Parses and classifies a `pnpm-lock.yaml` (lockfileVersion '9.0' only). The
+ * entries are the keys of `packages`; `snapshots` and `importers` are not
+ * read. Limits, classification, and the digest match `analyzeLockfile`.
+ */
+export function analyzePnpmLockfile(
+  rawBody: Uint8Array,
+  integrityLookup: IntegrityLookup = defaultIntegrityLookup,
+): LockfileValidationResult {
+  if (rawBody.byteLength > LOCKFILE_MAX_BYTES) {
+    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_BYTES}-byte limit` }
+  }
+
+  const parsed = parseYamlBody(Buffer.from(rawBody).toString('utf8'))
+  if (parsed === null) {
+    return { ok: false, message: 'lockfile is not valid YAML' }
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, message: 'lockfile must be a YAML mapping' }
+  }
+
+  const doc = parsed as { lockfileVersion?: unknown; packages?: unknown }
+  if (doc.lockfileVersion !== PNPM_LOCKFILE_VERSION) {
+    return {
+      ok: false,
+      message: `pnpm lockfileVersion must be '${PNPM_LOCKFILE_VERSION}' (the only accepted version)`,
+    }
+  }
+
+  // A project with no dependencies has no `packages` key.
+  const rawPackages = doc.packages ?? {}
+  if (typeof rawPackages !== 'object' || rawPackages === null || Array.isArray(rawPackages)) {
+    return { ok: false, message: 'lockfile "packages" must be a mapping' }
+  }
+  const entries = Object.entries(rawPackages as Record<string, unknown>)
+  if (entries.length > LOCKFILE_MAX_ENTRIES) {
+    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_ENTRIES}-entry limit` }
+  }
+
+  const normalized: NormalizedEntry[] = []
+  for (const [key, rawEntry] of entries) {
+    const parsedKey = parsePnpmKey(key)
+    if (parsedKey === null || typeof rawEntry !== 'object' || rawEntry === null) continue
+    const { integrity, registry } = pnpmResolution(
+      (rawEntry as { resolution?: unknown }).resolution,
+    )
+    normalized.push({ ...parsedKey, integrity, registry })
+  }
+
+  const { summary, packages, reviewedPackageRefs } = classifyEntries(normalized, integrityLookup)
+  const sha256 = createHash('sha256').update(rawBody).digest('hex')
+  return {
+    ok: true,
+    analysis: {
+      format: 'pnpm',
+      lockfileVersion: PNPM_LOCKFILE_VERSION,
+      sha256,
+      summary,
+      packages,
+      reviewedPackageRefs,
+    },
   }
 }
