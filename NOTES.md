@@ -2,6 +2,22 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-06
+- #72 `0f17e33`: `aupm donor init` creates a donor wallet with a 0600 key file. `aupm donor optin`
+  opts it in to USDC (ADR 0016).
+- #73 `9755164`: the CLI and `aupm-mcp` build to `dist/`. A `cli-v*` tag publishes both to npm
+  through trusted publishing, with provenance (ADR 0017).
+- #74 `ba8dd77`: the empty lockfile body check runs in linear time.
+- #75 `d56e168`: `POST /v1/attest/lockfile` accepts `pnpm-lock.yaml` (lockfileVersion 9.0). The
+  YAML parse runs in a worker with a 5 s limit, a 2 MiB cap and one parse at a time (ADR 0015).
+- #76 `cacba3c`: `aupm pnpm` and `aupm npx`. The MCP server and `aupm verify` read pnpm lockfiles.
+- #77 `5e3e3ac`: donor onboarding guides without waiting: `init`, a one-check `optin`, a
+  read-only `status`. The key file holds the 25 words. The CI secret is
+  `AUPM_DONOR_MNEMONIC_MAINNET`.
+- #78 `9c10f9a`: release `v0.2.9`.
+- #79 `8500958`: the CLI package is `aupm-cli`, because npm refused `aupm`. The command is still
+  `aupm`. `aupm-cli` and `aupm-mcp` 0.3.1 are on npm.
+
 ## 2026-10-05
 - #65 `3a3d31b`: the Action `.github/actions/aupm` is a drop-in for `npm ci`. It installs through
   the AuPM registry, falls back to npm, and donates on opt-in (`donate`, `donor-secret`).
