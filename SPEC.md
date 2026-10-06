@@ -848,9 +848,9 @@ a warning block, the address and the network, and five numbered next steps.
   the repository can read the secret.
 - Step 5 says to add `--donate` to an install or attest command, for example
   `aupm install --donate`. It pays 0.001 USDC for each reviewed package in the lockfile. Without
-  `--donate`, every install is free, reviewed packages included. `aupm donor status` adds the
+  `--donate`, every install is free, reviewed packages included. One added line gives the
   setting: `aupm config set donate true` or `AUPM_DONATE=true`.
-- The output without the QR code is at most 40 lines. Prose lines are at most 80 columns; only
+- The output without the QR code is at most 41 lines. Prose lines are at most 80 columns; only
   the key file path, the shell commands, the workflow line and the `algorand://` URI may be
   longer. A test checks both.
 

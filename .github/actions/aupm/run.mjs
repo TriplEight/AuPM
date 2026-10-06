@@ -77,7 +77,7 @@ export function reportDonation(summary, env = process.env) {
  */
 export function reportCounts(summary, donate, env = process.env) {
   if (!env.GITHUB_STEP_SUMMARY || !summary) return
-  const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 0)
+  const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 'unknown')
   const reviewed = count(summary.reviewed)
   const lines = [
     '### AuPM lockfile summary',
@@ -87,7 +87,7 @@ export function reportCounts(summary, donate, env = process.env) {
     `| ${reviewed} | ${count(summary.unreviewed)} | ${count(summary.integrityMismatch)} | ${count(summary.unresolvable)} |`,
     '',
   ]
-  if (!donate && reviewed > 0) {
+  if (!donate && reviewed !== 'unknown' && reviewed > 0) {
     lines.push(
       `A donation would be ${formatUsdc(reviewed * 1000)} USDC for ${reviewed} audited ` +
         "packages. Set donate: 'true' to send it. It pays for every audited package in the " +

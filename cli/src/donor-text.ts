@@ -243,8 +243,7 @@ export function ciStep(
   ])
 }
 
-/** Step 5 of `aupm donor init` has no spare line (40-line budget), so only status adds the note. */
-export function donateStep(label: string, withSettingNote = false): string[] {
+export function donateStep(label: string): string[] {
   const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
   const intro = 'Add --donate to an install or attest command:'
   return step(label, 'Donate.', intro, [
@@ -253,9 +252,7 @@ export function donateStep(label: string, withSettingNote = false): string[] {
       `It pays ${price} USDC for each reviewed package in the lockfile. ` +
         'Without --donate, every install is free, reviewed packages included.',
     ),
-    ...(withSettingNote
-      ? wrap('Always donate: `aupm config set donate true` or AUPM_DONATE=true.')
-      : []),
+    ...wrap('Always donate: `aupm config set donate true` or AUPM_DONATE=true.'),
   ])
 }
 
@@ -305,7 +302,7 @@ export function statusLines(snapshot: Snapshot, network: Network): string[] {
   } else if (usdc === 0n) {
     lines.push(...usdcStep('Next step.', address, network))
   } else {
-    lines.push(...donateStep('Next step.', true))
+    lines.push(...donateStep('Next step.'))
   }
   return lines
 }
