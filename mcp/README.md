@@ -17,8 +17,9 @@ Node 22.14.0 or later. Add the server to an MCP client:
 - `check_audit_status`: free. Returns the review status of one exact package version.
 - `install_audited_package`: installs a package through AuPM. It donates only when the call sets
   `allowDonation`.
-- `attest_lockfile`: asks for one signed attestation for a lockfile. It donates only when the
-  call opts in.
+- `attest_lockfile`: asks for one signed attestation for a `package-lock.json` or a
+  `pnpm-lock.yaml` (lockfileVersion 9.0, chosen by file name). It donates only when the call
+  opts in.
 
 `AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.
 

@@ -17,13 +17,18 @@ aupm            # prints usage
 
 ```bash
 aupm install ms@2.1.3 [--donate] [--attest-out <path>]   # npm against the AuPM registry
+aupm pnpm add ms@2.1.3 [--donate] [--attest-out <path>]  # pnpm against the AuPM registry
+aupm npx cowsay hi                                       # npx against the AuPM registry
 aupm attest package-lock.json [--donate] [--out <path>]  # one signed attestation per lockfile
+aupm attest pnpm-lock.yaml [--donate] [--out <path>]     # lockfileVersion 9.0, at most 2 MiB
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
 aupm donor init                                          # create a donor key, show a funding QR
 aupm donor optin                                         # opt the donor in to USDC
 ```
 
-Any other first argument goes to npm unchanged. `aupm verify` checks the signed DSSE envelope
+After `install`, `i` and `add`, `aupm pnpm` attests `pnpm-lock.yaml` and prints the same summary
+line as `aupm install`. `aupm npx` has no lockfile: `--donate` and `--attest-out` exit 2. Any
+other first argument goes to npm unchanged. `aupm verify` checks the signed DSSE envelope
 offline. It makes no network call.
 
 `AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.

@@ -828,10 +828,20 @@ withdrawal.
 
 Reason: a lockfile that pins a reviewed version must work the same way on every surface.
 
-**Planned — pnpm and npx (P2).** `aupm pnpm <args>` and `aupm npx <args>` are not
-built. `POST /v1/attest/lockfile` parses only `package-lock.json` (lockfileVersion 2 or 3); it
-does not parse `pnpm-lock.yaml`. `aupm <npm args>` covers `npm install`, `i`, `ci`, and `add`
-only.
+**pnpm and npx (P2).** The proxy half is built (ADR 0015): `POST /v1/attest/lockfile` parses a
+`pnpm-lock.yaml` with lockfileVersion '9.0' when the request has `Content-Type: application/yaml`
+(or `text/yaml`). The client half is built. `aupm pnpm <args>` runs pnpm against the AuPM
+registry like `aupm <npm args>` runs npm: same flag stripping, exit code and stdio. After
+`install`, `i` and `add` it attests `pnpm-lock.yaml` from the working directory with
+`Content-Type: application/yaml` and prints the same summary line. `--donate` pays as for npm.
+`aupm npx <args>` runs npx against the AuPM registry. It has no lockfile and no attestation, so
+`--donate` and `--attest-out` exit 2. `aupm attest`, the MCP `attest_lockfile` tool and
+`aupm verify --lockfile` choose the pnpm path from the file name `pnpm-lock.yaml`. The donation
+cap counts the keys of the top-level `packages` map. The client refuses a `pnpm-lock.yaml` over
+2 MiB before it sends it. On 413 and 422 it prints a clear message. On 503 it waits for
+`Retry-After` once, then fails with a message. `aupm verify` checks the sha256 of the file
+against the `pnpm-lock.yaml` subject of the statement. `aupm <npm args>` covers `npm install`,
+`i`, `ci`, and `add`; `aupm pnpm` covers `install`, `i` and `add`.
 
 ## 12. Attestations
 
