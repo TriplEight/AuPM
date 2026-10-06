@@ -813,8 +813,9 @@ a warning block, the address and the network, and five numbered next steps.
 - The warning block says that the file holds the wallet's secret key, that this is a hot wallet by
   design (the key is unencrypted on this disk, and any program that runs as this user can spend
   the funds), that only small amounts belong in it (1 USDC pays for 1,000 reviewed packages),
-  that the file is the only backup, and that the mnemonic never goes into a chat, an issue or a
-  log. On Windows it adds that the file is not permission-protected there.
+  that the file is the only copy of the key and must be backed up offline (the 25 words on
+  paper, or the file on an external drive), and that the mnemonic never goes into a chat, an
+  issue or a log. On Windows it adds that the file is not permission-protected there.
 - Step 1 sends 0.3 ALGO (the minimum is 0.201: 0.1 for the account, 0.1 for the USDC opt-in and
   the 1,000 microALGO fee). A terminal QR code carries an ARC-26 URI with the amount in
   microALGO. MainNet names Pera Wallet and a withdrawal on the "Algorand" network. TestNet names

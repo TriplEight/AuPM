@@ -84,7 +84,7 @@ export function warningBlock(file: string, windows: boolean): string[] {
     '- This is a hot wallet by design. The key is not encrypted on this disk.',
     '- Any program that runs as this user can read the key and spend the funds.',
     '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
-    '- This file is the only backup. Without a backup, a lost or deleted file loses the funds.',
+    '- This file is the only copy of the key. Without a backup, a lost or deleted file loses the funds.',
     '- Back up the key now. Open the file in a text editor, write the 25 words on paper,',
     '  and store the paper in a safe place. You can also copy the file to an external drive.',
     '  Keep the backup away from this computer.',
