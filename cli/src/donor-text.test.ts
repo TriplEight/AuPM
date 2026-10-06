@@ -3,8 +3,10 @@ import os from 'node:os'
 import { donorKeyFilePath } from 'aupm-mcp/donor-key'
 import { describe, expect, it } from 'vitest'
 import {
+  afterOptInStep,
   algoStep,
   arc26Uri,
+  backupLines,
   CI_CONFIG_HOME,
   ciStep,
   donateStep,
@@ -12,6 +14,7 @@ import {
   networkFor,
   optInRequiredMicro,
   packagesCovered,
+  shortfallLines,
   usdcStep,
 } from './donor-text.js'
 
@@ -137,5 +140,34 @@ describe('network text', () => {
     expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
     expect(donateStep('5.').join('\n')).toContain('every install is free')
     expect(donateStep('5.').join('\n')).not.toContain('plain install')
+  })
+})
+
+describe('interactive screens', () => {
+  const snapshot = {
+    address: ADDRESS,
+    algo: 100_000n,
+    required: 201_000n,
+    optedIn: false,
+    usdc: 0n,
+  }
+
+  it('shows the exact shortfall and the ALGO step', () => {
+    const text = shortfallLines(snapshot, mainnet).join('\n')
+    expect(text).toContain('ALGO balance: 0.1 ALGO. Needed: 0.201 ALGO. Shortfall: 0.101 ALGO.')
+    expect(text).toContain(`algorand://${ADDRESS}?amount=101000`)
+  })
+
+  it('picks the USDC step with no USDC and the donate step with USDC', () => {
+    const opted = { ...snapshot, optedIn: true }
+    expect(afterOptInStep(opted, mainnet).join('\n')).toContain('Send 1 to 5 USDC')
+    expect(afterOptInStep({ ...opted, usdc: 5_000n }, mainnet).join('\n')).toContain('Donate.')
+  })
+
+  it('names the key file in the backup screen and keeps it short', () => {
+    const lines = backupLines(KEY)
+    expect(lines.join('\n')).toContain(KEY)
+    expect(lines.length).toBeLessThanOrEqual(8)
+    for (const line of lines) if (line !== `  ${KEY}`) expect(line.length).toBeLessThanOrEqual(80)
   })
 })
