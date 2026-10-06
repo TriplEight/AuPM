@@ -42,6 +42,11 @@ Donation is off by default. Add `--donate` to donate. The donor key is the envir
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
 
+For CI, use a separate wallet. `aupm donor init` prints the steps: it makes a second key file
+with `XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` and stores it with
+`gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"`. Back up each key file offline: write
+the 25 words on paper, or copy the file to an external drive.
+
 ## Where a donation goes
 
 Target split, per 1,000 microUSDC:

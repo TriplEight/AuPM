@@ -824,10 +824,14 @@ a warning block, the address and the network, and five numbered next steps.
   print the QR code: an ARC-26 URI with `amount` (microUSDC) and `asset`. TestNet names the
   Circle faucet.
 - Step 4 is optional: make a separate CI wallet with
-  `XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init`, then store its key as the GitHub
-  secret `AUPM_DONOR_MNEMONIC_MAINNET` (`AUPM_DONOR_MNEMONIC_TESTNET` on TestNet) with
-  `sed ... | gh secret set`, so the mnemonic goes through stdin only. The text says that everyone
-  who can change the workflows of the repository can read the secret. Step 5 is
+  `XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init` (on Windows, the PowerShell form
+  `$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init`, and the text says to close
+  that window afterwards). `gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"` then creates
+  the GitHub secret `AUPM_DONOR_MNEMONIC`; the mnemonic does not appear on the screen or in the
+  command line. For a TestNet wallet, the user renames the secret to
+  `AUPM_DONOR_MNEMONIC_TESTNET` on the web page. The text says that everyone who can change the
+  workflows of the repository can read the secret. The warning block and the "key file exists"
+  message tell the user to back up the key offline (paper or an external drive). Step 5 is
   `aupm attest package-lock.json --donate`; the text says that it pays 0.001 USDC for each
   reviewed package.
 

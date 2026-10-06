@@ -175,8 +175,10 @@ describe('aupm donor init', () => {
       'not encrypted on this disk',
       'Any program that runs as this user can read the key and spend the funds',
       '1 USDC pays for 1,000 reviewed packages',
-      'only backup',
-      'password manager',
+      'Without a backup, a lost or deleted file loses the funds',
+      'Back up the key now. Open the file in a text editor, write the 25 words on paper,',
+      'store the paper in a safe place. You can also copy the file to an external drive.',
+      'Keep the backup away from this computer.',
       'Never paste the mnemonic into a chat, an issue or a log',
     ]) {
       expect(text.slice(warning, where)).toContain(phrase)
@@ -205,10 +207,14 @@ describe('aupm donor init', () => {
     expect(text.indexOf('separate wallet for CI')).toBeLessThan(text.indexOf('gh secret set'))
     expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor init')
     expect(text).toContain('XDG_CONFIG_HOME="$HOME/.config/aupm-ci" aupm donor optin')
-    expect(text).toContain(
-      `"$HOME/.config/aupm-ci/aupm/donor.env" | gh secret set AUPM_DONOR_MNEMONIC_MAINNET`,
-    )
-    expect(text).toContain("sed -n 's/^AUPM_DONOR_MNEMONIC=//p'")
+    expect(text).toContain('gh secret set -f "$HOME/.config/aupm-ci/aupm/donor.env"')
+    expect(text).toContain('It creates the repository secret AUPM_DONOR_MNEMONIC.')
+    expect(text).toContain('The mnemonic does not appear on the screen')
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
+    expect(text).toContain('donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC }}')
+    expect(text).toContain('Rename the TestNet secret to AUPM_DONOR_MNEMONIC_TESTNET')
+    expect(text).not.toContain('sed')
+    expect(text).not.toContain('$env:')
     expect(text).toContain('Settings > Secrets and variables > Actions > New repository secret')
     expect(text).toContain('can change the workflows of the repository can read the secret')
     expect(text).toContain('separate wallet for CI')
@@ -268,6 +274,7 @@ describe('aupm donor init', () => {
     expect(text).toContain(account.address)
     expect(text).toContain('aupm donor status')
     expect(text).toContain('Deleting it loses the funds in this wallet')
+    expect(text).toContain('Back up the file before you change anything.')
     expect(text).not.toMatch(/remove/i)
     expectNoMnemonic(text, account.mnemonic)
     expect(storedMnemonic()).toBe(account.mnemonic)
@@ -290,6 +297,8 @@ describe('aupm donor init', () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     expect(allText(io)).toContain('On Windows, the permissions of this file are not protected')
+    expect(allText(io)).toContain('$env:XDG_CONFIG_HOME = "$HOME/.config/aupm-ci"; aupm donor init')
+    expect(allText(io)).not.toContain('sed')
   })
 })
 

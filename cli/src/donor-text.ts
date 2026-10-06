@@ -22,7 +22,6 @@ export interface Network {
   name: 'MainNet' | 'TestNet'
   usdcAsset: string
   explorer: string
-  ciSecret: string
 }
 
 export function currentNetwork(): Network {
@@ -35,7 +34,6 @@ export function networkFor(testnet: boolean, usdcAsset: string, explorer: string
     name: testnet ? 'TestNet' : 'MainNet',
     usdcAsset,
     explorer,
-    ciSecret: testnet ? 'AUPM_DONOR_MNEMONIC_TESTNET' : 'AUPM_DONOR_MNEMONIC_MAINNET',
   }
 }
 
@@ -86,8 +84,10 @@ export function warningBlock(file: string, windows: boolean): string[] {
     '- This is a hot wallet by design. The key is not encrypted on this disk.',
     '- Any program that runs as this user can read the key and spend the funds.',
     '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
-    '- This file is the only backup. If you lose it, you lose the funds.',
-    '  Copy the file to a password manager.',
+    '- This file is the only backup. Without a backup, a lost or deleted file loses the funds.',
+    '- Back up the key now. Open the file in a text editor, write the 25 words on paper,',
+    '  and store the paper in a safe place. You can also copy the file to an external drive.',
+    '  Keep the backup away from this computer.',
     '- Never paste the mnemonic into a chat, an issue or a log.',
   ]
   if (windows) lines.push('- On Windows, the permissions of this file are not protected.')
@@ -111,6 +111,7 @@ export function existingFileLines(file: string, address: string): string[] {
     `It holds the address: ${address}`,
     'Run `aupm donor status` to see the state of this wallet.',
     'Do not delete the file. Deleting it loses the funds in this wallet.',
+    'Back up the file before you change anything.',
   ]
 }
 
@@ -181,19 +182,40 @@ export function usdcStep(
 export const CI_CONFIG_HOME = '$HOME/.config/aupm-ci'
 export const CI_KEY_FILE = `${CI_CONFIG_HOME}/aupm/donor.env`
 
-export function ciStep(label: string, network: Network): string[] {
+function ciWalletLines(network: Network, windows: boolean): string[] {
+  if (windows) {
+    const networkEnv = network.testnet ? '$env:NETWORK = "testnet"; ' : ''
+    return [
+      '   Create it with this command in PowerShell. It writes a second key file:',
+      `     ${networkEnv}$env:XDG_CONFIG_HOME = "${CI_CONFIG_HOME}"; aupm donor init`,
+      '   Fund that wallet as in steps 1 to 3. Run `aupm donor optin` in the same window.',
+      '   Then close that PowerShell window, or run `Remove-Item Env:XDG_CONFIG_HOME`',
+      '   (and `Remove-Item Env:NETWORK` on TestNet). Later commands then use the main wallet.',
+    ]
+  }
   const networkEnv = network.testnet ? 'NETWORK=testnet ' : ''
   return [
-    paint('bold', `${label} Optional. Store a key as a secret for CI.`),
-    '   Use a separate wallet for CI. A separate wallet limits the loss.',
     '   Create it with this command. It writes a second key file:',
     `     ${networkEnv}XDG_CONFIG_HOME="${CI_CONFIG_HOME}" aupm donor init`,
     '   Fund that wallet as in steps 1 to 3. Put the same prefix before each command:',
     `     ${networkEnv}XDG_CONFIG_HOME="${CI_CONFIG_HOME}" aupm donor optin`,
-    '   Then run this command.',
-    '   The mnemonic goes through stdin only:',
-    `     sed -n 's/^AUPM_DONOR_MNEMONIC=//p' "${CI_KEY_FILE}" | gh secret set ${network.ciSecret}`,
+  ]
+}
+
+export function ciStep(label: string, network: Network, windows: boolean): string[] {
+  return [
+    paint('bold', `${label} Optional. Store a key as a secret for CI.`),
+    '   Use a separate wallet for CI. A separate wallet limits the loss.',
+    ...ciWalletLines(network, windows),
+    '   Then run this command. It creates the repository secret AUPM_DONOR_MNEMONIC.',
+    '   The mnemonic does not appear on the screen:',
+    `     gh secret set -f "${CI_KEY_FILE}"`,
+    '   In the workflow:',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the text shows a GitHub Actions expression
+    '     donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC }}',
     `   Or use the web page of your repository: ${GITHUB_SECRETS_PATH}.`,
+    '   If the repository uses both networks, create one wallet for each network.',
+    '   Rename the TestNet secret to AUPM_DONOR_MNEMONIC_TESTNET in the web page.',
     '   Everyone who can change the workflows of the repository can read the secret.',
   ]
 }
@@ -209,7 +231,7 @@ export function donateStep(label: string): string[] {
   ]
 }
 
-export function initNextSteps(address: string, network: Network): string[] {
+export function initNextSteps(address: string, network: Network, windows: boolean): string[] {
   return [
     paint(['bold', 'cyan'], 'Next steps. Nothing here has a deadline.'),
     'Run `aupm donor status` at any time to see the next step.',
@@ -220,7 +242,7 @@ export function initNextSteps(address: string, network: Network): string[] {
     '',
     ...usdcStep('3.', address, network, false),
     '',
-    ...ciStep('4.', network),
+    ...ciStep('4.', network, windows),
     '',
     ...donateStep('5.'),
   ]
