@@ -163,6 +163,9 @@ The install step runs first. It runs in the directory of the lockfile.
   file names. One file is the lockfile. No file fails the step, as `npm ci`
   does. Two or more files fail the step. The message names the files and
   tells you to set `lockfile` or `install`.
+- `install: npm`, `pnpm` or `yarn` with a `lockfile` named for another tool,
+  for example `install: yarn` with `pnpm-lock.yaml`: the step fails. The message
+  names both values. A file name that no tool uses is accepted.
 - `install: npm`, `pnpm` or `yarn` with an empty `lockfile`: the Action uses
   the lockfile name of that tool.
 

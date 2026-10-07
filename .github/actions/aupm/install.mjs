@@ -91,7 +91,15 @@ export function resolvePlan({ install: mode, lockfile, cwd }) {
     const detected = detectLockfile(cwd)
     return detected.error ? detected : { lockfile: detected.lockfile }
   }
-  if (mode !== 'auto') return { tool: mode, lockfile: lockfile || LOCKFILES[mode] }
+  if (mode !== 'auto') {
+    const owner = lockfile ? toolForLockfile(lockfile) : mode
+    if (owner && owner !== mode) {
+      return {
+        error: `install '${mode}' does not match lockfile '${lockfile}', which belongs to ${owner}`,
+      }
+    }
+    return { tool: mode, lockfile: lockfile || LOCKFILES[mode] }
+  }
   if (!lockfile) return detectLockfile(cwd)
   const tool = toolForLockfile(lockfile)
   if (!tool) {

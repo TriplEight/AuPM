@@ -406,3 +406,25 @@ test('the check step uses the lockfile the install step resolved', async () => {
 test('the check step pins aupm-cli 0.4.0', () => {
   assert.equal(CLI_PACKAGE, 'aupm-cli@0.4.0')
 })
+
+for (const tool of ['npm', 'pnpm', 'yarn']) {
+  for (const other of ['npm', 'pnpm', 'yarn'].filter((name) => name !== tool)) {
+    const file = { npm: 'package-lock.json', pnpm: 'pnpm-lock.yaml', yarn: 'yarn.lock' }[other]
+    test(`install ${tool} with ${file} fails and names both`, async () => {
+      const { code, calls, lines } = await runInstall([file], { install: tool, lockfile: file })
+      assert.equal(code, 1)
+      assert.equal(calls.length, 0)
+      assert.match(errors(lines)[0], new RegExp(`'${tool}'.*'${file.replace('.', '\\.')}'`))
+    })
+  }
+}
+
+test('an explicit tool accepts a lockfile with an unknown name', async () => {
+  const { code, calls, outputs } = await runInstall(['custom.lock'], {
+    install: 'pnpm',
+    lockfile: 'custom.lock',
+  })
+  assert.equal(code, 0)
+  assert.equal(calls[0].command, 'pnpm')
+  assert.equal(outputs.lockfile, 'custom.lock')
+})
