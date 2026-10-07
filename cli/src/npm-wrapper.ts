@@ -3,7 +3,8 @@
 // `aupm <npm args>` is a drop-in for `npm <npm args>`: it runs the real npm
 // against the AuPM registry, passes every npm argument and npm's own exit
 // code through unchanged, and inherits stdio. `aupm pnpm <args>` and
-// `aupm npx <args>` do the same for pnpm and npx. AuPM adds
+// `aupm npx <args>` do the same for pnpm and npx, and `aupm yarn <args>` for
+// yarn classic (v1; a yarn berry install exits 2 before it runs). AuPM adds
 // only its own flags (`--donate`, `--no-donate`, `--attest-out <path>`), stripped before
 // the tool sees argv, and — after a successful install-like command — one
 // free lockfile summary line, using the same `attest_lockfile` MCP handler
@@ -12,16 +13,18 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { YARN_BERRY_MESSAGE } from 'aupm-mcp/lockfile-entries'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
 import { ConfigError, resolveDonate } from './config.js'
 import { countsFromSummary, type LockfileCounts, summaryLines } from './summary.js'
 
-export type Tool = 'npm' | 'pnpm' | 'npx'
+export type Tool = 'npm' | 'pnpm' | 'npx' | 'yarn'
 
 const LOCKFILE_NAMES: Record<Tool, string | null> = {
   npm: 'package-lock.json',
   pnpm: 'pnpm-lock.yaml',
+  yarn: 'yarn.lock',
   npx: null,
 }
 
@@ -30,6 +33,7 @@ const LOCKFILE_NAMES: Record<Tool, string | null> = {
 const INSTALL_LIKE_COMMANDS: Record<Tool, Set<string>> = {
   npm: new Set(['install', 'i', 'ci', 'add']),
   pnpm: new Set(['install', 'i', 'add']),
+  yarn: new Set(['install', 'add']),
   npx: new Set(),
 }
 
@@ -77,7 +81,15 @@ export function parseNpmArgv(argv: string[]): ParsedNpmArgv {
   return { npmArgs, donateFlag, attestOutPath }
 }
 
+const YARN_NON_INSTALL_FLAGS = new Set(['--version', '-v', '--help', '-h'])
+
+/** A bare `yarn` installs: no subcommand, only flags (`yarn --frozen-lockfile`). */
+function isBareYarnInstall(args: string[]): boolean {
+  return args.every((arg) => arg.startsWith('-') && !YARN_NON_INSTALL_FLAGS.has(arg))
+}
+
 export function isInstallLike(npmArgs: string[], tool: Tool = 'npm'): boolean {
+  if (tool === 'yarn' && isBareYarnInstall(npmArgs)) return true
   const [subcommand] = npmArgs
   return subcommand !== undefined && INSTALL_LIKE_COMMANDS[tool].has(subcommand)
 }
@@ -91,8 +103,8 @@ function exitCodeForSignal(signal: NodeJS.Signals): number {
  * Runs the real tool with the user's argv passed through exactly as given —
  * never with an appended `--registry`, which would land after a literal
  * `--` and reach the target script instead of the tool. The AuPM registry
- * goes through `npm_config_registry` in the child's env (npm, pnpm and npx
- * all read it); the tool's own `--registry` flag, if the user passes one,
+ * goes through `npm_config_registry` in the child's env (npm, pnpm, npx and
+ * yarn classic all read it); the tool's own `--registry` flag, if the user passes one,
  * wins over the env var.
  */
 export function runToolProcess(tool: Tool, npmArgs: string[]): Promise<number> {
@@ -106,6 +118,57 @@ export function runToolProcess(tool: Tool, npmArgs: string[]): Promise<number> {
       resolve(signal ? exitCodeForSignal(signal) : (code ?? 1))
     })
   })
+}
+
+const YARN_CLASSIC_VERSION = /^1\.\d+\.\d+$/
+
+/** `--cwd <dir>` moves yarn's project root, so the version check needs it too. */
+function yarnCwdArgs(args: string[]): string[] {
+  const index = args.findIndex((arg) => arg === '--cwd' || arg.startsWith('--cwd='))
+  if (index < 0) return []
+  return args[index] === '--cwd' ? args.slice(index, index + 2) : [args[index]]
+}
+
+function runVersionProcess(args: string[]): Promise<{ stdout: string; code: number }> {
+  return new Promise((resolve, reject) => {
+    const child: ChildProcess = spawn('yarn', [...yarnCwdArgs(args), '--version'], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+      env: { ...process.env, npm_config_registry: proxyUrl() },
+    })
+    let stdout = ''
+    child.stdout?.on('data', (chunk: Buffer | string) => {
+      stdout += chunk.toString()
+    })
+    child.on('error', reject)
+    child.on('close', (code, signal) => {
+      resolve({ stdout, code: signal ? exitCodeForSignal(signal) : (code ?? 1) })
+    })
+  })
+}
+
+/**
+ * Runs `yarn --version` with the install's executable, env and cwd. Yarn picks a per-project
+ * version (`yarnPath`, Corepack), so only this check shows what the install will run.
+ * Returns an error message, or null for yarn classic. Fails closed.
+ */
+export async function yarnClassicProblem(args: string[]): Promise<string | null> {
+  let result: { stdout: string; code: number }
+  try {
+    result = await runVersionProcess(args)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    return `could not run \`yarn --version\` (${reason}); install yarn classic (v1) first.`
+  }
+  if (result.code !== 0) {
+    return `\`yarn --version\` exited with code ${result.code}; AuPM cannot tell the yarn version.`
+  }
+  const version = result.stdout.trim()
+  if (YARN_CLASSIC_VERSION.test(version)) return null
+  const major = /^(\d+)\.\d+\.\d+/.exec(version)
+  if (major !== null && Number(major[1]) >= 2) {
+    return `yarn ${version} is not yarn classic. ${YARN_BERRY_MESSAGE}`
+  }
+  return `\`yarn --version\` printed "${version}", not a yarn classic version (1.x.y).`
 }
 
 /** Reads the four counts out of an attest_lockfile outcome. */
@@ -158,7 +221,7 @@ export async function printPostInstallSummary(
 }
 
 /**
- * Runs `aupm [pnpm|npx] <args>` end to end: strips AuPM's own flags, runs the
+ * Runs `aupm [pnpm|npx|yarn] <args>` end to end: strips AuPM's own flags, runs the
  * tool against the AuPM registry with its argv and exit code passed through
  * unchanged, and — only after a successful install-like command — prints
  * the lockfile summary. A malformed `AUPM_DONATE` or config file exits 2
@@ -181,6 +244,13 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error
       console.error(`aupm: ${error.message}`)
+      return 2
+    }
+  }
+  if (tool === 'yarn') {
+    const problem = await yarnClassicProblem(npmArgs)
+    if (problem !== null) {
+      console.error(`aupm: ${problem}`)
       return 2
     }
   }

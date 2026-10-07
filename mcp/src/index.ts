@@ -58,7 +58,9 @@ server.tool(
   {
     lockfilePath: z
       .string()
-      .describe('Path to a package-lock.json or a pnpm-lock.yaml (lockfileVersion 9.0) on disk'),
+      .describe(
+        'Path to a package-lock.json, a pnpm-lock.yaml (lockfileVersion 9.0) or a yarn.lock (yarn classic v1) on disk',
+      ),
     allowDonation: z
       .boolean()
       .optional()

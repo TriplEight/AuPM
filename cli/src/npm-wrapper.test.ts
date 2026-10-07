@@ -668,3 +668,154 @@ describe('runWrapper donate setting', () => {
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
   })
 })
+
+describe('runWrapper with yarn', () => {
+  let cwd: string
+  let originalCwd: string
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-yarn-wrapper-test-'))
+    originalCwd = process.cwd()
+    process.chdir(cwd)
+    vi.mocked(spawn).mockReset()
+    vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873')
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    process.chdir(originalCwd)
+    fs.rmSync(cwd, { recursive: true, force: true })
+  })
+
+  type VersionStep = { stdout?: string; code?: number; error?: Error }
+
+  /** The first spawn is `yarn --version`; the second is the install. */
+  function mockYarn(version: VersionStep, installExit = 0): void {
+    let calls = 0
+    vi.mocked(spawn).mockImplementation((() => {
+      const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter }
+      child.stdout = new EventEmitter()
+      calls += 1
+      const isVersion = calls % 2 === 1
+      queueMicrotask(() => {
+        if (isVersion && version.error) {
+          child.emit('error', version.error)
+        } else if (isVersion) {
+          child.stdout.emit('data', Buffer.from(version.stdout ?? ''))
+          child.emit('close', version.code ?? 0, null)
+        } else {
+          child.emit('exit', installExit, null)
+        }
+      })
+      return child
+    }) as never)
+  }
+
+  const attested = {
+    status: 'attested',
+    summary: { total: 1, reviewed: 0, unreviewed: 1, unresolvable: 0, integrityMismatch: 0 },
+    attestation: {},
+    settlement: null,
+  } as const
+
+  async function runYarn(argv: string[]): Promise<number> {
+    const { runWrapper } = await import('./npm-wrapper.js')
+    return runWrapper('yarn', argv)
+  }
+
+  it('checks the version first with the install env and cwd, then installs', async () => {
+    mockYarn({ stdout: '1.22.22\n' })
+    const exitCode = await runYarn(['add', 'ms'])
+
+    expect(exitCode).toBe(0)
+    const env = expect.objectContaining({ npm_config_registry: 'http://localhost:4873' })
+    expect(spawn).toHaveBeenNthCalledWith(1, 'yarn', ['--version'], {
+      stdio: ['ignore', 'pipe', 'inherit'],
+      env,
+    })
+    expect(spawn).toHaveBeenNthCalledWith(2, 'yarn', ['add', 'ms'], { stdio: 'inherit', env })
+  })
+
+  it('passes --cwd to the version check so a project-local yarn is the one checked', async () => {
+    mockYarn({ stdout: '1.22.22' })
+    await runYarn(['--cwd', 'app', 'install'])
+    expect(vi.mocked(spawn).mock.calls[0][1]).toEqual(['--cwd', 'app', '--version'])
+    await runYarn(['--cwd=app', 'install'])
+    expect(vi.mocked(spawn).mock.calls[2][1]).toEqual(['--cwd=app', '--version'])
+  })
+
+  it('exits 2 for berry without installing, attesting or paying', async () => {
+    fs.writeFileSync(path.join(cwd, 'yarn.lock'), '# yarn lockfile v1\n')
+    mockYarn({ stdout: '4.5.0\n' })
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(await runYarn(['install', '--donate'])).toBe(2)
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('npmRegistryServer'))
+    errSpy.mockRestore()
+  })
+
+  it.each([
+    ['a missing executable', { error: new Error('spawn yarn ENOENT') }],
+    ['a non-zero exit', { stdout: '1.22.22', code: 1 }],
+    ['empty output', { stdout: '' }],
+    ['v1', { stdout: 'v1' }],
+    ['1.x', { stdout: '1.x' }],
+    ['abc', { stdout: 'abc' }],
+  ] as [string, VersionStep][])('exits 2 and never installs on %s', async (_label, step) => {
+    mockYarn(step)
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    expect(await runYarn(['install'])).toBe(2)
+
+    expect(spawn).toHaveBeenCalledTimes(1)
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    errSpy.mockRestore()
+  })
+
+  it('strips the AuPM flags and passes the yarn exit code through, with no attest', async () => {
+    fs.writeFileSync(path.join(cwd, 'yarn.lock'), '# yarn lockfile v1\n')
+    mockYarn({ stdout: '1.22.22' }, 5)
+
+    const exitCode = await runYarn(['add', 'ms', '--donate', '--attest-out', 'out.json'])
+
+    expect(exitCode).toBe(5)
+    expect(spawn).toHaveBeenNthCalledWith(2, 'yarn', ['add', 'ms'], expect.anything())
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+  })
+
+  it.each([[['install']], [['add', 'ms']], [[]], [['--frozen-lockfile']]])(
+    'attests yarn.lock after yarn %j',
+    async (argv) => {
+      fs.writeFileSync(path.join(cwd, 'yarn.lock'), '# yarn lockfile v1\n')
+      vi.mocked(attestLockfileTool.handler).mockResolvedValue(attested)
+      mockYarn({ stdout: '1.22.22' })
+      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+
+      await runYarn(argv)
+
+      expect(attestLockfileTool.handler).toHaveBeenCalledWith({
+        lockfilePath: path.join(cwd, 'yarn.lock'),
+        allowDonation: false,
+      })
+      logSpy.mockRestore()
+    },
+  )
+
+  it.each([[['run', 'build']], [['--version']], [['info', 'ms']], [['remove', 'ms']]])(
+    'does not attest after yarn %j',
+    async (argv) => {
+      fs.writeFileSync(path.join(cwd, 'yarn.lock'), '# yarn lockfile v1\n')
+      mockYarn({ stdout: '1.22.22' })
+
+      await runYarn(argv)
+
+      expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    },
+  )
+})

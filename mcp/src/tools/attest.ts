@@ -1,5 +1,6 @@
 // mcp/src/tools/attest.ts
 import fs from 'node:fs'
+import path from 'node:path'
 import {
   fetchWithDonation,
   PRICE_PER_ENTRY_MICRO,
@@ -9,6 +10,7 @@ import {
 import {
   countEntriesForFile,
   isPnpmLockfilePath,
+  isYarnLockfilePath,
   PNPM_LOCKFILE_MAX_BYTES,
 } from '../lockfile-entries.js'
 import { proxyUrl } from '../proxy-url.js'
@@ -56,8 +58,21 @@ function retryDelayMs(res: Response): number {
   return Math.min(valid ? seconds : DEFAULT_RETRY_AFTER_SECONDS, MAX_RETRY_AFTER_SECONDS) * 1000
 }
 
-function failureMessage(status: number, isPnpm: boolean): string {
-  const what = isPnpm ? 'pnpm-lock.yaml' : 'lockfile'
+type LockfileKind = 'json' | 'pnpm' | 'yarn'
+
+const CONTENT_TYPES: Record<LockfileKind, string> = {
+  json: 'application/json',
+  pnpm: 'application/yaml',
+  yarn: 'text/plain',
+}
+
+function lockfileKind(lockfilePath: string): LockfileKind {
+  if (isPnpmLockfilePath(lockfilePath)) return 'pnpm'
+  return isYarnLockfilePath(lockfilePath) ? 'yarn' : 'json'
+}
+
+function failureMessage(status: number, kind: LockfileKind): string {
+  const what = kind === 'json' ? 'lockfile' : kind === 'pnpm' ? 'pnpm-lock.yaml' : 'yarn.lock'
   if (status === 413)
     return `Lockfile attest failed: 413, the server refused the ${what} as too large`
   if (status === 422) {
@@ -96,8 +111,8 @@ function decodeWithheld(attestation: unknown): number {
 export const attestLockfileTool = {
   name: 'attest_lockfile',
   description:
-    'Request a signed in-toto attestation for a whole package-lock.json or pnpm-lock.yaml ' +
-    '(lockfileVersion 9.0, chosen by file name) via AuPM. Free ' +
+    'Request a signed in-toto attestation for a whole package-lock.json, pnpm-lock.yaml ' +
+    '(lockfileVersion 9.0) or yarn.lock (yarn classic v1; chosen by file name) via AuPM. Free ' +
     'when the tree has zero reviewed packages. Pass allowDonation: true to pay for and ' +
     'receive the full attestation. Without allowDonation, the reviewed entries are ' +
     "withheld and the result reports status: 'donation_required' with the partial " +
@@ -112,10 +127,10 @@ export const attestLockfileTool = {
     allowDonation?: boolean
   }): Promise<AttestLockfileResult> {
     const lockfileBytes = fs.readFileSync(lockfilePath)
-    const isPnpm = isPnpmLockfilePath(lockfilePath)
-    if (isPnpm && lockfileBytes.byteLength > PNPM_LOCKFILE_MAX_BYTES) {
+    const kind = lockfileKind(lockfilePath)
+    if (kind !== 'json' && lockfileBytes.byteLength > PNPM_LOCKFILE_MAX_BYTES) {
       throw new Error(
-        `pnpm-lock.yaml is ${lockfileBytes.byteLength} bytes; the server accepts at most ` +
+        `${path.basename(lockfilePath)} is ${lockfileBytes.byteLength} bytes; the server accepts at most ` +
           `${PNPM_LOCKFILE_MAX_BYTES} bytes`,
       )
     }
@@ -126,7 +141,7 @@ export const attestLockfileTool = {
         lockfileAttestUrl(),
         {
           method: 'POST',
-          headers: { 'content-type': isPnpm ? 'application/yaml' : 'application/json' },
+          headers: { 'content-type': CONTENT_TYPES[kind] },
           body: lockfileBytes,
         },
         allowDonation,
@@ -152,7 +167,7 @@ export const attestLockfileTool = {
 
     const res = result.response
     if (!res.ok) {
-      throw new Error(failureMessage(res.status, isPnpm))
+      throw new Error(failureMessage(res.status, kind))
     }
 
     const body: unknown = await res.json()
