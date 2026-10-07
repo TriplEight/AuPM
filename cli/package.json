@@ -1,6 +1,6 @@
 {
   "name": "aupm-cli",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "AGPL-3.0-only",
   "description": "AuPM command line: install through the AuPM registry overlay, attest lockfiles, verify offline",
   "repository": {

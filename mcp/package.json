@@ -1,6 +1,6 @@
 {
   "name": "aupm-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "AGPL-3.0-only",
   "description": "MCP server for AuPM: check and install npm packages with human review status",
   "repository": {
@@ -68,7 +68,10 @@
         "types": "./dist/donor-key.d.ts",
         "default": "./dist/donor-key.js"
       },
-      "./lockfile-entries": "./src/lockfile-entries.ts",
+      "./lockfile-entries": {
+        "types": "./dist/lockfile-entries.d.ts",
+        "default": "./dist/lockfile-entries.js"
+      },
       "./proxy-url": {
         "types": "./dist/proxy-url.d.ts",
         "default": "./dist/proxy-url.js"
