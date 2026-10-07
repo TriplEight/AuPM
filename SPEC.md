@@ -916,8 +916,20 @@ against the `pnpm-lock.yaml` subject of the statement. `aupm <npm args>` covers 
 **yarn classic.** The proxy half is built (ADR 0018): `POST /v1/attest/lockfile` parses a yarn
 classic (v1) `yarn.lock` when the request has `Content-Type: text/plain` and the initial comment
 block holds the line `# yarn lockfile v1` (§12.3). The route refuses yarn berry with a 400.
+The client half is built.
+The client runs `aupm yarn <args>` for yarn classic (v1), as `aupm pnpm` runs pnpm. It removes
+`--donate`, `--no-donate` and `--attest-out`, keeps the yarn exit code, and sets the registry
+in the child environment. Before the install, it runs `yarn --version` with the same
+executable, environment and working directory. It accepts only a `1.x.y` version. A berry
+version (2 or later), a failed check or a missing executable ends with exit 2. No install
+runs and no donation is made. After `install`, `add` or a bare `yarn` ends with exit 0, the
+client reads `yarn.lock` once and sends exactly those bytes with `Content-Type: text/plain`.
+The MCP tool `attest_lockfile` and `aupm attest` accept `yarn.lock` by file name. They count
+one entry for each block, so grouped selectors count once. They refuse a berry `yarn.lock`
+before any request. `aupm verify --lockfile yarn.lock` requires a subject named `yarn.lock`
+and checks its sha256 digest offline.
 
-**Install summary.** After an install-like command, `aupm install`, `aupm pnpm` and
+**Install summary.** After an install-like command, `aupm install`, `aupm pnpm`, `aupm yarn` and
 `aupm attest` print one summary of the same shape with and without `--donate`. It has four
 counts from the server summary: audited, not audited, integrity mismatch, unresolvable.
 The CLI never withholds a mismatch or an unresolvable entry. With donation, it prints
