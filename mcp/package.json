@@ -1,6 +1,6 @@
 {
   "name": "aupm-mcp",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "license": "AGPL-3.0-only",
   "description": "MCP server for AuPM: check and install npm packages with human review status",
   "repository": {
