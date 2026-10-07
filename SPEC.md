@@ -94,7 +94,8 @@ AuPM is a **registry-compatible proxy overlay** in front of npm that adds:
 
 Adoption path: `registry=https://<domain>` in `.npmrc`, or the `aupm` CLI wrapper that adds it.
 No migration, no new tooling. **MVP client support is wrapper-only:** pnpm/yarn/bun plugins
-and x402-capable npm plugins are post-MVP.
+and x402-capable npm plugins are post-MVP. The proxy half attests a yarn classic (v1)
+`yarn.lock` (§12.3, ADR 0018). Yarn berry (v2 and later) is not accepted.
 
 ## 3. Threat model and security properties
 
@@ -619,7 +620,8 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 the Bazaar.
 
 At $0.001/download, volume requires thousands of developers to change `.npmrc` — the
-highest-friction ask AuPM has. `POST /v1/attest/lockfile` takes a `package-lock.json` or a `pnpm-lock.yaml` and returns
+highest-friction ask AuPM has. `POST /v1/attest/lockfile` takes a `package-lock.json`, a `pnpm-lock.yaml` or a yarn classic
+`yarn.lock` and returns
 a signed attestation for the whole tree; one integration in CI produces a call per PR. It
 matches Algorand's published use-case list ("paid endpoints for trust scores, proofs, audit
 trails… validation services before an agent or user takes action") and it is the SOC2 CC9.1 /
@@ -720,8 +722,9 @@ const routes = {
     // never reach the middleware (pre-middleware free paths).
     accepts: accepts(reviewedEntriesPrice),
     description:
-      'Signed in-toto attestation for every package in a package-lock.json or a ' +
-      "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml): " +
+      'Signed in-toto attestation for every package in a package-lock.json, a ' +
+      "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml) or a " +
+      'yarn classic v1 yarn.lock (send Content-Type: text/plain): ' +
       'human review tier, reviewer, tarball integrity match, and the Algorand ' +
       'txid anchoring each review. $0.001 per reviewed package; free when none is reviewed.',
     mimeType: 'application/json',
@@ -910,6 +913,10 @@ cap counts the keys of the top-level `packages` map. The client refuses a `pnpm-
 against the `pnpm-lock.yaml` subject of the statement. `aupm <npm args>` covers `npm install`,
 `i`, `ci`, and `add`; `aupm pnpm` covers `install`, `i` and `add`.
 
+**yarn classic.** The proxy half is built (ADR 0018): `POST /v1/attest/lockfile` parses a yarn
+classic (v1) `yarn.lock` when the request has `Content-Type: text/plain` and the initial comment
+block holds the line `# yarn lockfile v1` (§12.3). The route refuses yarn berry with a 400.
+
 **Install summary.** After an install-like command, `aupm install`, `aupm pnpm` and
 `aupm attest` print one summary of the same shape with and without `--donate`. It has four
 counts from the server summary: audited, not audited, integrity mismatch, unresolvable.
@@ -965,7 +972,7 @@ PAE with raw ed25519 (`@noble/ed25519`) using the 32-byte seed from the account 
 ```json
 {
   "_type": "https://in-toto.io/Statement/v1",
-  "subject": [{ "name": "package-lock.json" /* or "pnpm-lock.yaml" */, "digest": { "sha256": "<hex of exact request body bytes>" } }],
+  "subject": [{ "name": "package-lock.json" /* or "pnpm-lock.yaml" or "yarn.lock" */, "digest": { "sha256": "<hex of exact request body bytes>" } }],
   "predicateType": "https://<domain>/attestation/lockfile/v1",
   "predicate": {
     "issuer": "https://<domain>",
@@ -1002,11 +1009,38 @@ shape with one package.
   non-npm `tarball` resolution is `UNRESOLVABLE`. A duplicate key is a 400. The subject name is
   `pnpm-lock.yaml`, `predicate.format` is `"pnpm"`, and `predicate.lockfileVersion` is `"9.0"`.
   Any other content type takes the JSON path, with `predicate.format: "npm"`.
+- **yarn.lock, yarn classic v1 (ADR 0018):** `Content-Type: text/plain` (any parameters) selects the
+  yarn classic parser only when the initial comment block holds the exact line
+  `# yarn lockfile v1`. The block runs from the start of the body, after one optional BOM, up to the
+  first line that is neither empty nor a `#` comment. The line ending is LF or CRLF and is removed
+  before the comparison. The header text elsewhere in the body never selects classic.
+  - A body with a top-level `__metadata:` key (yarn berry) gets 400. The message names the accepted
+    formats: package-lock.json, pnpm-lock.yaml (lockfileVersion '9.0'), yarn.lock v1. A body with
+    both the classic header and `__metadata:` also gets 400. A `text/plain` body with neither
+    marker takes the JSON path unchanged.
+  - Once a body selects classic, every parse fault is a classic 400 that names the line number. It
+    never falls back to JSON. The faults are: an unterminated quote, a field outside a block, a block
+    with no `version`, a duplicate block header, and selectors of different packages in one block.
+  - One block is one entry. Grouped selectors are one entry. The name comes from the selectors, the
+    version from the `version` field, the integrity from `integrity` (null when absent).
+  - A `resolved` value is a registry source only when it is an `https:` URL on the exact host
+    `registry.npmjs.org` or `registry.yarnpkg.com`, with no user name, no password and no explicit
+    port, and a path that ends in `.tgz` (a `#<sha1>` fragment is allowed). Any other `resolved`
+    value, and a missing one, is `UNRESOLVABLE`. The server never fetches `resolved`. The host
+    `registry.yarnpkg.com` is an alias for source identity only. The full digest comparison always
+    applies.
+  - A missing, malformed, sha1-only or mismatching `integrity` on a reviewed entry is
+    `INTEGRITY_MISMATCH`, never reviewed. The server never replaces a missing digest with a registry
+    digest or with the stored review digest.
+  - The subject name is `yarn.lock`, `predicate.format` is `"yarn-classic"`, and
+    `predicate.lockfileVersion` is `"1"`.
 - **pnpm limits (ADR 0015):** body ≤ 2 MiB (`LOCKFILE_MAX_YAML_BYTES`, 413). The YAML parse runs
   in a worker thread with a 5 s limit (422 "too complex to parse in time"). One YAML parse runs
   at a time; a second YAML request gets 503 with `Retry-After`. All three answer before the 402.
+  The yarn classic parser (hand-written, linear time) runs in the same worker, under the same byte
+  cap, entry cap, time limit and one-parse-at-a-time rule, and the same status codes.
 - Limits: body ≤ 5 MB (JSON), ≤ 10,000 entries, `lockfileVersion` 2 or 3 (pnpm: `'9.0'` only, and the
-  400 message names it); otherwise 400
+  400 message names it; yarn: v1 only); otherwise 400
   (pre-middleware, before any 402 — §10.5). An empty body (§10.5) gets 402 first (ADR 0013).
 - **`predicate.packages` lists only reviewed, `INTEGRITY_MISMATCH`, and `UNRESOLVABLE` entries.**
   `summary` carries the counts; `predicate.absentMeans: "UNREVIEWED"`.

@@ -1,6 +1,6 @@
 // proxy/src/attest/yaml-parse.ts
 //
-// Parses a pnpm-lock.yaml body in a worker thread, so a slow or hostile body
+// Parses a pnpm-lock.yaml or yarn classic yarn.lock body in a worker thread, so a slow or hostile body
 // never blocks the event loop of a free public route (ADR 0015). At most one
 // parse runs in the process at a time. A parse that exceeds the time limit
 // is terminated.
@@ -12,7 +12,8 @@ export const YAML_PARSE_MEMORY_MB = 256
 
 export type YamlParseOutcome =
   | { kind: 'ok'; value: unknown }
-  | { kind: 'invalid' }
+  /** A syntax fault. `message` is set by the yarn classic parser and names the line. */
+  | { kind: 'invalid'; message?: string }
   /** The time limit passed, or the worker ran out of memory. */
   | { kind: 'too_complex' }
   /** Another parse is running. */
@@ -21,6 +22,8 @@ export type YamlParseOutcome =
   | { kind: 'error'; code: string; message: string }
 
 export interface YamlParseOptions {
+  /** `yarn-classic` selects the yarn.lock parser. Absent selects the pnpm YAML parser. */
+  format?: 'yarn-classic'
   timeoutMs?: number
   /** Test seam: a worker script other than the real parser. */
   workerUrl?: URL
@@ -53,7 +56,7 @@ export const parseYamlInWorker: YamlParser = (text, options = {}) => {
     let worker: Worker
     try {
       worker = new Worker(workerUrl, {
-        workerData: text,
+        workerData: { format: options.format, text },
         resourceLimits: { maxOldGenerationSizeMb: YAML_PARSE_MEMORY_MB },
       })
     } catch (error) {
@@ -74,8 +77,13 @@ export const parseYamlInWorker: YamlParser = (text, options = {}) => {
     }
     timer = setTimeout(() => settle({ kind: 'too_complex' }), timeoutMs)
 
-    worker.once('message', (message: { ok: boolean; value?: unknown }) => {
-      settle(message.ok ? { kind: 'ok', value: message.value } : { kind: 'invalid' })
+    worker.once('message', (message: { ok: boolean; value?: unknown; message?: string }) => {
+      if (message.ok) return settle({ kind: 'ok', value: message.value })
+      settle(
+        message.message === undefined
+          ? { kind: 'invalid' }
+          : { kind: 'invalid', message: message.message },
+      )
     })
     worker.once('error', (error: NodeJS.ErrnoException) => {
       if (settled) return
