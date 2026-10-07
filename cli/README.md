@@ -18,9 +18,11 @@ aupm            # prints usage
 ```bash
 aupm install ms@2.1.3 [--donate|--no-donate] [--attest-out <path>]   # npm against the AuPM registry
 aupm pnpm add ms@2.1.3 [--donate|--no-donate] [--attest-out <path>]  # pnpm against the AuPM registry
+aupm yarn add ms@2.1.3 [--donate|--no-donate] [--attest-out <path>]  # yarn classic (v1) against the AuPM registry
 aupm npx cowsay hi                                       # npx against the AuPM registry
 aupm attest package-lock.json [--donate|--no-donate] [--out <path>]  # one signed attestation per lockfile
 aupm attest pnpm-lock.yaml [--donate|--no-donate] [--out <path>]     # lockfileVersion 9.0, at most 2 MiB
+aupm attest yarn.lock [--donate|--no-donate] [--out <path>]          # yarn classic v1 only, at most 2 MiB
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
 aupm config set donate <true|false>                      # always donate, or never
 aupm config get donate                                   # effective value and its source
@@ -30,7 +32,10 @@ aupm donor status                                        # balances and the next
 ```
 
 After `install`, `i` and `add`, `aupm pnpm` attests `pnpm-lock.yaml` and prints the same summary
-line as `aupm install`. `aupm npx` has no lockfile: `--donate`, `--no-donate` and `--attest-out` exit 2. Any
+line as `aupm install`. After `install`, `add` and a bare `yarn`, `aupm yarn` attests `yarn.lock`.
+`aupm yarn` supports yarn classic (v1) only. Before it installs, it runs `yarn --version` with
+the same environment and directory. A yarn berry (2 or later) project, or any failed check,
+exits 2 before the install and before any donation. `aupm npx` has no lockfile: `--donate`, `--no-donate` and `--attest-out` exit 2. Any
 other first argument goes to npm unchanged. `aupm verify` checks the signed DSSE envelope
 offline. It makes no network call.
 
