@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_LOCKFILE = 'package-lock.json'
 const DEFAULT_OUTPUT = 'aupm-receipt.json'
 
-export const CLI_PACKAGE = 'aupm-cli@0.4.0'
+export const CLI_PACKAGE = 'aupm-cli@0.4.1'
 
 /** Print a GitHub Actions warning annotation. */
 export function warn(message) {
