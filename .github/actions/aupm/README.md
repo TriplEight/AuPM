@@ -157,8 +157,9 @@ Set `install: none` if the project does not use `npm ci`. The Action then
 skips the install and only checks the lockfile.
 
 A pnpm project can install against the AuPM registry with its own step.
-Donations need `package-lock.json`, because the server does not parse
-`pnpm-lock.yaml` yet.
+Then set `install: none` and `lockfile: pnpm-lock.yaml`. The Action checks
+the pnpm lockfile, and it donates on opt-in. The Action does not accept
+`yarn.lock` yet.
 
 ## What the Action does with the lockfile
 
