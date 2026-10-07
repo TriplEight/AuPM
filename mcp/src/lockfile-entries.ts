@@ -3,8 +3,8 @@
 // Counts the package entries in a lockfile body, so the CLI and the MCP
 // server compute the same client-side spend cap (SPEC.md §11.4) from one
 // place, instead of three separate copies. It handles package-lock.json
-// (JSON) and pnpm-lock.yaml (lockfileVersion '9.0'); the lockfile's file name
-// picks the format.
+// (JSON), pnpm-lock.yaml (lockfileVersion '9.0') and yarn.lock (yarn classic
+// v1); the lockfile's file name picks the format.
 import path from 'node:path'
 import { isMap, isScalar, parseDocument } from 'yaml'
 
@@ -12,6 +12,15 @@ export const PNPM_LOCKFILE_NAME = 'pnpm-lock.yaml'
 export const PNPM_LOCKFILE_VERSION = '9.0'
 /** The server answers 413 above this size, before it parses (ADR 0015). */
 export const PNPM_LOCKFILE_MAX_BYTES = 2 * 1024 * 1024
+
+export const YARN_LOCKFILE_NAME = 'yarn.lock'
+export const YARN_CLASSIC_HEADER = '# yarn lockfile v1'
+
+/** Shown for a yarn berry (v2+) lockfile or install. AuPM attests only yarn classic. */
+export const YARN_BERRY_MESSAGE =
+  'AuPM attests only yarn classic (v1) lockfiles. For a free install without an AuPM ' +
+  'attestation, set `npmRegistryServer: "<registry URL>"` in `.yarnrc.yml`. That install is ' +
+  'not verified by AuPM. (Classic uses `registry` in `.yarnrc`; `aupm yarn` sets it for you.)'
 
 /** Thrown when the body is not valid JSON or YAML, or not a supported lockfile shape. */
 export class LockfileParseError extends Error {}
@@ -106,12 +115,51 @@ export function countPnpmLockfileEntries(lockfileBytes: Uint8Array | Buffer | st
   return Object.keys(packages).length
 }
 
+/** True when the file name selects the yarn classic parser. */
+export function isYarnLockfilePath(lockfilePath: string): boolean {
+  return path.basename(lockfilePath) === YARN_LOCKFILE_NAME
+}
+
+function hasYarnClassicHeader(lines: string[]): boolean {
+  for (const line of lines) {
+    if (line === YARN_CLASSIC_HEADER) return true
+    if (line !== '' && !line.startsWith('#')) return false
+  }
+  return false
+}
+
+/**
+ * Counts the entries in a yarn classic `yarn.lock` body: one entry per block header
+ * (a column-0 line that ends in `:`). Grouped selectors in one header are one entry.
+ * A berry lockfile (`__metadata:` at column 0) is refused with the berry message.
+ * The header rule matches the server: the exact line `# yarn lockfile v1` in the
+ * initial comment block.
+ */
+export function countYarnLockfileEntries(lockfileBytes: Uint8Array | Buffer | string): number {
+  const text =
+    typeof lockfileBytes === 'string' ? lockfileBytes : Buffer.from(lockfileBytes).toString('utf8')
+  const lines = text
+    .replace(/^\uFEFF/, '')
+    .split('\n')
+    .map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line))
+
+  if (lines.some((line) => line.startsWith('__metadata:'))) {
+    throw new LockfileParseError(YARN_BERRY_MESSAGE)
+  }
+  if (!hasYarnClassicHeader(lines)) {
+    throw new LockfileParseError(
+      `yarn.lock has no "${YARN_CLASSIC_HEADER}" header line; AuPM accepts only yarn classic (v1)`,
+    )
+  }
+  return lines.filter((line) => line !== '' && !/^[#\s]/.test(line) && line.endsWith(':')).length
+}
+
 /** Counts the entries of a lockfile, choosing the parser by file name. */
 export function countEntriesForFile(
   lockfilePath: string,
   lockfileBytes: Uint8Array | Buffer | string,
 ): number {
-  return isPnpmLockfilePath(lockfilePath)
-    ? countPnpmLockfileEntries(lockfileBytes)
-    : countLockfileEntries(lockfileBytes)
+  if (isPnpmLockfilePath(lockfilePath)) return countPnpmLockfileEntries(lockfileBytes)
+  if (isYarnLockfilePath(lockfilePath)) return countYarnLockfileEntries(lockfileBytes)
+  return countLockfileEntries(lockfileBytes)
 }
