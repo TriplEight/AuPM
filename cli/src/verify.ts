@@ -21,6 +21,12 @@ import { basename } from 'node:path'
 import * as ed from '@noble/ed25519'
 
 const PNPM_LOCKFILE_NAME = 'pnpm-lock.yaml'
+const YARN_LOCKFILE_NAME = 'yarn.lock'
+
+/** These lockfiles must match a subject of their own name. */
+function isNamedSubjectLockfile(name: string): boolean {
+  return name === PNPM_LOCKFILE_NAME || name === YARN_LOCKFILE_NAME
+}
 
 const PAE_PREFIX = 'DSSEv1'
 const SP = ' '
@@ -195,11 +201,16 @@ export async function verifySignatures(
   return results
 }
 
+function subjectNameFor(lockfilePath: string): string {
+  const name = basename(lockfilePath)
+  return isNamedSubjectLockfile(name) ? name : 'package-lock.json'
+}
+
 /**
  * Checks the sha256 of `lockfileBytes` (the raw file bytes) against the
  * subject digest in the envelope's Statement. Fails if no subject carries
  * a sha256 digest, or if the digests differ. `lockfileName` picks the subject:
- * `pnpm-lock.yaml` requires a subject of that name.
+ * `pnpm-lock.yaml` and `yarn.lock` require a subject of that name.
  */
 export function verifyLockfileDigest(
   envelope: Envelope,
@@ -216,20 +227,19 @@ export function verifyLockfileDigest(
   const named = statement.subject?.find(
     (entry) => entry.name === lockfileName && typeof entry.digest?.sha256 === 'string',
   )
-  // A pnpm-lock.yaml must match its own subject. Only the package-lock.json
+  // A pnpm-lock.yaml or yarn.lock must match its own subject. Only the package-lock.json
   // check accepts any sha256 subject (older attestations).
   const subject =
     named ??
-    (lockfileName === PNPM_LOCKFILE_NAME
+    (isNamedSubjectLockfile(lockfileName)
       ? undefined
       : statement.subject?.find((entry) => typeof entry.digest?.sha256 === 'string'))
   if (!subject) {
     return {
       ok: false,
-      line:
-        lockfileName === PNPM_LOCKFILE_NAME
-          ? `lockfile digest: FAIL - statement has no ${PNPM_LOCKFILE_NAME} subject digest`
-          : 'lockfile digest: FAIL - statement has no sha256 subject digest',
+      line: isNamedSubjectLockfile(lockfileName)
+        ? `lockfile digest: FAIL - statement has no ${lockfileName} subject digest`
+        : 'lockfile digest: FAIL - statement has no sha256 subject digest',
     }
   }
   const expected = subject.digest.sha256
@@ -366,7 +376,7 @@ export async function runVerify(argv: string[]): Promise<number> {
     const result = verifyLockfileDigest(
       envelope,
       new Uint8Array(lockfileBytes),
-      basename(args.lockfilePath) === PNPM_LOCKFILE_NAME ? PNPM_LOCKFILE_NAME : 'package-lock.json',
+      subjectNameFor(args.lockfilePath),
     )
     console.log(result.line)
     if (!result.ok) allOk = false

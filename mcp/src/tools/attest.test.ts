@@ -559,3 +559,61 @@ packages:
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 })
+
+describe('attest_lockfile with a yarn.lock', () => {
+  const YARN_BODY = `# yarn lockfile v1
+
+
+"ms@^2.0.0", ms@^2.1.3:
+  version "2.1.3"
+  resolved "https://registry.yarnpkg.com/ms/-/ms-2.1.3.tgz#abc"
+  integrity sha512-ms
+`
+  let dir: string
+  let yarnLockPath: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-yarn-test-'))
+    yarnLockPath = path.join(dir, 'yarn.lock')
+    fs.writeFileSync(yarnLockPath, YARN_BODY)
+    process.env.AUPM_PROXY_URL = 'http://localhost:4873'
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    delete process.env.AUPM_PROXY_URL
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('sends text/plain and the exact file bytes', async () => {
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+      expect(request.headers.get('content-type')).toBe('text/plain')
+      expect(await request.text()).toBe(YARN_BODY)
+      return new Response(
+        JSON.stringify({
+          summary: { total: 1, reviewed: 0, unreviewed: 1, unresolvable: 0, integrityMismatch: 0 },
+          attestation: attestationWithWithheld(0),
+        }),
+        { status: 200 },
+      )
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    const result = await attestLockfileTool.handler({ lockfilePath: yarnLockPath })
+
+    expect(result.status).toBe('attested')
+    expect(mockFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a berry yarn.lock before any request', async () => {
+    fs.writeFileSync(yarnLockPath, '__metadata:\n  version: 8\n')
+    const mockFetch = vi.fn()
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(attestLockfileTool.handler({ lockfilePath: yarnLockPath })).rejects.toThrow(
+      /only yarn classic/,
+    )
+    expect(mockFetch).not.toHaveBeenCalled()
+  })
+})
