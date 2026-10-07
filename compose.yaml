@@ -70,11 +70,19 @@ services:
       - crediter_mnemonic
       - attest_signing_key
     ports:
-      - "${PORT:-4873}:4873"
+      # Loopback by default: the deploy front door is a cloudflared tunnel on
+      # the host (or a local dev browser), never a public bind. A wider bind
+      # must be an explicit override, not the default.
+      - "127.0.0.1:${PORT:-4873}:4873"
     volumes:
       - aupm-db:/data
       - ${AUPM_BACKUP_HOST_DIR:?set AUPM_BACKUP_HOST_DIR in .env or stack.env to the host backup directory}:/backup
     restart: unless-stopped
+    # Plain Node listener: no Linux capabilities and no privilege escalation
+    # needed; drop both rather than carry the defaults.
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
 
 secrets:
   crediter_mnemonic:
