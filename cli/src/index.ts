@@ -10,7 +10,7 @@ const USAGE_LINES = [
   '  aupm npx <npx args>                 runs npx against the AuPM registry (no --donate)',
   '  aupm attest <lockfile> [--donate|--no-donate] [--out <path>]',
   '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
-  '  aupm donor init      create a donor key and show the next steps',
+  '  aupm donor init [--yes]  create a donor key; on a terminal, guide the steps (--yes: print them)',
   '  aupm donor optin     opt the donor in to USDC (one check, no waiting)',
   '  aupm donor [status]  show the balances and the next step',
   '  aupm config set donate <true|false>   always donate (or never) without the flag',
