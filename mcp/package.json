@@ -68,7 +68,10 @@
         "types": "./dist/donor-key.d.ts",
         "default": "./dist/donor-key.js"
       },
-      "./lockfile-entries": "./src/lockfile-entries.ts",
+      "./lockfile-entries": {
+        "types": "./dist/lockfile-entries.d.ts",
+        "default": "./dist/lockfile-entries.js"
+      },
       "./proxy-url": {
         "types": "./dist/proxy-url.d.ts",
         "default": "./dist/proxy-url.js"
