@@ -85,3 +85,29 @@ describe('parseYamlInWorker: server faults', () => {
     }
   })
 })
+
+describe('parseYamlInWorker: yarn classic', () => {
+  const yarnText = '# yarn lockfile v1\n\nms@2.1.3:\n  version "2.1.3"\n  integrity sha512-ms\n'
+
+  test('parses a yarn.lock to entries', async () => {
+    const outcome = await parseYamlInWorker(yarnText, { format: 'yarn-classic' })
+    expect(outcome).toEqual({
+      kind: 'ok',
+      value: [{ name: 'ms', version: '2.1.3', integrity: 'sha512-ms', resolved: null }],
+    })
+  })
+
+  test('a fault is invalid and the message names the line', async () => {
+    const outcome = await parseYamlInWorker('ms@1:\n  integrity x\n', { format: 'yarn-classic' })
+    expect(outcome).toEqual({ kind: 'invalid', message: expect.stringContaining('line 1') })
+  })
+
+  test('a parse that passes the time limit is too_complex', async () => {
+    const outcome = await parseYamlInWorker(yarnText, {
+      format: 'yarn-classic',
+      timeoutMs: 50,
+      workerUrl: hangWorker,
+    })
+    expect(outcome).toEqual({ kind: 'too_complex' })
+  })
+})

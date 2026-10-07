@@ -11,7 +11,7 @@
 // parallel test files race on the same physical database and writes from
 // one file can be wiped by another file's beforeEach mid-test.
 
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -1388,5 +1388,165 @@ describe('empty attestation request (402 first)', () => {
     })
     expect(paid.status).toBe(400)
     expect(settle).not.toHaveBeenCalled()
+  })
+})
+
+// L17a: a yarn classic yarn.lock on the lockfile route (ADR 0018).
+describe('POST /v1/attest/lockfile with a yarn classic yarn.lock', () => {
+  const URL_PATH = '/v1/attest/lockfile'
+  const YARN_HEADER = '# yarn lockfile v1\n\n'
+
+  function yarnBlock(name: string, integrity: string, resolvedHost = 'registry.yarnpkg.com') {
+    return (
+      `${name}@^1.0.0:\n  version "1.0.0"\n` +
+      `  resolved "https://${resolvedHost}/${name}/-/${name}-1.0.0.tgz#abc"\n` +
+      `  integrity ${integrity}\n`
+    )
+  }
+
+  function yarnLock(blocks: string[]) {
+    return `${YARN_HEADER}${blocks.join('\n')}`
+  }
+
+  function post(body: string, headers: Record<string, string> = {}, application = app) {
+    return application.request(URL_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain', ...headers },
+      body,
+    })
+  }
+
+  function review(...names: string[]) {
+    for (const name of names) {
+      setStatus(name, '1.0.0', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
+    }
+  }
+
+  async function statementOf(res: Response) {
+    const body = (await res.json()) as { attestation: { payload: string }; summary: unknown }
+    return JSON.parse(Buffer.from(body.attestation.payload, 'base64').toString('utf8')) as {
+      subject: Array<{ name: string; digest: { sha256: string } }>
+      predicate: {
+        format: string
+        packages: Array<{ name: string; tier: string }>
+        withheld: number
+      }
+    }
+  }
+
+  test('3 reviewed entries quote 3,000 microUSDC; 402 without payment', async () => {
+    review('pkg-a', 'pkg-b', 'pkg-c')
+    const res = await post(
+      yarnLock(['pkg-a', 'pkg-b', 'pkg-c', 'pkg-d'].map((n) => yarnBlock(n, REVIEWED_INTEGRITY))),
+    )
+    expect(res.status).toBe(402)
+    const required = decodePaymentRequiredHeader(
+      res.headers.get('PAYMENT-REQUIRED') as string,
+    ) as unknown as { accepts: Array<{ amount?: string }> }
+    expect(required.accepts[0]?.amount).toBe('3000')
+  })
+
+  test('0 reviewed entries is a free 200 with subject yarn.lock and the body sha256', async () => {
+    const body = yarnLock([yarnBlock('pkg-a', REVIEWED_INTEGRITY)])
+    const res = await post(body)
+    expect(res.status).toBe(200)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    const statement = await statementOf(res)
+    expect(statement.subject[0]?.name).toBe('yarn.lock')
+    expect(statement.subject[0]?.digest.sha256).toBe(
+      createHash('sha256').update(body).digest('hex'),
+    )
+    expect(statement.predicate.format).toBe('yarn-classic')
+  })
+
+  test('X-AuPM-Donate: 0 is a free partial that keeps INTEGRITY_MISMATCH and UNRESOLVABLE', async () => {
+    review('pkg-a', 'pkg-bad')
+    const res = await post(
+      yarnLock([
+        yarnBlock('pkg-a', REVIEWED_INTEGRITY),
+        yarnBlock('pkg-bad', `sha512-${'B'.repeat(86)}==`),
+        yarnBlock('pkg-evil', REVIEWED_INTEGRITY, 'registry.npmjs.org.evil.com'),
+      ]),
+      { 'X-AuPM-Donate': '0' },
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    const { predicate } = await statementOf(res)
+    const tiers = Object.fromEntries(predicate.packages.map((p) => [p.name, p.tier]))
+    expect(tiers).toEqual({ 'pkg-bad': 'INTEGRITY_MISMATCH', 'pkg-evil': 'UNRESOLVABLE' })
+    expect(predicate.withheld).toBe(1)
+  })
+
+  test('a reviewed entry with a missing integrity is charged for nothing and listed', async () => {
+    review('pkg-a')
+    const res = await post(
+      yarnLock([
+        `pkg-a@^1.0.0:\n  version "1.0.0"\n  resolved "https://registry.npmjs.org/a.tgz"\n`,
+      ]),
+    )
+    expect(res.status).toBe(200)
+    const { predicate } = await statementOf(res)
+    expect(predicate.packages).toEqual([expect.objectContaining({ tier: 'INTEGRITY_MISMATCH' })])
+  })
+
+  test('a berry body is a 400 that names the accepted formats', async () => {
+    const res = await post('__metadata:\n  version: 8\n\n"a@npm:1":\n  version: 1.0.0\n')
+    expect(res.status).toBe(400)
+    const { error } = (await res.json()) as { error: string }
+    expect(error).toContain('yarn.lock v1')
+    expect(error).toContain('pnpm-lock.yaml')
+    expect(error).toContain('package-lock.json')
+  })
+
+  test('the classic header with a berry marker is a 400', async () => {
+    const res = await post(`${YARN_HEADER}__metadata:\n  version: 8\n`)
+    expect(res.status).toBe(400)
+  })
+
+  test('the header text outside the comment block takes the JSON path', async () => {
+    const res = await post('a@1:\n  version "1"\n# yarn lockfile v1\n')
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toBe('lockfile is not valid JSON')
+  })
+
+  test('a malformed classic lockfile is a 400 with a line number, never JSON fallback', async () => {
+    const res = await post(`${YARN_HEADER}a@1:\n  integrity sha512-x\n`)
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as { error: string }).error).toContain('line 3')
+  })
+
+  test('a text/plain JSON body keeps the JSON path', async () => {
+    review('ms')
+    const res = await post(
+      JSON.stringify({
+        lockfileVersion: 3,
+        packages: {
+          'node_modules/ms': {
+            version: '1.0.0',
+            resolved: 'https://registry.npmjs.org/ms/-/ms-1.0.0.tgz',
+            integrity: REVIEWED_INTEGRITY,
+          },
+        },
+      }),
+    )
+    expect(res.status).toBe(402)
+  })
+
+  test('a body over the byte cap is 413', async () => {
+    const res = await post(`${YARN_HEADER}${' '.repeat(2 * 1024 * 1024)}`)
+    expect(res.status).toBe(413)
+  })
+
+  test.each([
+    ['too_complex', 422, null],
+    ['busy', 503, '3'],
+  ] as const)('a %s parse is %i before any 402', async (kind, status, retryAfter) => {
+    review('pkg-a')
+    const { httpServer: server } = buildHttpServer(stubFacilitatorClient(), FEE_PAYER)
+    const seamApp = createApp(server, { yamlParser: async () => ({ kind }) })
+    const res = await post(yarnLock([yarnBlock('pkg-a', REVIEWED_INTEGRITY)]), {}, seamApp)
+    expect(res.status).toBe(status)
+    expect(res.headers.get('Retry-After')).toBe(retryAfter)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
   })
 })

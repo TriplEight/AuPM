@@ -106,7 +106,8 @@ export function buildX402Descriptor(issuer: string = ISSUER): X402Descriptor {
 const BYTES_PER_MIB = 1024 * 1024
 const LOCKFILE_LIMITS_TEXT =
   `package-lock.json lockfileVersion 2 or 3, body at most ${LOCKFILE_MAX_BYTES / BYTES_PER_MIB} MiB; ` +
-  `pnpm-lock.yaml lockfileVersion '9.0', body at most ${LOCKFILE_MAX_YAML_BYTES / BYTES_PER_MIB} MiB, ` +
+  `pnpm-lock.yaml lockfileVersion '9.0' and yarn.lock v1 (yarn classic), ` +
+  `body at most ${LOCKFILE_MAX_YAML_BYTES / BYTES_PER_MIB} MiB, ` +
   `at most ${groupDigits(LOCKFILE_MAX_ENTRIES)} entries`
 
 const SUMMARY_SECTION = `# ${MERCHANT_NAME}
@@ -189,7 +190,8 @@ curl -sS "${issuer}/v1/attest?name=@babel/core&version=7.25.2"
 ### POST /v1/attest/lockfile
 
 Body: the \`package-lock.json\` bytes, unchanged. For \`pnpm-lock.yaml\`, send the file bytes with
-\`Content-Type: application/yaml\`.
+\`Content-Type: application/yaml\`. For a yarn classic (v1) \`yarn.lock\`, send the file bytes with
+\`Content-Type: text/plain\`. Yarn berry (v2 and later) is not accepted.
 Limits: ${LOCKFILE_LIMITS_TEXT}.
 Price: ${PRICE_TEXT} (${PRICE_MICRO_TEXT}) per reviewed entry. 0 reviewed entries: free.
 There is no cap and no discount.
@@ -199,6 +201,8 @@ curl -sS -X POST "${issuer}/v1/attest/lockfile" \\
   -H 'content-type: application/json' --data-binary @package-lock.json
 curl -sS -X POST "${issuer}/v1/attest/lockfile" \\
   -H 'content-type: application/yaml' --data-binary @pnpm-lock.yaml
+curl -sS -X POST "${issuer}/v1/attest/lockfile" \\
+  -H 'content-type: text/plain' --data-binary @yarn.lock
 \`\`\`
 
 ### Payment flow

@@ -52,6 +52,12 @@ A free signed attestation that withholds the reviewed entries of a lockfile and 
 it withholds. It always lists integrity mismatches and unresolvable entries.
 _Avoid_: free attestation, preview
 
+**Accepted lockfile formats**:
+The formats that `POST /v1/attest/lockfile` attests: `package-lock.json`, `pnpm-lock.yaml`
+(lockfileVersion '9.0') and the yarn classic (v1) `yarn.lock`. Yarn berry (v2 and later) is not
+accepted (ADR 0018).
+_Avoid_: supported lockfiles
+
 **Free user**:
 A caller who uses only the free paths: any tarball without donation opt-in, unreviewed
 attestations, partial attestations, and lockfiles with no reviewed package.

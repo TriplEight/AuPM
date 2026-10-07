@@ -1,8 +1,8 @@
 // proxy/src/attest/lockfile.ts
 //
-// Parses and classifies a `package-lock.json` (lockfileVersion 2 or 3) or a
-// `pnpm-lock.yaml` (lockfileVersion '9.0') for the POST /v1/attest/lockfile
-// route. Both formats feed one classifier. Pure logic, no HTTP and no signing —
+// Parses and classifies a `package-lock.json` (lockfileVersion 2 or 3), a
+// `pnpm-lock.yaml` (lockfileVersion '9.0') or a yarn classic `yarn.lock` (v1)
+// for the POST /v1/attest/lockfile route. All formats feed one classifier. Pure logic, no HTTP and no signing —
 // proxy/src/routes/attest.ts wires this into the request/response cycle.
 //
 // CAUTION: `sha256` below is computed over the exact raw request body bytes
@@ -11,10 +11,11 @@
 
 import { createHash } from 'node:crypto'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from '../status.js'
-import { parseYamlInWorker, type YamlParser } from './yaml-parse.js'
+import { parseYamlInWorker, type YamlParseOutcome, type YamlParser } from './yaml-parse.js'
+import type { YarnClassicEntry } from './yarn-classic-parse.mjs'
 
 export const LOCKFILE_MAX_BYTES = 5 * 1024 * 1024
-/** Byte cap for a pnpm-lock.yaml body. YAML parsing is slower than JSON (ADR 0015). */
+/** Byte cap for a pnpm-lock.yaml or yarn.lock body. Text parsing is slower than JSON (ADR 0015). */
 export const LOCKFILE_MAX_YAML_BYTES = 2 * 1024 * 1024
 export const LOCKFILE_MAX_ENTRIES = 10_000
 
@@ -50,16 +51,18 @@ export interface ReviewedPackageRef {
 }
 
 /** The lockfile format the route parsed. It selects the statement subject name. */
-export type LockfileFormat = 'npm' | 'pnpm'
+export type LockfileFormat = 'npm' | 'pnpm' | 'yarn-classic'
 
 export const PNPM_LOCKFILE_VERSION = '9.0'
+/** The yarn classic lockfile version, from the `# yarn lockfile v1` header. */
+export const YARN_CLASSIC_LOCKFILE_VERSION = '1'
 
 /** Retry-After for a YAML request refused because another parse is running. */
 export const YAML_BUSY_RETRY_AFTER_SECONDS = 3
 
 export interface LockfileAnalysis {
   format: LockfileFormat
-  lockfileVersion: 2 | 3 | typeof PNPM_LOCKFILE_VERSION
+  lockfileVersion: 2 | 3 | typeof PNPM_LOCKFILE_VERSION | typeof YARN_CLASSIC_LOCKFILE_VERSION
   sha256: string
   summary: LockfileSummary
   /** Reviewed, INTEGRITY_MISMATCH, and UNRESOLVABLE entries only — never the unreviewed majority. */
@@ -416,6 +419,35 @@ function pnpmResolution(raw: unknown): { integrity: string | null; registry: boo
 }
 
 /**
+ * Maps a failed worker outcome to the route's refusal. Returns null for `ok`.
+ * `fileName` names the file in the busy message; `invalidMessage` is used
+ * when the worker gives no message of its own.
+ */
+function parseFailure(
+  outcome: YamlParseOutcome,
+  fileName: string,
+  invalidMessage: string,
+): LockfileValidationResult | null {
+  switch (outcome.kind) {
+    case 'ok':
+      return null
+    case 'busy':
+      return {
+        ok: false,
+        status: 503,
+        retryAfterSeconds: YAML_BUSY_RETRY_AFTER_SECONDS,
+        message: `another ${fileName} is being parsed: retry shortly`,
+      }
+    case 'too_complex':
+      return { ok: false, status: 422, message: 'lockfile is too complex to parse in time' }
+    case 'error':
+      return { ok: false, status: 500, message: 'internal error: the lockfile could not be parsed' }
+    case 'invalid':
+      return { ok: false, message: outcome.message ?? invalidMessage }
+  }
+}
+
+/**
  * Parses and classifies a `pnpm-lock.yaml` (lockfileVersion '9.0' only). The
  * entries are the keys of `packages`; `snapshots` and `importers` are not
  * read. Limits, classification, and the digest match `analyzeLockfile`.
@@ -434,27 +466,9 @@ export async function analyzePnpmLockfile(
   }
 
   const outcome = await parseYaml(Buffer.from(rawBody).toString('utf8'))
-  if (outcome.kind === 'busy') {
-    return {
-      ok: false,
-      status: 503,
-      retryAfterSeconds: YAML_BUSY_RETRY_AFTER_SECONDS,
-      message: 'another pnpm-lock.yaml is being parsed: retry shortly',
-    }
-  }
-  if (outcome.kind === 'too_complex') {
-    return {
-      ok: false,
-      status: 422,
-      message: 'lockfile is too complex to parse in time',
-    }
-  }
-  if (outcome.kind === 'error') {
-    return { ok: false, status: 500, message: 'internal error: the lockfile could not be parsed' }
-  }
-  if (outcome.kind === 'invalid') {
-    return { ok: false, message: 'lockfile is not valid YAML' }
-  }
+  const failure = parseFailure(outcome, 'pnpm-lock.yaml', 'lockfile is not valid YAML')
+  if (failure !== null) return failure
+  if (outcome.kind !== 'ok') return { ok: false, message: 'lockfile is not valid YAML' }
   const parsed = outcome.value
 
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
@@ -496,6 +510,149 @@ export async function analyzePnpmLockfile(
     analysis: {
       format: 'pnpm',
       lockfileVersion: PNPM_LOCKFILE_VERSION,
+      sha256,
+      summary,
+      packages,
+      reviewedPackageRefs,
+    },
+  }
+}
+
+const PLAIN_TEXT_CONTENT_TYPE_RE = /^\s*text\/plain\s*(?:;|$)/i
+const YARN_CLASSIC_HEADER = '# yarn lockfile v1'
+const BERRY_MARKER_RE = /^__metadata:/m
+
+const UNSUPPORTED_YARN_ERROR =
+  'this yarn.lock is not yarn classic (v1). Accepted formats: package-lock.json, ' +
+  `pnpm-lock.yaml (lockfileVersion '${PNPM_LOCKFILE_VERSION}'), yarn.lock v1 (yarn classic)`
+const CONFLICTING_YARN_MARKERS_ERROR =
+  'conflicting markers: the body has the yarn classic header and a yarn berry "__metadata:" key. ' +
+  'Accepted formats: package-lock.json, ' +
+  `pnpm-lock.yaml (lockfileVersion '${PNPM_LOCKFILE_VERSION}'), yarn.lock v1 (yarn classic)`
+
+/**
+ * True when the initial comment block holds the exact line `# yarn lockfile v1`.
+ * The block runs from the start, after one optional BOM, up to the first line
+ * that is neither empty nor a `#` comment. A line ending (LF or CRLF) is
+ * removed before the comparison. A match elsewhere in the body does not count.
+ */
+function hasYarnClassicHeader(text: string): boolean {
+  let start = text.startsWith('\uFEFF') ? 1 : 0
+  while (start <= text.length) {
+    const newline = text.indexOf('\n', start)
+    const end = newline === -1 ? text.length : newline
+    const line = text.slice(start, end).replace(/\r$/, '')
+    if (line === YARN_CLASSIC_HEADER) return true
+    if (line !== '' && !line.startsWith('#')) return false
+    if (newline === -1) return false
+    start = newline + 1
+  }
+  return false
+}
+
+export type FormatDetection = { ok: true; format: LockfileFormat } | { ok: false; message: string }
+
+/**
+ * Selects the parser from the Content-Type and the body (SPEC.md section 11.1).
+ * YAML selects pnpm. `text/plain` selects yarn classic only with the exact
+ * header in the initial comment block. A yarn berry marker is refused. Any
+ * other body keeps the JSON path. The body is not decoded for YAML.
+ */
+export function detectLockfileFormat(
+  contentType: string | undefined,
+  rawBody: Uint8Array,
+): FormatDetection {
+  if (isYamlContentType(contentType)) return { ok: true, format: 'pnpm' }
+  if (contentType === undefined || !PLAIN_TEXT_CONTENT_TYPE_RE.test(contentType)) {
+    return { ok: true, format: 'npm' }
+  }
+  const text = Buffer.from(rawBody).toString('utf8')
+  const classic = hasYarnClassicHeader(text)
+  const berry = BERRY_MARKER_RE.test(text)
+  if (classic && berry) return { ok: false, message: CONFLICTING_YARN_MARKERS_ERROR }
+  if (berry) return { ok: false, message: UNSUPPORTED_YARN_ERROR }
+  return { ok: true, format: classic ? 'yarn-classic' : 'npm' }
+}
+
+const YARN_REGISTRY_HOSTS = new Set(['registry.npmjs.org', 'registry.yarnpkg.com'])
+const HTTPS_AUTHORITY_RE = /^https:\/\/([^/\\?#]*)/i
+
+/**
+ * True only for an `https:` tarball on `registry.npmjs.org` or
+ * `registry.yarnpkg.com` (exact host, no credentials, no explicit port, path
+ * ends in `.tgz`; a `#sha1` fragment is allowed). The raw authority must equal
+ * the parsed host, so a character that `URL` drops or rewrites never passes.
+ * `registry.yarnpkg.com` is a source alias only: it never proves the bytes.
+ */
+function isYarnRegistryResolved(resolved: string | null): boolean {
+  if (resolved === null) return false
+  const authority = HTTPS_AUTHORITY_RE.exec(resolved)?.[1]
+  if (authority === undefined) return false
+  let url: URL
+  try {
+    url = new URL(resolved)
+  } catch {
+    return false
+  }
+  return (
+    url.protocol === 'https:' &&
+    YARN_REGISTRY_HOSTS.has(url.hostname) &&
+    authority.toLowerCase() === url.hostname &&
+    url.username === '' &&
+    url.password === '' &&
+    url.port === '' &&
+    url.pathname.endsWith('.tgz')
+  )
+}
+
+/**
+ * Parses and classifies a yarn classic `yarn.lock`. One entry per block:
+ * grouped selectors are one entry. Limits, classification and the digest
+ * match `analyzePnpmLockfile`. A missing, sha1-only or mismatching integrity
+ * on a reviewed entry is INTEGRITY_MISMATCH: the server never replaces it
+ * with a registry or a stored digest (ADR 0018).
+ */
+export async function analyzeYarnClassicLockfile(
+  rawBody: Uint8Array,
+  integrityLookup: IntegrityLookup = defaultIntegrityLookup,
+  parseYaml: YamlParser = parseYamlInWorker,
+): Promise<LockfileValidationResult> {
+  if (rawBody.byteLength > LOCKFILE_MAX_YAML_BYTES) {
+    return {
+      ok: false,
+      status: 413,
+      message: `lockfile exceeds the ${LOCKFILE_MAX_YAML_BYTES}-byte limit for yarn.lock`,
+    }
+  }
+
+  const text = Buffer.from(rawBody)
+    .toString('utf8')
+    .replace(/^\uFEFF/, '')
+  const outcome = await parseYaml(text, { format: 'yarn-classic' })
+  const failure = parseFailure(outcome, 'yarn.lock', 'yarn.lock is not valid')
+  if (failure !== null) return failure
+  if (outcome.kind !== 'ok' || !Array.isArray(outcome.value)) {
+    return { ok: false, message: 'yarn.lock is not valid' }
+  }
+
+  const parsed = outcome.value as YarnClassicEntry[]
+  if (parsed.length > LOCKFILE_MAX_ENTRIES) {
+    return { ok: false, message: `lockfile exceeds the ${LOCKFILE_MAX_ENTRIES}-entry limit` }
+  }
+  const normalized: NormalizedEntry[] = parsed.map((entry) => ({
+    name: entry.name,
+    version: entry.version,
+    integrity: entry.integrity,
+    registry: isYarnRegistryResolved(entry.resolved),
+  }))
+
+  const { summary, packages, reviewedPackageRefs } = classifyEntries(normalized, integrityLookup)
+  const sha256 = createHash('sha256').update(rawBody).digest('hex')
+  return {
+    ok: true,
+    analysis: {
+      format: 'yarn-classic',
+      lockfileVersion: YARN_CLASSIC_LOCKFILE_VERSION,
       sha256,
       summary,
       packages,
