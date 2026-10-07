@@ -73,8 +73,9 @@ function merchantExtension(): Record<string, unknown> {
 // Bazaar route descriptions. The discovery routes (proxy/src/discovery.ts)
 // read the same constants.
 export const LOCKFILE_DESCRIPTION =
-  'Signed in-toto attestation for every package in a package-lock.json or a ' +
-  "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml): human " +
+  'Signed in-toto attestation for every package in a package-lock.json, a ' +
+  "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml) or a " +
+  'yarn classic v1 yarn.lock (send Content-Type: text/plain): human ' +
   'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
   `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
   `is reviewed. ${SPLIT_DISCLOSURE}`

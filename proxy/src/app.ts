@@ -49,6 +49,8 @@ export interface CreateAppOptions {
   lockfileRequestRateLimiter?: RateLimiter
   /** Known-good tarball integrity lookup for reviewed packages. Injectable for tests. */
   integrityLookup?: AttestRoutesOptions['integrityLookup']
+  /** Replaces the worker-thread parser for pnpm-lock.yaml and yarn.lock. Injectable for tests. */
+  yamlParser?: AttestRoutesOptions['yamlParser']
 }
 
 /**
@@ -75,6 +77,7 @@ export function createApp(
     rateLimiter: options.rateLimiter,
     lockfileRequestRateLimiter: options.lockfileRequestRateLimiter,
     integrityLookup: options.integrityLookup,
+    yamlParser: options.yamlParser,
   })
 
   // Free, unauthenticated, never gated — the audit-status API. Registered
@@ -193,7 +196,7 @@ export function createApp(
       {
         error: 'method not allowed',
         message:
-          'POST a package-lock.json or pnpm-lock.yaml body to this route. It returns one signed attestation ' +
+          'POST a package-lock.json, pnpm-lock.yaml or yarn.lock (v1) body to this route. It returns one signed attestation ' +
           'for every package in the lockfile. See SPEC.md section 11.2.',
       },
       405,

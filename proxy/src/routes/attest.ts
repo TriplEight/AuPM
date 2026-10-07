@@ -28,10 +28,12 @@ import {
   buildSinglePackageStatement,
   signEnvelope,
 } from '../attest/dsse.js'
-import type { IntegrityLookup, LockfileAnalysis } from '../attest/lockfile.js'
+import type { IntegrityLookup, LockfileAnalysis, LockfileFormat } from '../attest/lockfile.js'
 import {
   analyzeLockfile,
   analyzePnpmLockfile,
+  analyzeYarnClassicLockfile,
+  detectLockfileFormat,
   isYamlContentType,
   LOCKFILE_MAX_BYTES,
   LOCKFILE_MAX_YAML_BYTES,
@@ -299,13 +301,19 @@ function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record
   }
 }
 
+const LOCKFILE_SUBJECT_NAMES: Record<LockfileFormat, string> = {
+  npm: 'package-lock.json',
+  pnpm: 'pnpm-lock.yaml',
+  'yarn-classic': 'yarn.lock',
+}
+
 async function signLockfileStatement(
   analysis: LockfileAnalysis,
   key: SigningKeyLike,
   partial: boolean,
 ): ReturnType<typeof signEnvelope> {
   const statement = buildLockfileStatement({
-    subjectName: analysis.format === 'pnpm' ? 'pnpm-lock.yaml' : 'package-lock.json',
+    subjectName: LOCKFILE_SUBJECT_NAMES[analysis.format],
     sha256: analysis.sha256,
     predicateType: LOCKFILE_PREDICATE_TYPE,
     predicate: lockfilePredicate(analysis, partial),
@@ -538,9 +546,18 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       await next()
       return
     }
-    const result = isYaml
-      ? await analyzePnpmLockfile(limited.bytes, options.integrityLookup, options.yamlParser)
-      : analyzeLockfile(limited.bytes, options.integrityLookup)
+    const detected = detectLockfileFormat(c.req.header('content-type'), limited.bytes)
+    if (!detected.ok) return c.json({ error: detected.message }, 400)
+    const result =
+      detected.format === 'pnpm'
+        ? await analyzePnpmLockfile(limited.bytes, options.integrityLookup, options.yamlParser)
+        : detected.format === 'yarn-classic'
+          ? await analyzeYarnClassicLockfile(
+              limited.bytes,
+              options.integrityLookup,
+              options.yamlParser,
+            )
+          : analyzeLockfile(limited.bytes, options.integrityLookup)
 
     if (!result.ok) {
       // WARNING: return before the payment gate runs — a caller must never
