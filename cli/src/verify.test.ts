@@ -462,3 +462,69 @@ describe('runVerify: pnpm-lock.yaml subject', () => {
     expect(output).toContain('no pnpm-lock.yaml subject digest')
   })
 })
+
+describe('runVerify: yarn.lock subject', () => {
+  const YARN_BODY = '# yarn lockfile v1\n\nms@^2.1.3:\n  version "2.1.3"\n  integrity sha512-ms\n'
+
+  async function verifyYarn(
+    subjectName: string,
+    signedBody: string,
+    fileBody: string,
+  ): Promise<{ code: number; output: string }> {
+    const privateKey = ed.utils.randomSecretKey()
+    const publicKey = await ed.getPublicKeyAsync(privateKey)
+    const statement = {
+      _type: 'https://in-toto.io/Statement/v1',
+      subject: [
+        {
+          name: subjectName,
+          digest: { sha256: createHash('sha256').update(signedBody).digest('hex') },
+        },
+      ],
+      predicateType: 'https://aupm.dev/attestation/lockfile/v1',
+      predicate: { format: 'yarn-classic', packages: [] },
+    }
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(statement))
+    const payloadType = 'application/vnd.in-toto+json'
+    const sig = await ed.signAsync(pae(payloadType, payloadBytes), privateKey)
+    const envelope = {
+      payloadType,
+      payload: Buffer.from(payloadBytes).toString('base64'),
+      signatures: [{ keyid: 'yarn-test-key', sig: Buffer.from(sig).toString('base64') }],
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-yarn-test-'))
+    const envelopePath = join(dir, 'attestation.json')
+    const lockfilePath = join(dir, 'yarn.lock')
+    writeFileSync(envelopePath, JSON.stringify(envelope))
+    writeFileSync(lockfilePath, fileBody)
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      const keyArg = `yarn-test-key:${Buffer.from(publicKey).toString('base64')}`
+      const code = await runVerify([envelopePath, '--lockfile', lockfilePath, '--key', keyArg])
+      return { code, output: logs.join('\n') }
+    } finally {
+      console.log = originalLog
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  test('accepts a matching yarn.lock', async () => {
+    const { code, output } = await verifyYarn('yarn.lock', YARN_BODY, YARN_BODY)
+    expect(code).toBe(0)
+    expect(output).toContain('lockfile digest: OK')
+  })
+
+  test('rejects a changed yarn.lock', async () => {
+    const { code, output } = await verifyYarn('yarn.lock', YARN_BODY, `${YARN_BODY}# edit\n`)
+    expect(code).toBe(1)
+    expect(output).toContain('sha256 mismatch')
+  })
+
+  test('rejects a yarn.lock checked against a subject with another name', async () => {
+    const { code, output } = await verifyYarn('package-lock.json', YARN_BODY, YARN_BODY)
+    expect(code).toBe(1)
+    expect(output).toContain('no yarn.lock subject digest')
+  })
+})
