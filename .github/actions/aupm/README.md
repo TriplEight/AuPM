@@ -1,10 +1,13 @@
 # AuPM GitHub Action
 
-This Action replaces an `npm ci` step. It does three things in order:
+This Action replaces an `npm ci`, `pnpm install --frozen-lockfile` or
+`yarn install --frozen-lockfile` step. It does four things in order:
 
-1. It installs with `npm ci` through the AuPM registry.
-2. It falls back to plain `npm ci` if the AuPM registry fails.
-3. It donates to the reviewed packages in the lockfile, only when `donate` is `'true'`.
+1. It finds the lockfile and picks npm, pnpm or yarn classic.
+2. It installs through the AuPM registry.
+3. It falls back to the same command against the public registry if the AuPM
+   registry fails.
+4. It donates to the reviewed packages in the lockfile, only when `donate` is `'true'`.
 
 Pin the Action to a full 40-character commit SHA of `TriplEight/AuPM`.
 Never use a branch name or a short SHA.
@@ -26,10 +29,22 @@ After:
 ```
 
 This step pays nothing. The project installs the same packages as with
-`npm ci`. The Action writes a signed receipt to `aupm-receipt.json`.
+`npm ci`. The Action looks for `package-lock.json`, `pnpm-lock.yaml` and
+`yarn.lock` in the working directory. It uses the one it finds. The Action
+writes a signed receipt to `aupm-receipt.json`.
 
-Set up Node before this step, for example with `actions/setup-node`.
-The install step uses the Node and npm of the job.
+A project in a subdirectory sets `lockfile`. The file name picks the tool:
+
+```yaml
+- uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+  with:
+    endpoint: https://aupm.fyi
+    lockfile: apps/web/pnpm-lock.yaml
+```
+
+Set up Node, and pnpm or yarn if the project needs it, before this step. For
+example, use `actions/setup-node` and `pnpm/action-setup`. The install step
+uses the Node and the package managers of the job.
 
 ## Donate to reviewed packages
 
@@ -118,8 +133,8 @@ review sets, so the same lockfile costs a different amount on each network.
 | Input | Default | Description |
 | --- | --- | --- |
 | `endpoint` | (required) | URL of the AuPM server. |
-| `lockfile` | `package-lock.json` | Path to the lockfile. `npm ci` runs in its directory. |
-| `install` | `npm` | `npm` runs `npm ci` through the AuPM registry, with fallback to npm. `none` skips the install. Any other value fails the step. |
+| `lockfile` | (empty) | Path to the lockfile. The install command runs in its directory. Empty means the Action uses the one of `package-lock.json`, `pnpm-lock.yaml` and `yarn.lock` in the working directory. |
+| `install` | `auto` | `auto` picks the tool from the lockfile name. `npm`, `pnpm` and `yarn` (classic) force one tool. Each installs through the AuPM registry, with fallback to the public registry. `none` skips the install. Any other value fails the step. |
 | `donate` | `false` | Set to `true` to donate to the reviewed packages. |
 | `donor-secret` | (empty) | The donor mnemonic (25 words) from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
 | `output` | `aupm-receipt.json` | Path where the Action writes the signed receipt. |
@@ -137,29 +152,58 @@ Upload the receipt file with `actions/upload-artifact` in a later step.
 
 ## Install and fallback
 
-The install step runs first. It runs in the directory of the `lockfile`
-input.
+The install step runs first. It runs in the directory of the lockfile.
 
-1. The step runs `npm ci --registry <endpoint>`.
-2. If this command fails, the step logs a warning. The step then runs
-   plain `npm ci`. Plain `npm ci` uses the npm configuration of the project.
-   The warning text is:
+### Choose the lockfile and the tool
+
+- `lockfile` set and `install: auto`: the file name picks the tool.
+  `package-lock.json` means npm, `pnpm-lock.yaml` means pnpm, and
+  `yarn.lock` means yarn. Another file name fails the step.
+- `lockfile` empty: the Action looks in the working directory for the three
+  file names. One file is the lockfile. No file fails the step, as `npm ci`
+  does. Two or more files fail the step. The message names the files and
+  tells you to set `lockfile` or `install`.
+- `install: npm`, `pnpm` or `yarn` with an empty `lockfile`: the Action uses
+  the lockfile name of that tool.
+
+The install step writes the lockfile path to its output. The check step reads
+the same path, so both steps use the same file.
+
+### Commands
+
+| Tool | Command |
+| --- | --- |
+| npm | `npm ci --registry <endpoint>` |
+| pnpm | `pnpm install --frozen-lockfile`, with `npm_config_registry=<endpoint>` |
+| yarn classic | `yarn install --frozen-lockfile`, with `npm_config_registry=<endpoint>` |
+
+1. If the command fails, the step logs a warning. The step then runs the same
+   command against the public registry. This command uses the configuration of
+   the project. The warning text is:
    `::warning::AuPM registry install failed; installing from the npm registry instead.`
-3. If plain `npm ci` also fails, the step fails and the job fails. This is
-   the same as a plain `npm ci` step. The donation steps do not run.
+2. If the second command also fails, the step fails and the job fails. This is
+   the same as a plain install step. The donation steps do not run.
 
 An unknown `install` value is a configuration error. The step fails with a
 message that names the value.
 
+### Yarn versions
+
+Before a yarn install, the step runs `yarn --version`.
+
+- `1.x.y` is yarn classic. The step uses the commands above.
+- Major version 2 or higher is yarn berry. AuPM does not support it yet. The step
+  logs `AuPM does not support yarn berry yet; installing without AuPM and
+  skipping the check.` It runs `yarn install --immutable` with the configuration
+  of the job and skips the check and donation step. A failed install still
+  fails the job.
+- Any other output, a failed `yarn --version` or a missing yarn fails the step.
+
 ## Projects that install another way
 
-Set `install: none` if the project does not use `npm ci`. The Action then
-skips the install and only checks the lockfile.
-
-A pnpm project can install against the AuPM registry with its own step.
-Then set `install: none` and `lockfile: pnpm-lock.yaml`. The Action checks
-the pnpm lockfile, and it donates on opt-in. The Action does not accept
-`yarn.lock` yet.
+Set `install: none` if the project installs in its own step. The Action then
+skips the install and only checks the lockfile. The lockfile rules above
+apply: set `lockfile`, or keep exactly one lockfile in the working directory.
 
 ## What the Action does with the lockfile
 
@@ -230,7 +274,7 @@ A compromised `endpoint` input can still misdirect a donated payment.
 ## Failure policy
 
 An install failure fails the job, as with plain npm. An AuPM failure never
-fails the job: a registry failure falls back to npm, and a check or
+fails the job: a registry failure falls back to the public registry, and a check or
 donation failure logs a warning.
 
 WARNING: after the install, each of the following logs a `::warning::` and
@@ -270,7 +314,7 @@ OUTPUT=aupm-receipt.json \
 
 ```bash
 ENDPOINT=https://aupm.example.com \
-INSTALL=npm \
+INSTALL=auto \
   node install.mjs
 ```
 
@@ -291,13 +335,17 @@ Run the test suite with Node's built-in test runner.
 node --test *.test.mjs
 ```
 
-The `run.mjs` tests stub the `aupm` CLI with a fake `npm` executable. The
-`install.mjs` tests stub `npm` the same way. Both place the stub first on
-`PATH`. Coverage includes:
+The `run.mjs` tests stub the `aupm` CLI with a fake `npm` executable. Some
+`install.mjs` tests stub `npm` the same way. Others inject a fake `spawn`.
+Coverage includes:
 
 - An AuPM install that passes, with no fallback.
-- An AuPM install that fails and a plain `npm ci` that passes.
+- An AuPM install that fails and a plain install that passes.
 - Both installs failing.
+- Lockfile detection: one file, no file, two files, and an unknown file name.
+- The commands and the registry environment of npm, pnpm and yarn classic.
+- Yarn classic, yarn berry, an invalid yarn version and a missing yarn.
+- That the check step uses the lockfile that the install step resolved.
 - `install: none` and an unknown `install` value.
 - A missing endpoint.
 - A spawn failure.

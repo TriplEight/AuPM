@@ -286,7 +286,7 @@ test('lockfile and output are resolved to absolute paths against cwd', () => {
   assert.deepEqual(args, [
     'exec',
     '--yes',
-    '--package=aupm-cli@0.3.1',
+    '--package=aupm-cli@0.4.0',
     '--',
     'aupm',
     'attest',
