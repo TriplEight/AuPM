@@ -67,7 +67,7 @@ The attribution tag applies at settlement and is not retroactive.
 | `contracts/` | `PaymentRouter` (Puya-TS) | `algorand-contract-engineer` |
 | `proxy/` | Hono overlay, x402 routes, DSSE, SQLite status store, ledger, nightly job | `x402-proxy-engineer` |
 | `mcp/`, `cli/` | MCP server and `aupm` CLI: `install`, `attest` (opt-in `--donate`), offline `verify` | `mcp-payer-engineer` |
-| `.github/actions/aupm/` | CI Action: drop-in for `npm ci`; installs through AuPM, falls back to npm, donates on opt-in. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning. | — |
+| `.github/actions/aupm/` | CI Action: installs with npm, pnpm or yarn classic through AuPM, falls back to the public registry, donates on opt-in. An install failure fails the job, as with plain npm. An AuPM failure never fails the job: a registry failure falls back to npm, and a check or donation failure logs a warning. | — |
 | `scripts/` | `verify.sh`, `guard.sh`, `e2e.mjs`. Nightly job: `pnpm -C proxy nightly` | `integration-tester` |
 
 Skills: `aupm-x402-flow`, `aupm-audit-status`, `aupm-payment-router`, `aupm-testing`.
