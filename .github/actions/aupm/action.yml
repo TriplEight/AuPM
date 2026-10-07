@@ -1,17 +1,17 @@
-name: 'AuPM: npm ci and donate to reviewed packages'
-description: 'Installs with npm through the AuPM registry, falls back to npm, and donates to reviewed packages only when donate is "true".'
+name: 'AuPM: install with npm, pnpm or yarn and donate to reviewed packages'
+description: 'Detects the lockfile, installs with npm, pnpm or yarn classic through the AuPM registry, falls back to the public registry, and donates to reviewed packages only when donate is "true".'
 inputs:
   endpoint:
     description: 'URL of the AuPM server.'
     required: true
   lockfile:
-    description: 'Path to the lockfile. npm ci runs in its directory.'
+    description: 'Path to the lockfile. The install command runs in its directory. Empty means: use the one of package-lock.json, pnpm-lock.yaml or yarn.lock in the working directory.'
     required: false
-    default: 'package-lock.json'
+    default: ''
   install:
-    description: 'Set to "npm" to run npm ci through the AuPM registry, with fallback to npm. Set to "none" to skip the install. Any other value fails the step.'
+    description: 'The package manager: "auto" (from the lockfile), "npm", "pnpm" or "yarn" (classic). Each installs through the AuPM registry, with fallback to the public registry. Set to "none" to skip the install. Any other value fails the step.'
     required: false
-    default: 'npm'
+    default: 'auto'
   donate:
     description: 'Set to "true" to donate to the reviewed packages in the lockfile. Off by default.'
     required: false
@@ -42,8 +42,10 @@ runs:
   using: 'composite'
   steps:
     - name: Install dependencies
-      # Runs first, with the caller's Node and npm. A registry failure falls
-      # back to plain npm ci. A plain npm ci failure fails the job.
+      # Runs first, with the caller's Node and package managers. A registry
+      # failure falls back to the public registry. A failing fallback fails the
+      # job. The step outputs the resolved lockfile path for the check step.
+      id: install
       shell: bash
       env:
         INSTALL: ${{ inputs.install }}
@@ -53,10 +55,12 @@ runs:
 
     - name: Check and donate to reviewed packages
       id: donate
+      # The install step sets skip-check for yarn berry, which AuPM does not support.
+      if: steps.install.outputs.skip-check != 'true'
       shell: bash
       env:
         ENDPOINT: ${{ inputs.endpoint }}
-        LOCKFILE: ${{ inputs.lockfile }}
+        LOCKFILE: ${{ steps.install.outputs.lockfile }}
         FAIL_ON_MISMATCH: ${{ inputs.fail-on-mismatch }}
         OUTPUT: ${{ inputs.output }}
         DONATE: ${{ inputs.donate }}
