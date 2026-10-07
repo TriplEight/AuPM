@@ -21,10 +21,24 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Setup Node and npm
+        # actions/setup-node v7.0.0, pinned to a full commit SHA. Trusted
+        # publishing needs npm 11.5.1 or later and Node 22.14.0 or later.
+        # Node 24.13.0 ships npm 11.6.2. The pnpm node runtime below has no
+        # npm: without this step, npm publish used the runner's npm and failed
+        # with ENEEDAUTH. No registry-url: an .npmrc token line blocks OIDC.
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.13.0
+          package-manager-cache: false
+
+      - name: Check the npm version
+        run: |
+          npm --version
+          node -e 'const [a, b] = process.argv[1].split(".").map(Number); process.exit(a > 11 || (a === 11 && b >= 5) ? 0 : 1)' "$(npm --version)"
+
       - name: Setup pnpm and Node
-        # pnpm/setup v3.0.0, pinned to a full commit SHA. Trusted publishing
-        # needs npm 11.5.1 or later and Node 22.14.0 or later. Node 24.13.0
-        # ships npm 11.6.2, so the job needs no newer npm.
+        # pnpm/setup v3.0.0, pinned to a full commit SHA.
         uses: pnpm/setup@fbda4c85fc2e1e08721cd8763afea8f48d60f024
         with:
           version: 12.5.1
