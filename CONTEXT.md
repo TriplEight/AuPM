@@ -88,7 +88,8 @@ _Avoid_: per-payment credit, distribution
 
 **Donor account**:
 A dedicated, low-balance Algorand account that a donor uses only to pay AuPM. Its balance is the
-donor's real spending limit.
+donor's real spending limit. `aupm donor init` creates it. The key goes to a key file, never to
+the screen.
 _Avoid_: wallet (when it means the donor's main holdings)
 
 **Contributor**:

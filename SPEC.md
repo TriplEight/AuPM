@@ -822,7 +822,9 @@ prints `chmod 600 <path>`. It refuses a file that is not one line of 25 valid wo
 only the path.
 
 `aupm donor init` creates a donor account (ADR 0016). It writes the key file exclusively. It
-never prints the mnemonic. No `aupm donor` command waits or polls. `init` prints, in this order:
+never prints the mnemonic. No `aupm donor` command uses a timer or polls. Without a terminal, or
+with `--yes`, `init` prints the text below and exits. On a terminal, `init` shows one step per
+screen and does the opt-in (see "Terminal path" below). `init` prints, in this order:
 a warning block, the address and the network, and five numbered next steps.
 
 - The warning block says that the file holds the wallet's secret key (25 words), that this is a
@@ -859,13 +861,24 @@ On TestNet (`NETWORK=testnet`), `init`, `optin` and `status` print one note near
 is for development, put `NETWORK=testnet` before every `aupm` command and set `AUPM_PROXY_URL` to
 the TestNet server. `optin` and `status` print the network.
 
+Terminal path (stdin and stdout are terminals, no `--yes`). `init` creates the key, then shows:
+the warning block with the address; the backup screen ("Type yes when the 25 words are on paper";
+any other answer asks again); the ALGO step ("Press Enter when you have sent the ALGO"). After
+Enter, `init` reads the balance once. With enough ALGO it sends the opt-in and shows the USDC
+step. With too little ALGO it shows the shortfall and the ALGO step, and waits for Enter again.
+It never sends a transaction without enough ALGO. A wallet that has opted in already gets the next
+step, as `status` does. Ctrl-C or a closed input stops `init` with exit 0. There is no timer and no
+poll: a check happens only after the donor presses Enter.
+
 `aupm donor optin` makes one check. An existing opt-in prints "already opted in" and exits 0. A
 funded wallet sends one 0-amount USDC transfer to self, signed by the donor, then prints the
 transaction id, an explorer link and the USDC step. An unfunded wallet gets the exact shortfall in
 ALGO and the ALGO step, and exits 1. `aupm donor status` (also bare `aupm donor`) is read-only. It
 prints the address, the network, the ALGO balance against the amount needed, the opt-in state, the
 USDC balance with the number of reviewed packages it pays for, and the one next step. When a key
-file exists, `init` refuses, prints the address that the file holds and points to `status`. When
+file exists, `init` never overwrites it. On a terminal it continues from the state of the wallet.
+Without a terminal it prints the address that the file holds and the next step, as `status` does,
+and exits 0. When
 `AUPM_DONOR_MNEMONIC` is set, `init` and `status` say that it wins over the file and show the
 address in use. The opt-in goes to algod, not through the facilitator. It is not an x402
 payment.

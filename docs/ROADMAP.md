@@ -13,8 +13,10 @@ change to the plan.
 - Two review tiers: `UNREVIEWED` and `COMMUNITY_REVIEWED`.
 - Opt-in donations from the `aupm` CLI, the MCP server and the GitHub Action.
 - The CLI is on npm as `aupm-cli`. The GitHub Action runs it, pinned to one exact version.
-- `aupm donor init` creates a donor account and guides the funding with QR codes. `aupm donor
-  optin` opts in to USDC. `aupm donor status` shows the next step. No command waits.
+- `aupm donor init` creates a donor account. On a terminal it guides the funding step by step
+  with QR codes, waits for Enter, and opts in to USDC. Without a terminal it prints the steps.
+  `aupm donor optin` opts in to USDC. `aupm donor status` shows the next step. No command uses a
+  timer or polls.
 - `aupm pnpm` and `aupm npx` run pnpm and npx against the registry. Lockfile attestations read
   `pnpm-lock.yaml` (lockfileVersion 9.0) as well as `package-lock.json`.
 - The donation split pays two roles: the auditor (30%) and ops (70%).

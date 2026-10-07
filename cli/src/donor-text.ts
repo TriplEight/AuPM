@@ -139,17 +139,6 @@ export function envNoticeLines(address: string | null): string[] {
   return [lead, `Address in use: ${address}`]
 }
 
-export function existingFileLines(file: string, address: string): string[] {
-  return [
-    'A donor key file exists already:',
-    `  ${file}`,
-    `It holds the address: ${address}`,
-    'Run `aupm donor status` to see the state of this wallet.',
-    'Do not delete the file. Deleting it loses the funds in this wallet.',
-    'Back up the file before you change anything.',
-  ]
-}
-
 const PERA_FIRST = 'Pera Wallet (recommended)'
 
 export function algoStep(
@@ -295,14 +284,66 @@ export function statusLines(snapshot: Snapshot, network: Network): string[] {
     '',
   ]
   if (!optedIn && algo < required) {
-    const short = required - algo
-    lines.push(...algoStep('Next step.', address, network, short))
+    lines.push(...algoStep('Next step.', address, network, required - algo))
   } else if (!optedIn) {
     lines.push(...optinStep('Next step.'))
-  } else if (usdc === 0n) {
-    lines.push(...usdcStep('Next step.', address, network))
   } else {
-    lines.push(...donateStep('Next step.'))
+    lines.push(...afterOptInStep(snapshot, network))
   }
   return lines
+}
+
+/** The next step of a wallet that has opted in: fund it with USDC, or donate. */
+export function afterOptInStep(snapshot: Snapshot, network: Network): string[] {
+  if (snapshot.usdc === 0n) return usdcStep('Next step.', snapshot.address, network)
+  return donateStep('Next step.')
+}
+
+/** The ALGO balance, the shortfall and the ALGO step for a wallet that cannot opt in yet. */
+export function shortfallLines(snapshot: Snapshot, network: Network): string[] {
+  const short = snapshot.required - snapshot.algo
+  return [
+    `ALGO balance: ${formatMicro(snapshot.algo)} ALGO. Needed: ${formatMicro(snapshot.required)} ALGO. ` +
+      `Shortfall: ${formatMicro(short)} ALGO.`,
+    ...algoStep('Next step.', snapshot.address, network, short),
+  ]
+}
+
+/** The result of a sent opt-in, then the USDC step. */
+export function optedInLines(txid: string, address: string, network: Network): string[] {
+  return [
+    `Opted in to USDC (ASA ${network.usdcAsset}).`,
+    `Transaction: ${txid}`,
+    `Explorer: https://lora.algokit.io/${network.explorer}/transaction/${txid}`,
+    '',
+    ...usdcStep('Next step.', address, network),
+  ]
+}
+
+export const PROMPT_ENTER_ALGO = 'Press Enter when you have sent the ALGO.'
+export const PROMPT_YES = 'Type yes when the 25 words are on paper:'
+export const PROMPT_RETRY_YES = 'Type yes to go on. Press Ctrl-C to stop.'
+export const STOPPED_LINE =
+  'Stopped. Run `aupm donor init` again to continue from the wallet state.'
+
+/** The screen that asks the donor to write the 25 words on paper. */
+export function backupLines(file: string): string[] {
+  return [
+    paint('bold', 'Back up the 25 words.'),
+    '   They are in this file. This command never prints them:',
+    `  ${file}`,
+    '   Write them on paper. Keep the paper offline.',
+    '   The file is the only copy.',
+  ]
+}
+
+/** The first lines when `init` runs again and a key file exists. */
+export function continueLines(file: string, address: string, network: Network): string[] {
+  return [
+    'The donor wallet exists already. This run continues from its state.',
+    ...testnetNote(network),
+    `Key file: ${file}`,
+    ...addressLines(address, network),
+    '',
+  ]
 }

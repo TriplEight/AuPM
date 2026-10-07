@@ -5,14 +5,24 @@ this change, the donor made the account and the opt-in by hand and exported the 
 env var. `aupm donor init` creates the account with algosdk and writes
 the 25 words and a newline to `$XDG_CONFIG_HOME/aupm/donor.key` (default
 `~/.config/aupm/donor.key`), with no variable name in the file. The directory has mode 0700 and the file has mode 0600. The write is
-exclusive: `init` refuses when the file exists and never overwrites a key. It never prints the
-mnemonic. It prints a warning block about the key file, the address and the network, and five
-numbered next steps with ARC-26 `algorand://` URIs and terminal QR codes (ALGO, the opt-in, USDC,
-an optional CI secret, the first donation). It does not continue into `optin`.
+exclusive: `init` never overwrites or rewrites a key. It never prints the mnemonic.
 
-No command waits or polls. A first version polled algod for the ALGO balance, with a timeout and
-a Ctrl-C handler. A person who funds a wallet from an app or an exchange needs minutes to days, so
-a waiting terminal pushed them to hurry. The command now checks once and says what to do.
+Without a terminal, or with `--yes`, `init` prints a warning block about the key file, the address
+and the network, and five numbered next steps with ARC-26 `algorand://` URIs and terminal QR codes
+(ALGO, the opt-in, USDC, an optional CI secret, the first donation). Then it exits. Agents and CI
+use this path.
+
+On a terminal, `init` shows one step per screen and waits for the donor to press a key. It asks
+the donor to type "yes" when the 25 words are on paper. It shows the ALGO step and waits for
+Enter. After Enter it checks the balance once. With enough ALGO it sends the opt-in and shows the
+USDC step. With too little ALGO it shows the shortfall and waits for Enter again. Ctrl-C, or a
+closed input, stops it at any point and exits 0.
+
+No command uses a timer or polls. A first version polled algod for the ALGO balance, with a
+timeout and a Ctrl-C handler. A person who funds a wallet from an app or an exchange needs minutes
+to days, so a waiting terminal pushed them to hurry. The terminal path now waits for the donor,
+not for the chain: the donor says when to check, and each check happens once. `optin` and
+`status` stay single commands.
 
 `optin` reads the balance once. It signs and sends one 0-amount transfer of the USDC asset to the
 donor's own address when the ALGO balance covers the minimum balance with one more asset (0.1
@@ -21,8 +31,9 @@ in" and exits 0 without a transaction. An unfunded account gets the exact shortf
 step, and exits 1. `aupm donor status` reads the same state and prints the next step. It sends
 nothing.
 
-`init` refuses when the key file exists. It prints the address in the file and says that deleting
-the file loses the funds in it. When `AUPM_DONOR_MNEMONIC` is set, `init` and `status` say that it
+When the key file exists, `init` does not create a key. On a terminal it continues from the state
+of the wallet, with the same next-step logic as `status`. Without a terminal it prints the address
+and the next step, as `status` does, and exits 0. It never overwrites the file. When `AUPM_DONOR_MNEMONIC` is set, `init` and `status` say that it
 wins over the file. On Windows the 0600 check is skipped, and the output says that the file is not
 permission-protected there.
 
