@@ -403,8 +403,8 @@ test('the check step uses the lockfile the install step resolved', async () => {
   assert.ok(args.includes(resolve(dir, 'sub/pnpm-lock.yaml')))
 })
 
-test('the check step pins aupm-cli 0.4.0', () => {
-  assert.equal(CLI_PACKAGE, 'aupm-cli@0.4.0')
+test('the check step pins aupm-cli 0.4.1', () => {
+  assert.equal(CLI_PACKAGE, 'aupm-cli@0.4.1')
 })
 
 for (const tool of ['npm', 'pnpm', 'yarn']) {
