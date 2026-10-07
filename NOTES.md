@@ -2,6 +2,12 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-07
+- #83 `fbeddac`: the CLI prints one install summary with four counts and the donation amount. A
+  malformed count shows as `unknown`. `AUPM_DONATE`, `~/.config/aupm/config.toml` and
+  `aupm config set donate true` turn donation on; `--no-donate` turns it off for one run.
+- #84 `be02b43`: `GET /api/v1/health` returns the release `version` and `commit` of the image.
+
 ## 2026-10-06
 - #72 `0f17e33`: `aupm donor init` creates a donor wallet with a 0600 key file. `aupm donor optin`
   opts it in to USDC (ADR 0016).
