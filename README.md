@@ -11,6 +11,15 @@ https://github.com/user-attachments/assets/f7fec474-bfa1-4453-812c-a7dfe773142a
   <a href="https://github.com/TriplEight/AuPM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TriplEight/AuPM/ci.yml?branch=master&style=flat-square&labelColor=0B0F19&label=CI&color=00E58B"></a>
 </p>
 
+<p align="center">
+  <a href="#support-open-source-as-you-go">Support open source</a> ·
+  <a href="#try-it-in-30-seconds">Try it</a> ·
+  <a href="#for-ai-agents">AI agents</a> ·
+  <a href="#install-the-cli">Install</a> ·
+  <a href="#how-donations-work">Donations</a> ·
+  <a href="#for-auditors">Auditors</a>
+</p>
+
 Your project installs hundreds of npm packages. No person has read most of them. Many
 companies audit their dependencies internally, but that review work stays private and never
 reaches the open-source project.
