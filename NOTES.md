@@ -2,6 +2,12 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-08
+- #95 `ab9e9a7`: the README opens with the developer problem, a donation call to action and a
+  free quick start without a wallet. Payment details move lower.
+- #96 `0d0ca8f`: the `aupm` service runs with an init process (`init: true`) that reaps zombie
+  processes.
+
 ## 2026-10-07
 - #83 `fbeddac`: the CLI prints one install summary with four counts and the donation amount. A
   malformed count shows as `unknown`. `AUPM_DONATE`, `~/.config/aupm/config.toml` and
