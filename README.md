@@ -2,24 +2,130 @@ https://github.com/user-attachments/assets/f7fec474-bfa1-4453-812c-a7dfe773142a
 
 <h1 align="center">AuPM — audited package manager</h1>
 
-<p align="center"><strong>Audited Package Manager.</strong> A package manager that crowdfunds
-supply chain security.</p>
+<p align="center"><strong>See which npm packages a human has actually read.</strong></p>
 
 <p align="center">
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-00E58B?style=flat-square&labelColor=0B0F19&logo=gnu&logoColor=00E58B"></a>
-  <a href="https://www.x402.org"><img alt="Built on x402" src="https://img.shields.io/badge/built%20on-x402-22D3EE?style=flat-square&labelColor=0B0F19"></a>
+  <a href="https://www.npmjs.com/package/aupm-cli"><img alt="npm: aupm-cli" src="https://img.shields.io/npm/v/aupm-cli?style=flat-square&labelColor=0B0F19&color=00E58B&label=aupm-cli"></a>
+  <a href="https://www.npmjs.com/package/aupm-mcp"><img alt="npm: aupm-mcp" src="https://img.shields.io/npm/v/aupm-mcp?style=flat-square&labelColor=0B0F19&color=00E58B&label=aupm-mcp"></a>
   <a href="https://github.com/TriplEight/AuPM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TriplEight/AuPM/ci.yml?branch=master&style=flat-square&labelColor=0B0F19&label=CI&color=00E58B"></a>
 </p>
 
-Many companies audit their open-source dependencies internally. That review work never
-reaches the open-source project. AuPM gives security auditors, open-source supporters and
-package maintainers a way to publish that work and get paid for it. Users and their agents
-donate to the packages they use, as they install them.
+Your project installs hundreds of npm packages. No person has read most of them. Many
+companies audit their dependencies internally, but that review work stays private and never
+reaches the open-source project.
 
-AuPM is an npm-compatible registry overlay on Algorand MainNet. It looks up the review status
-of a package before it serves it. An unreviewed package installs free, exactly like plain
-npm. A reviewed package also installs free. A donor can also pay to fund the review, in USDC,
-on top of that install.
+AuPM is an npm-compatible registry that tells you, for each exact package version, whether a
+human auditor has read that tarball. Every answer is a signed attestation that you can verify
+offline. Installs stay free. Users and their agents can optionally donate to fund more
+reviews.
+
+## Support open source as you go
+
+Open-source funding depends on people who visit a project's page and click "Sponsor". Today,
+agents and CI pipelines choose and install most packages, and no person sees that page.
+
+Have you ever thought you can thank the open source you use as you install it, just $0.001 at
+a time? Add `--donate` to an install. AuPM pays for a human review of each reviewed package in
+your lockfile. Today that donation pays the auditor who read the tarball (30%) and runs AuPM
+(70%). The planned split also pays maintainers and contributors. See
+[How donations work](#how-donations-work).
+
+## Try it in 30 seconds
+
+You need no wallet and no account. Nothing here costs money.
+
+1. Point npm at AuPM. npm works as before, and the integrity hashes are npm's own:
+
+   ```bash
+   npm config set registry https://aupm.fyi/
+   ```
+
+2. Check one package version:
+
+   ```bash
+   curl https://aupm.fyi/api/v1/status/ms/2.1.3
+   ```
+
+3. Check a whole project. This writes a signed attestation for your lockfile:
+
+   ```bash
+   npx aupm-cli attest package-lock.json
+   ```
+
+`UNREVIEWED` is the normal answer today. Auditors have reviewed few packages so far. To go back to the
+public registry, run `npm config delete registry`.
+
+## For AI agents
+
+A coding agent can check a package before it adds the package. The MCP server gives it
+three tools:
+
+- `check_audit_status` — a free status lookup for one package version.
+- `install_audited_package` — installs a package, and donates only with `allowDonation: true`.
+- `attest_lockfile` — attests a whole lockfile, and donates only with `allowDonation: true`.
+
+```json
+{ "mcpServers": { "aupm": { "command": "npx", "args": ["-y", "aupm-mcp"] } } }
+```
+
+An agent without MCP can read [aupm.fyi/llms.txt](https://aupm.fyi/llms.txt). It describes
+the HTTP routes and how to read the results.
+
+## Review tiers
+
+The MVP has two tiers:
+
+- `UNREVIEWED` — the default. No auditor has read this exact tarball.
+- `COMMUNITY_REVIEWED` — a human auditor read this exact tarball and recorded the review
+  publicly (see "For auditors" below).
+
+AuPM also reports two warnings: `INTEGRITY_MISMATCH` and `UNRESOLVABLE`. AuPM always shows
+them, and never charges for them.
+
+AuPM plans a tier filter for installs. It has not built that yet: today, `aupm` and the MCP
+server install any package, reviewed or not.
+
+## Install the CLI
+
+```bash
+npm install -g aupm-cli
+```
+
+`aupm` is a drop-in for `npm`. It runs the real npm against the AuPM registry and passes your
+arguments and npm's own exit code through unchanged.
+
+```bash
+aupm install ms@2.1.3               # installs through the AuPM registry, same as npm
+aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
+aupm pnpm add ms@2.1.3 [--donate]   # pnpm against the AuPM registry; attests pnpm-lock.yaml
+aupm npx cowsay hi                  # npx against the AuPM registry; no lockfile, no --donate
+aupm config set donate true         # always donate; --no-donate skips it once
+```
+
+`aupm attest` and `aupm verify --lockfile` also accept a `pnpm-lock.yaml` (lockfileVersion 9.0,
+at most 2 MiB).
+
+`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
+MainNet deployment. For a local proxy, use `http://localhost:4873/`. To build the CLI from
+source, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+### In CI
+
+The `aupm` GitHub Action replaces an `npm ci` step. It installs through the AuPM registry and
+falls back to npm. Then it checks the lockfile against the reviewed packages. Pin it to a full
+commit SHA. See [.github/actions/aupm/README.md](.github/actions/aupm/README.md). The
+[aupm-action-demo](https://github.com/TriplEight/aupm-action-demo) repository runs it on
+MainNet.
+
+### Verify an attestation offline
+
+`aupm verify` verifies one signed attestation against a published key. It makes no network
+request.
+
+```bash
+aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
+```
 
 ## Early days: come build it with us
 
@@ -28,14 +134,34 @@ steps are still manual, and only the auditor and ops roles are paid today.
 [docs/ROADMAP.md](docs/ROADMAP.md) lists what comes next. If one of these fits you, please
 join:
 
-- **Review packages.** Read a tarball, anchor your review, and get paid for it. See
+- **Review packages.** Read a tarball, record your review, and get paid for it. See
   "For auditors" below.
 - **Maintain a package?** Tell us in an issue. The maintainer share is planned, not live.
   Your input decides how it works.
 - **Write code.** Pick an item from the roadmap, or open an issue first.
 - **Try it.** Point npm at `https://aupm.fyi/` and tell us what breaks.
 
-## Why crypto?
+## How donations work
+
+Everything above is free. This section is for people who want to fund reviews.
+
+A donation pays an auditor to read one exact tarball and match it against the published npm
+release. It costs $0.001 (1,000 microUSDC) per reviewed package, in USDC on Algorand, on
+every paid route. A lockfile donation costs $0.001 times the number of reviewed packages in
+that lockfile, with no cap and no discount. A donation always pays for a reviewed version,
+never for an unreviewed one.
+
+Only these opt-ins donate:
+
+- `aupm` with `--donate`, `AUPM_DONATE=true` or `aupm config set donate true`.
+- The MCP server's `allowDonation: true`.
+- The CI Action's `donate: 'true'` input, with a `donor-secret` secret. The Action donates on
+  MainNet unless the job sets `NETWORK: testnet`.
+
+Plain `npm install` through AuPM never donates. To donate, you need a funded Algorand account
+holding USDC. See "Donor account setup" in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+
+### Why crypto?
 
 We know: the wallet setup is the hardest step in AuPM today. We chose crypto anyway, for
 two reasons.
@@ -49,24 +175,7 @@ two reasons.
    at the Linux Foundation governs it. Its members include Google, AWS, Visa, Stripe and
    Cloudflare. AuPM depends on that open standard, not on one vendor.
 
-## Review tiers
-
-The MVP has two tiers:
-
-- `UNREVIEWED` — the default. No auditor has read this exact tarball.
-- `COMMUNITY_REVIEWED` — a human auditor read this exact tarball and anchored the review
-  on-chain (see "For auditors" below).
-
-AuPM plans a tier filter for installs. It has not built that yet: today, `aupm` and the MCP
-server install any package, reviewed or not. Only the donation is tier-aware. A donation
-always pays for a reviewed version, never for an unreviewed one.
-
-## What a donation pays for
-
-A donation pays an auditor to read one exact tarball and match it against the published
-npm release. It costs $0.001 (1,000 microUSDC) per reviewed package, in USDC on Algorand, on every
-paid route. A lockfile donation costs $0.001 times the number of reviewed packages in that
-lockfile, with no cap and no discount. Installing without `--donate` stays free, always.
+### Where the money goes
 
 Target split, per $0.001 donated:
 
@@ -101,54 +210,6 @@ for a migration. It does not limit what the multisig can do. Any balance still u
 migration moves to the treasury account, which pays it to the payee on request. See
 [ADR 0010](docs/adr/0010-contract-change-policy.md) for the full design.
 
-## For users and donors
-
-`aupm` is a drop-in for `npm`. It runs the real npm against the AuPM registry and passes your
-arguments and npm's own exit code through unchanged.
-
-```bash
-aupm install ms@2.1.3               # installs through the AuPM registry, same as npm
-aupm install ms@2.1.3 --donate      # also donates for any reviewed package in the lockfile
-aupm pnpm add ms@2.1.3 [--donate]   # pnpm against the AuPM registry; attests pnpm-lock.yaml
-aupm npx cowsay hi                  # npx against the AuPM registry; no lockfile, no --donate
-aupm config set donate true         # always donate; --no-donate skips it once
-```
-
-`aupm attest` and `aupm verify --lockfile` also accept a `pnpm-lock.yaml` (lockfileVersion 9.0,
-at most 2 MiB).
-
-`AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
-MainNet deployment. You do not need to clone this repository to use `aupm`: after the first npm
-release, `npm install -g aupm-cli` installs it. Until then, run it from a clone. See
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). The release process is in
-[docs/RUNBOOK-npm-publish.md](docs/RUNBOOK-npm-publish.md).
-
-Plain npm also works, and stays free:
-
-```bash
-npm config set registry https://aupm.fyi/
-```
-
-For a local proxy, use `http://localhost:4873/`.
-
-This never donates. Only `aupm` (with `--donate`, `AUPM_DONATE=true` or `aupm config set donate
-true`), the MCP server's `allowDonation`, and the CI Action's `donate: 'true'` do.
-
-An agent can call the MCP server directly: `check_audit_status` for a free status lookup, and
-`install_audited_package` with `allowDonation: true` to pay and install in one step. For a
-whole project, `attest_lockfile` with `allowDonation: true` donates once for every reviewed
-entry in the lockfile.
-
-The `aupm` GitHub Action replaces an `npm ci` step in CI. It installs through the AuPM registry
-and falls back to npm. Then it checks the lockfile against the reviewed packages. Set
-its `donate: 'true'` input and a `donor-secret` secret to donate from CI. Pin it to a full
-commit SHA. It donates on MainNet unless the job sets `NETWORK: testnet`. See
-[.github/actions/aupm/README.md](.github/actions/aupm/README.md). The
-[aupm-action-demo](https://github.com/TriplEight/aupm-action-demo) repository runs it on MainNet.
-
-To donate, you need a funded Algorand account holding USDC. See "Donor account setup" in
-[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
-
 ## For auditors
 
 Onboarding is manual in the MVP (planned). The path today:
@@ -163,13 +224,7 @@ Onboarding is manual in the MVP (planned). The path today:
 6. The nightly batch credits your balance in PaymentRouter.
 7. You call `claim()` once your balance reaches `MIN_CLAIM`.
 
-## Verify an attestation offline
-
-`aupm verify` verifies one DSSE envelope against a published key. It makes no network request.
-
-```bash
-aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
-```
+Attestations use DSSE envelopes with in-toto Statement v1 and ed25519 signatures.
 
 ## Links
 
