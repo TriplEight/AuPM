@@ -78,6 +78,10 @@ services:
       - aupm-db:/data
       - ${AUPM_BACKUP_HOST_DIR:?set AUPM_BACKUP_HOST_DIR in .env or stack.env to the host backup directory}:/backup
     restart: unless-stopped
+    # Docker's tini runs as PID 1: it reaps zombie processes and forwards
+    # signals to node. Without it, a zombie made `compose up` fail with
+    # "cannot stop container ... is zombie and can not be killed".
+    init: true
     # Plain Node listener: no Linux capabilities and no privilege escalation
     # needed; drop both rather than carry the defaults.
     cap_drop: [ALL]
