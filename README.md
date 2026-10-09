@@ -1,4 +1,4 @@
-https://github.com/user-attachments/assets/f7fec474-bfa1-4453-812c-a7dfe773142a
+https://github.com/user-attachments/assets/21a37db8-e27c-4132-9ec1-951285fa3149
 
 <h1 align="center">AuPM — audited package manager</h1>
 
