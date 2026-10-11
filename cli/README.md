@@ -41,6 +41,19 @@ offline. It makes no network call.
 
 `AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.
 
+### What the npm passthrough changes
+
+- `aupm <npm args>`, `aupm pnpm`, `aupm yarn` and `aupm npx` inherit stdio. They pass argv and
+  the exit code of the tool through.
+- AuPM removes `--donate`, `--no-donate` and `--attest-out <path>` from argv. A `--` ends that
+  removal.
+- AuPM sets the registry through `npm_config_registry`. A `--registry` flag from you wins.
+- After a successful install-like command, AuPM prints the lockfile summary lines (`aupm: ...`).
+- `attest`, `verify`, `donor` and `config` are AuPM commands. They do not go to npm.
+
+`aupm config` manages AuPM settings only. Today the only setting is `donate`. For npm settings,
+run `npm config`.
+
 ## Donation opt-in
 
 Donation is off by default. Add `--donate` to donate. To donate on every run, set
@@ -87,3 +100,9 @@ MVP split: only the auditor and ops roles are onboarded, and the live contract p
 30% and ops 70%. A new contract version moves to the target split.
 
 Source, spec and license (AGPL-3.0-only): <https://github.com/TriplEight/AuPM>.
+
+## Troubleshooting
+
+`npm install -g aupm-cli` can fail with `ENOVERSIONS`. This happens when the `before` or
+`min-release-age` setting of npm hides every version. Run
+`npm install -g aupm-cli --min-release-age=0`, or wait until the versions are old enough.
