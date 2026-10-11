@@ -90,15 +90,8 @@ export function assertGenesis(network: NetworkName, genesisId: string): void {
   }
 }
 
-/** Throws unless the claim() checks pass. The messages match scripts/claim.mjs. */
-export function assertClaimable(args: {
-  balance: bigint
-  minClaim: number
-  mapped: string | null
-  signer: string
-  facts: AccountFacts
-}): void {
-  const { balance, minClaim, mapped, signer, facts } = args
+/** Throws unless `signer` is the address mapped to the login. */
+export function assertMappedSigner(mapped: string | null, signer: string): void {
   if (!mapped) {
     throw new Error('This login is not mapped to any address on-chain. Ask an admin to map it.')
   }
@@ -108,6 +101,18 @@ export function assertClaimable(args: {
         'claim() would reject this call.',
     )
   }
+}
+
+/** Throws unless the claim() checks pass. The messages match scripts/claim.mjs. */
+export function assertClaimable(args: {
+  balance: bigint
+  minClaim: number
+  mapped: string | null
+  signer: string
+  facts: AccountFacts
+}): void {
+  const { balance, minClaim, mapped, signer, facts } = args
+  assertMappedSigner(mapped, signer)
   if (balance < BigInt(minClaim)) {
     throw new Error(
       `The credited balance is ${balance} microUSDC. MIN_CLAIM is ${minClaim}. ` +
