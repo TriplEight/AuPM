@@ -28,7 +28,9 @@ Node 22.14.0 or later. Add the server to an MCP client:
 Donation is off by default. A donation costs 1,000 microUSDC per reviewed package. A lockfile
 costs 1,000 microUSDC times the number of reviewed entries. A package with no review is free.
 The donor key is the environment variable `AUPM_DONOR_MNEMONIC`, or the key file that
-`aupm donor init` writes (mode 0600). The server uses the key only when the donation setting is on.
+`aupm donor init` writes (mode 0600). The key is 25 words (Algorand mnemonic) or 24 words
+(Pera Universal Wallet phrase, derivation 1). The server uses the key only when the donation
+setting is on.
 
 The server and the `aupm` CLI read the same setting. The first item that is set wins:
 

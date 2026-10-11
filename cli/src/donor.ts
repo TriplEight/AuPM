@@ -7,6 +7,9 @@
 // 0-amount USDC transfer to self straight to algod. `status` reads the state and names the
 // next step. No command uses a timer or polls. The opt-in is not an x402 payment.
 //
+// The key file and the env var hold a 25-word or a 24-word phrase (ADR 0028). `init` makes a
+// 25-word key.
+//
 // WARNING: never print or log the mnemonic or the secret key.
 import readline from 'node:readline'
 import type { Readable } from 'node:stream'
@@ -19,6 +22,7 @@ import {
   readDonorKeyFile,
   writeDonorKeyFile,
 } from 'aupm-mcp/donor-key'
+import { accountFromPhrase, type KeyAccount } from 'aupm-mcp/key-phrase'
 import {
   ALGO_SUGGESTED_MICRO,
   addressLines,
@@ -43,6 +47,7 @@ import {
   testnetNote,
   warningBlock,
 } from './donor-text.js'
+import { signTxn } from './sign.js'
 
 const USAGE = 'Usage: aupm donor [init [--yes]|optin|status]'
 
@@ -68,29 +73,27 @@ function emit(io: DonorIo, lines: string[]): void {
   for (const line of lines) io.out(line)
 }
 
-function accountOf(mnemonic: string): algosdk.Account {
+async function accountOf(mnemonic: string): Promise<KeyAccount> {
   try {
-    return algosdk.mnemonicToSecretKey(mnemonic)
+    return await accountFromPhrase(mnemonic)
   } catch {
-    throw new Error('The donor key is not a valid 25-word mnemonic. Nothing was printed or sent.')
+    throw new Error(
+      'The donor key is not a valid 25-word or 24-word phrase. Nothing was printed or sent.',
+    )
   }
 }
 
-function addressOf(mnemonic: string): string {
-  return accountOf(mnemonic).addr.toString()
-}
-
-function envAddress(): string | null {
+async function envAddress(): Promise<string | null> {
   try {
-    return addressOf(process.env[AUPM_DONOR_MNEMONIC_ENV] ?? '')
+    return (await accountOf(process.env[AUPM_DONOR_MNEMONIC_ENV] ?? '')).address
   } catch {
     return null
   }
 }
 
-function envNotice(): string[] {
+async function envNotice(): Promise<string[]> {
   if (!process.env[AUPM_DONOR_MNEMONIC_ENV]) return []
-  return ['', ...envNoticeLines(envAddress())]
+  return ['', ...envNoticeLines(await envAddress())]
 }
 
 function newAlgod(): algosdk.Algodv2 {
@@ -109,23 +112,23 @@ async function readSnapshot(address: string, usdcAsset: string): Promise<Snapsho
   }
 }
 
-async function sendOptIn(address: string, secretKey: Uint8Array, network: Network) {
+async function sendOptIn(account: KeyAccount, network: Network) {
   const algod = newAlgod()
   const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-    sender: address,
-    receiver: address,
+    sender: account.address,
+    receiver: account.address,
     amount: 0,
     assetIndex: BigInt(network.usdcAsset),
     suggestedParams: await algod.getTransactionParams().do(),
   })
-  await algod.sendRawTransaction(txn.signTxn(secretKey)).do()
+  await algod.sendRawTransaction(await signTxn(account, txn)).do()
   await algosdk.waitForConfirmation(algod, txn.txID(), 4)
   return txn.txID()
 }
 
 async function runOptin(io: DonorIo, network: Network): Promise<number> {
-  const { addr, sk } = accountOf(loadDonorMnemonic())
-  const snapshot = await readSnapshot(addr.toString(), network.usdcAsset)
+  const account = await accountOf(loadDonorMnemonic())
+  const snapshot = await readSnapshot(account.address, network.usdcAsset)
   emit(io, [...testnetNote(network), ...addressLines(snapshot.address, network), ''])
   if (snapshot.optedIn) {
     emit(io, [
@@ -142,21 +145,21 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
     ])
     return 1
   }
-  const txid = await sendOptIn(snapshot.address, sk, network)
+  const txid = await sendOptIn(account, network)
   emit(io, optedInLines(txid, snapshot.address, network))
   return 0
 }
 
 async function runStatus(io: DonorIo, network: Network): Promise<number> {
   const file = donorKeyFilePath()
-  const address = addressOf(loadDonorMnemonic())
+  const address = (await accountOf(loadDonorMnemonic())).address
   const snapshot = await readSnapshot(address, network.usdcAsset)
   const fileLine = process.env[AUPM_DONOR_MNEMONIC_ENV] ? [] : [`Key file: ${file}`]
   emit(io, [
     paint('bold', 'Donor wallet'),
     ...testnetNote(network),
     ...fileLine,
-    ...envNotice(),
+    ...(await envNotice()),
     '',
   ])
   emit(io, statusLines(snapshot, network))
@@ -214,16 +217,16 @@ async function waitForYes({ io, ask }: Session): Promise<boolean> {
 }
 
 /** Checks the wallet once per Enter, sends the opt-in when the ALGO is there, then stops. */
-async function guideFromState(session: Session, account: algosdk.Account): Promise<number> {
+async function guideFromState(session: Session, account: KeyAccount): Promise<number> {
   const { io, network } = session
   for (;;) {
-    const snapshot = await readSnapshot(account.addr.toString(), network.usdcAsset)
+    const snapshot = await readSnapshot(account.address, network.usdcAsset)
     if (snapshot.optedIn) {
       emit(io, ['', ...afterOptInStep(snapshot, network)])
       return 0
     }
     if (snapshot.algo >= snapshot.required) {
-      const txid = await sendOptIn(snapshot.address, account.sk, network)
+      const txid = await sendOptIn(account, network)
       emit(io, ['', ...optedInLines(txid, snapshot.address, network)])
       return 0
     }
@@ -235,17 +238,17 @@ async function guideFromState(session: Session, account: algosdk.Account): Promi
 async function guideNewWallet(
   session: Session,
   file: string,
-  account: algosdk.Account,
+  account: KeyAccount,
 ): Promise<number> {
   const { io, network } = session
-  const address = account.addr.toString()
+  const { address } = account
   emit(io, [
     'Created the donor wallet.',
     ...testnetNote(network),
     ...warningBlock(file, process.platform === 'win32'),
     '',
     ...addressLines(address, network),
-    ...envNotice(),
+    ...(await envNotice()),
     '',
     ...backupLines(file),
   ])
@@ -256,30 +259,30 @@ async function guideNewWallet(
 }
 
 async function guideExistingWallet(session: Session, file: string): Promise<number> {
-  const account = accountOf(loadDonorMnemonic())
+  const account = await accountOf(loadDonorMnemonic())
   emit(session.io, [
-    ...continueLines(file, account.addr.toString(), session.network),
-    ...envNotice(),
+    ...continueLines(file, account.address, session.network),
+    ...(await envNotice()),
   ])
   return await guideFromState(session, account)
 }
 
-function createWallet(): algosdk.Account {
-  const account = algosdk.generateAccount()
-  writeDonorKeyFile(algosdk.secretKeyToMnemonic(account.sk))
-  return account
+async function createWallet(): Promise<KeyAccount> {
+  const mnemonic = algosdk.secretKeyToMnemonic(algosdk.generateAccount().sk)
+  writeDonorKeyFile(mnemonic)
+  return await accountOf(mnemonic)
 }
 
-function printHeadlessInit(io: DonorIo, network: Network, account: algosdk.Account): void {
+async function printHeadlessInit(io: DonorIo, network: Network, account: KeyAccount) {
   const file = donorKeyFilePath()
-  const address = account.addr.toString()
+  const { address } = account
   emit(io, [
     'Created the donor wallet.',
     ...testnetNote(network),
     ...warningBlock(file, process.platform === 'win32'),
     '',
     ...addressLines(address, network),
-    ...envNotice(),
+    ...(await envNotice()),
     ...initNextSteps(address, network, process.platform === 'win32', file),
   ])
 }
@@ -289,13 +292,13 @@ async function runInit(io: DonorIo, network: Network, options: InitOptions): Pro
   const exists = readDonorKeyFile() !== null
   if (!options.interactive) {
     if (exists) return await runStatus(io, network)
-    printHeadlessInit(io, network, createWallet())
+    await printHeadlessInit(io, network, await createWallet())
     return 0
   }
   return await withAnswers(options.input, async (ask) => {
     const session: Session = { io, ask, network }
     if (exists) return await guideExistingWallet(session, file)
-    return await guideNewWallet(session, file, createWallet())
+    return await guideNewWallet(session, file, await createWallet())
   })
 }
 

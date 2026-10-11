@@ -159,7 +159,7 @@ The facilitator pays the payment transaction fee, so the ALGO only covers the mi
 and the opt-in. A wallet with an in-app USDC purchase, for example Pera, avoids an exchange
 withdrawal to a fresh address.
 
-Set the account's 25-word mnemonic in `AUPM_DONOR_MNEMONIC`. Never commit it and never log it.
+Set the account's 25-word mnemonic (or 24-word Universal Wallet phrase) in `AUPM_DONOR_MNEMONIC`. Never commit it and never log it.
 
 `aupm donor init` guides you through these steps. It creates the account, writes the key to
 `~/.config/aupm/donor.key` (`$XDG_CONFIG_HOME/aupm/donor.key`) with mode 0600, and prints a
