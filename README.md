@@ -227,7 +227,8 @@ migration moves to the treasury account, which pays it to the payee on request. 
 Onboarding is manual in the MVP (planned). The path today:
 
 1. Open an Algorand account and opt it in to USDC.
-2. The admin maps your identity on-chain with `setIdentity`.
+2. The admin maps your identity `github:<login>` on-chain with `setIdentity`. This is the only
+   registry. It needs no redeploy. Logins are lower case.
 3. You read the exact tarball you are reviewing.
 4. You anchor the review with a 0-ALGO self-payment to your own address, carrying an ARC-2
    note (`aupm:j{...}`, see [ADR 0007](docs/adr/0007-auditor-anchors-review.md)).

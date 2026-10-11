@@ -26,7 +26,12 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline/promises'
 import { algodEndpoint, assertMainnetConfirmed, parseNetworkFlag } from './network.mjs'
-import { distIntegrityForVersion, encodeReviewNote, fetchNpmPackument } from './review-anchor.mjs'
+import {
+  distIntegrityForVersion,
+  encodeReviewNote,
+  fetchNpmPackument,
+  githubIdentity,
+} from './review-anchor.mjs'
 
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 
@@ -119,7 +124,7 @@ async function main() {
 
   const packument = await fetchNpmPackument(args.name)
   const integrity = distIntegrityForVersion(packument, args.name, args.version)
-  const reviewer = `github:${args.reviewer}`
+  const reviewer = githubIdentity(args.reviewer)
 
   console.log(`package:   ${args.name}`)
   console.log(`version:   ${args.version}`)
