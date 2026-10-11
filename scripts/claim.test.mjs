@@ -7,17 +7,19 @@ import { importWithoutEnvMutation } from './assert-no-env-import.mjs'
 import {
   assertBalanceAtLeastMinClaim,
   assertSignerIsMappedAddress,
-  balanceBoxName,
   buildClaimCallRefs,
-  decodeBoxAddress,
-  decodeBoxUint64,
-  identityBoxName,
   MIN_CLAIM,
   MIN_CLAIM_FEE,
   resolveOuterFee,
 } from './claim.mjs'
 import { assertMainnetConfirmed, parseNetworkFlag } from './network.mjs'
 import { assertNetworkMatchesGenesis } from './rekey-payto.mjs'
+import {
+  balanceBoxName,
+  decodeBoxAddress,
+  decodeBoxUint64,
+  identityBoxName,
+} from './router-boxes.mjs'
 
 const requireFromProxy = createRequire(new URL('../proxy/package.json', import.meta.url))
 const algosdk = requireFromProxy('algosdk')
