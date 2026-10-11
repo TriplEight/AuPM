@@ -83,6 +83,24 @@ For CI, `aupm donor init --yes` prints the commands. You may use a separate wall
 GitHub secret. Back up each key file offline: write the 25 words on paper, or copy the file to
 an external drive.
 
+## Auditors
+
+An auditor anchors a human review and claims the credited USDC. The commands that sign ask for
+the 25-word key on a hidden prompt each time. There is no key file, no environment variable and
+no key flag. The commands need a terminal. A 24-word phrase is not supported yet.
+
+```sh
+aupm auditor review <name>@<version> [--login <github-login>]   # four questions, then a 0-ALGO anchor
+aupm auditor balance <github-login>                             # credited balance, MIN_CLAIM, opt-in
+aupm auditor claim [--login <github-login>]                     # one claim() call
+aupm auditor status <github-login>                              # your reviews on the server
+```
+
+`review` shows every field and sends the anchor only after you type `yes`. An unread review
+is allowed on TestNet only. The app id and the `payTo` address come from the server
+(`GET /api/v1/contract`). `claim` refuses below `MIN_CLAIM`, without the USDC opt-in, and when
+the key address is not the address mapped to `github:<login>`.
+
 ## Where a donation goes
 
 Target split, per 1,000 microUSDC:

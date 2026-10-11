@@ -11,6 +11,10 @@ const USAGE_LINES = [
   '  aupm npx <npx args>                 runs npx against the AuPM registry (no --donate)',
   '  aupm attest <lockfile> [--donate|--no-donate] [--out <path>]',
   '  aupm verify <attestation.json> [--lockfile <path>] [--key <keyid>:<base64pubkey>]... [--keys <aupm-keys.json>]',
+  '  aupm auditor review <name>@<version> [--login <login>]   anchor a review (key on a hidden prompt)',
+  '  aupm auditor balance <login>         credited balance, MIN_CLAIM, opt-in (read-only)',
+  '  aupm auditor claim [--login <login>] claim the credited balance (key on a hidden prompt)',
+  '  aupm auditor status <login>          reviews of one auditor (read-only)',
   '  aupm donor init [--yes]  create a donor key; on a terminal, guide the steps (--yes: print them)',
   '  aupm donor optin     opt the donor in to USDC (one check, no waiting)',
   '  aupm donor [status]  show the balances and the next step',
@@ -18,7 +22,7 @@ const USAGE_LINES = [
   '  aupm config get donate               show the effective value and where it comes from',
   '  aupm config <other args>             runs npm config with those args (any key but donate)',
   '',
-  'Every first argument other than attest, verify, donor, config, pnpm, yarn and npx goes to npm unchanged.',
+  'Every first argument other than attest, verify, auditor, donor, config, pnpm, yarn and npx goes to npm unchanged.',
   'config goes to npm config unless it is get donate or set donate.',
   'AuPM adds only --donate, --no-donate and --attest-out <path>; all are removed before npm, pnpm or yarn runs.',
   'Donation setting, highest first: --donate or --no-donate, env AUPM_DONATE=true|false,',
@@ -44,6 +48,11 @@ async function main(): Promise<void> {
     if (isDonateConfig(argv.slice(1))) process.exit(runConfig(argv.slice(1)))
     const { runNpmConfig } = await import('./npm-wrapper.js')
     process.exit(await runNpmConfig(argv.slice(1)))
+  }
+
+  if (command === 'auditor') {
+    const { runAuditor } = await import('./auditor.js')
+    process.exit(await runAuditor(argv.slice(1)))
   }
 
   if (command === 'donor') {
