@@ -22,7 +22,6 @@
 // with no TTY on stdin, it refuses before any network or database access.
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline/promises'
-import { readMappedAddress } from './claim.mjs'
 import { algodEndpoint, indexerEndpoint, parseNetworkFlag } from './network.mjs'
 import {
   checkIntegrityMatchesNpm,
@@ -36,6 +35,7 @@ import {
   repositoryForVersion,
   resolveRepoKey,
 } from './review-anchor.mjs'
+import { readMappedAddress } from './router-boxes.mjs'
 
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 
