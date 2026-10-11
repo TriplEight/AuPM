@@ -2,6 +2,11 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-11
+- #99 `e82bab7`: ADRs 0019-0027 and SPEC Part III record the trust-layer design. The target split
+  becomes 40/10/25/20/5, with a pool per package version. The live contract still pays auditor
+  30% and ops 70%.
+
 ## 2026-10-08
 - #95 `ab9e9a7`: the README opens with the developer problem, a donation call to action and a
   free quick start without a wallet. Payment details move lower.
