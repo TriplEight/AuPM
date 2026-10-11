@@ -40,7 +40,9 @@ server.tool(
     allowDonation: z
       .boolean()
       .optional()
-      .describe('Opt in to donating for a 402. Off by default — a 402 never signs otherwise.'),
+      .describe(
+        'Set true or false to override the AUPM_DONATE env var and the config file. Unset: they decide, and the default is off.',
+      ),
   },
   async ({ pkg, version, allowDonation }) => ({
     content: [
@@ -64,7 +66,9 @@ server.tool(
     allowDonation: z
       .boolean()
       .optional()
-      .describe('Opt in to donating for a 402. Off by default — a 402 never signs otherwise.'),
+      .describe(
+        'Set true or false to override the AUPM_DONATE env var and the config file. Unset: they decide, and the default is off.',
+      ),
   },
   async ({ lockfilePath, allowDonation }) => ({
     content: [
