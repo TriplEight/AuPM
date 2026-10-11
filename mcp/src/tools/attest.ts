@@ -1,6 +1,7 @@
 // mcp/src/tools/attest.ts
 import fs from 'node:fs'
 import path from 'node:path'
+import { DONATION_SETTING_TEXT, resolveDonate } from '../config.js'
 import {
   fetchWithDonation,
   PRICE_PER_ENTRY_MICRO,
@@ -113,19 +114,21 @@ export const attestLockfileTool = {
   description:
     'Request a signed in-toto attestation for a whole package-lock.json, pnpm-lock.yaml ' +
     '(lockfileVersion 9.0) or yarn.lock (yarn classic v1; chosen by file name) via AuPM. Free ' +
-    'when the tree has zero reviewed packages. Pass allowDonation: true to pay for and ' +
-    'receive the full attestation. Without allowDonation, the reviewed entries are ' +
+    'when the tree has zero reviewed packages. Opt in to donate to pay for and ' +
+    'receive the full attestation. Without a donation opt-in, the reviewed entries are ' +
     "withheld and the result reports status: 'donation_required' with the partial " +
     'attestation, the withheld count, the price, and the resource URL — never a 402. ' +
-    'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid.',
+    'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid. ' +
+    DONATION_SETTING_TEXT,
 
   async handler({
     lockfilePath,
-    allowDonation = false,
+    allowDonation,
   }: {
     lockfilePath: string
     allowDonation?: boolean
   }): Promise<AttestLockfileResult> {
+    const donate = resolveDonate(allowDonation).value
     const lockfileBytes = fs.readFileSync(lockfilePath)
     const kind = lockfileKind(lockfilePath)
     if (kind !== 'json' && lockfileBytes.byteLength > PNPM_LOCKFILE_MAX_BYTES) {
@@ -144,7 +147,7 @@ export const attestLockfileTool = {
           headers: { 'content-type': CONTENT_TYPES[kind] },
           body: lockfileBytes,
         },
-        allowDonation,
+        donate,
         entryCount,
       )
     let result = await post()
@@ -180,7 +183,7 @@ export const attestLockfileTool = {
     // whenever any reviewed entry was withheld. `withheld: 0` still means
     // a genuinely full attestation (e.g. zero-coverage lockfiles), so only
     // a positive count is reported back as donation_required.
-    if (!allowDonation) {
+    if (!donate) {
       const withheld = decodeWithheld(body.attestation)
       if (withheld > 0) {
         return {

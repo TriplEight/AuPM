@@ -2,6 +2,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { DONATION_SETTING_TEXT, resolveDonate } from '../config.js'
 import {
   EXPLORER_NETWORK,
   fetchWithDonation,
@@ -36,16 +37,17 @@ export const installTool = {
   name: 'install_audited_package',
   description:
     'Install an npm package via AuPM. If COMMUNITY_REVIEWED or higher, this route returns ' +
-    `402. Pass allowDonation: true to donate up to ${formatMicroUsd(PRICE_PER_ENTRY_MICRO)} ` +
+    `402. Opt in to donate up to ${formatMicroUsd(PRICE_PER_ENTRY_MICRO)} ` +
     `in USDC on Algorand ${IS_TESTNET ? 'TestNet' : 'MainNet'} (asset ${USDC_ASSET_ID}) as a ` +
-    'plain asset transfer to the merchant payTo address. Without allowDonation, a 402 is reported ' +
+    'plain asset transfer to the merchant payTo address. Without a donation opt-in, a 402 is reported ' +
     "back as status: 'donation_required' with the price and resource URL, and nothing is " +
-    'signed. Returns tarball path and settlement txid on a paid or free install.',
+    'signed. Returns tarball path and settlement txid on a paid or free install. ' +
+    DONATION_SETTING_TEXT,
 
   async handler({
     pkg,
     version,
-    allowDonation = false,
+    allowDonation,
   }: {
     pkg: string
     version: string
@@ -56,7 +58,7 @@ export const installTool = {
     const pkgPath = pkg.startsWith('@') ? pkg.replace('@', '%40').replace('/', '%2F') : pkg
     const url = `${proxyUrl()}/${pkgPath}/-/${tarballName}`
 
-    const result = await fetchWithDonation(url, undefined, allowDonation)
+    const result = await fetchWithDonation(url, undefined, resolveDonate(allowDonation).value)
     if (result.kind === 'donation_required') {
       return {
         status: 'donation_required',

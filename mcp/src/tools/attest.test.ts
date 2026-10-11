@@ -106,6 +106,8 @@ describe('attest_lockfile', () => {
   let lockfilePath: string
 
   beforeEach(() => {
+    vi.stubEnv('XDG_CONFIG_HOME', os.tmpdir())
+    vi.stubEnv('AUPM_DONATE', '')
     lockfilePath = writeLockfile()
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     process.env.AUPM_PROXY_URL = 'http://localhost:4873'
@@ -113,6 +115,7 @@ describe('attest_lockfile', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.AUPM_PROXY_URL
@@ -436,6 +439,8 @@ packages:
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-pnpm-test-'))
+    vi.stubEnv('XDG_CONFIG_HOME', os.tmpdir())
+    vi.stubEnv('AUPM_DONATE', '')
     pnpmLockfilePath = path.join(dir, 'pnpm-lock.yaml')
     fs.writeFileSync(pnpmLockfilePath, PNPM_BODY)
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
@@ -444,6 +449,7 @@ packages:
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.AUPM_PROXY_URL
@@ -574,12 +580,15 @@ describe('attest_lockfile with a yarn.lock', () => {
 
   beforeEach(() => {
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-attest-yarn-test-'))
+    vi.stubEnv('XDG_CONFIG_HOME', os.tmpdir())
+    vi.stubEnv('AUPM_DONATE', '')
     yarnLockPath = path.join(dir, 'yarn.lock')
     fs.writeFileSync(yarnLockPath, YARN_BODY)
     process.env.AUPM_PROXY_URL = 'http://localhost:4873'
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     delete process.env.AUPM_PROXY_URL
     fs.rmSync(dir, { recursive: true, force: true })

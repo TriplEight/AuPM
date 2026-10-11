@@ -1,4 +1,5 @@
 import { Buffer } from 'node:buffer'
+import os from 'node:os'
 import {
   ALGORAND_MAINNET_CAIP2,
   decodeSignedTransaction,
@@ -79,12 +80,14 @@ describe('install_audited_package', () => {
   })
 
   beforeEach(() => {
+    vi.stubEnv('XDG_CONFIG_HOME', os.tmpdir())
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     process.env.AUPM_PROXY_URL = 'http://localhost:4873'
     delete process.env.NETWORK
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.AUPM_PROXY_URL
