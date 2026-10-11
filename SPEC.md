@@ -98,8 +98,8 @@ AuPM is a **registry-compatible proxy overlay** in front of npm that adds:
   transaction that the auditor signs (review anchor, ADR 0007), bound to the tarball
   `dist.integrity`. IPFS JSON manifests, ARC-19 NFTs
   and independent hash mirroring are additive post-MVP upgrades.
-- **Self-sustaining security job market** — revenue split: auditors 30%, contributors 10%,
-  maintainers 20%, adversarial pool 25%, treasury 10%, ops 5% (§6).
+- **Self-sustaining security job market** — target revenue split (ADR 0019): reviewer line 40%,
+  contributor 10%, maintainer 25%, treasury 20%, ops 5%. Treasury and ops come off the top.
 
 Adoption path: `registry=https://<domain>` in `.npmrc`, or the `aupm` CLI wrapper that adds it.
 No migration, no new tooling. **MVP client support is wrapper-only:** pnpm/yarn/bun plugins
