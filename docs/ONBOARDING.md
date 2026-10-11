@@ -334,12 +334,14 @@ donation for that version (the MVP split).
    aupm auditor review ms@2.1.3
    ```
 
-   - The command asks four questions: what you read, the install scripts, your findings, and the
-     changes since the previous reviewed version. It shows the previous reviewed version.
-   - It prints every field of the review. Type `yes` to send it.
-   - It asks for your recovery phrase in a hidden prompt. It sends one 0-ALGO transaction from
-     your account to your own account. The note holds the review. The fee is 0.001 ALGO.
+   - The command asks for your recovery phrase in a hidden prompt. It stops if your account is
+     not the account that the ops mapped to your login.
+   - It asks four questions: what you read, the install scripts, your findings, and the changes
+     since your previous reviewed version. It shows that previous version.
+   - It prints every field of the review. Type `yes` to send it. It sends one 0-ALGO transaction
+     from your account to your own account. The note holds the review. The fee is 0.001 ALGO.
    - It prints the txid and an explorer link.
+   - Add `--login <your GitHub login>` to skip the login question.
 4. Post the txid in your application issue.
 5. Check your reviews. After the ops record a review, this command shows it:
 
