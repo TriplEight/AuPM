@@ -64,7 +64,8 @@ error. Only the `aupm` command reads this setting. Plain `npm install` stays fre
 After an install, `aupm` prints how many packages are audited, not audited, integrity
 mismatch and unresolvable. `--donate` pays for every audited package in the whole lockfile. The donor key is the environment variable
 `AUPM_DONOR_MNEMONIC`, or the file that `aupm donor init` writes to
-`~/.config/aupm/donor.key` (mode 0600; the 25 words and a newline). A donation costs 1,000 microUSDC per reviewed package. A
+`~/.config/aupm/donor.key` (mode 0600; the words and a newline). The key is 25 words (Algorand mnemonic) or 24 words
+(Pera Universal Wallet phrase, derivation 1). `aupm donor init` makes a 25-word key. A donation costs 1,000 microUSDC per reviewed package. A
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
 
@@ -84,8 +85,9 @@ an external drive.
 ## Auditors
 
 An auditor anchors a human review and claims the credited USDC. The commands that sign ask for
-the 25-word key on a hidden prompt each time. There is no key file, no environment variable and
-no key flag. The commands need a terminal. A 24-word phrase is not supported yet.
+the key on a hidden prompt each time. The key is 25 words (Algorand mnemonic) or 24 words
+(Pera Universal Wallet phrase). There is no key file, no environment variable and no key flag.
+The commands need a terminal.
 
 ```sh
 aupm auditor review <name>@<version> [--login <github-login>]   # four questions, then a 0-ALGO anchor
@@ -98,6 +100,11 @@ aupm auditor status <github-login>                              # your reviews o
 is allowed on TestNet only. The app id and the `payTo` address come from the server
 (`GET /api/v1/contract`). `claim` refuses below `MIN_CLAIM`, without the USDC opt-in, and when
 the key address is not the address mapped to `github:<login>`.
+
+A 24-word phrase derives its account with ARC-52 at `m/44'/283'/n'/0/0`. The default is
+`n = 1`, the first named account in Pera. `n = 0` is the wallet root. `review` and `claim`
+accept `--derivation <n>` to pick another `n`, or `--address <address>` to search `n = 0`
+to `19` for that address. Use one flag, not both. Both flags are an error with a 25-word key.
 
 ## Where a donation goes
 

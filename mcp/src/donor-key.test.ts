@@ -5,6 +5,7 @@ import path from 'node:path'
 import { mnemonicFromSeed } from '@algorandfoundation/algokit-utils/algo25'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { donorKeyFilePath, loadDonorMnemonic, writeDonorKeyFile } from './donor-key.js'
+import { accountFromPhrase } from './key-phrase.js'
 
 const KEY_VAR = 'AUPM_DONOR_MNEMONIC'
 // Throwaway mnemonics: generated per run, never funded.
@@ -68,6 +69,18 @@ describe('donor key file', () => {
     expect(loadDonorMnemonic()).toBe(ENV_VALUE)
   })
 
+  it('loads a 24-word Universal Wallet phrase from the file at derivation 1', async () => {
+    // A public TestNet throwaway from a Pera Universal Wallet. It never held funds.
+    const phrase = fs
+      .readFileSync(new URL('./__fixtures__/pera-testnet-universal.txt', import.meta.url), 'utf8')
+      .trim()
+    writeDonorKeyFile(phrase)
+    expect(loadDonorMnemonic()).toBe(phrase)
+    expect((await accountFromPhrase(loadDonorMnemonic())).address).toBe(
+      'XRGJY2DYXW3E3O34VFKLSA4VLUESY77Z2D6NBNKTNFBA76WM3NYKPTRH7A',
+    )
+  })
+
   it('refuses a file wider than 0600 with a chmod fix', () => {
     const file = writeDonorKeyFile(FILE_VALUE)
     fs.chmodSync(file, 0o644)
@@ -94,7 +107,8 @@ describe('donor key file', () => {
       'two lines of words',
       `${FILE_VALUE.split(' ').slice(0, 12).join(' ')}\n${FILE_VALUE.split(' ').slice(12).join(' ')}\n`,
     ],
-    ['24 words', `${FILE_VALUE.split(' ').slice(0, 24).join(' ')}\n`],
+    ['24 words with a bad checksum', `${'abandon '.repeat(23)}abandon\n`],
+    ['23 words', `${FILE_VALUE.split(' ').slice(0, 23).join(' ')}\n`],
     ['an empty file', ''],
     ['25 words that are not a mnemonic', `${'abandon '.repeat(24)}abandon\n`],
   ])('refuses a file with %s and names the path only', (_label, content) => {
@@ -103,7 +117,7 @@ describe('donor key file', () => {
     // An exact match proves that no word of the key reaches the message. A
     // per-word check is flaky: the fixed text shares words with the word list.
     expect(messageOf(() => loadDonorMnemonic())).toBe(
-      `donor key file ${file} must hold one line with 25 valid mnemonic words`,
+      `donor key file ${file} must hold one line with 25 or 24 valid mnemonic words`,
     )
   })
 })

@@ -1,9 +1,10 @@
 // cli/src/auditor-terminal.ts
 //
 // Terminal input of the auditor commands: the hidden key prompt, the visible questions, the
-// mnemonic check and the login helper. WARNING: never print, log or store the words.
+// phrase check and the login helper. WARNING: never print, log or store the words.
 import readline from 'node:readline/promises'
 import algosdk from 'algosdk'
+import { accountFromPhrase, type DerivationChoice, type KeyAccount } from 'aupm-mcp/key-phrase'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import type { NetworkName } from './auditor-chain.js'
 
@@ -82,25 +83,11 @@ export function defaultDeps(): AuditorDeps {
   }
 }
 
-export type AuditorAccount = { addr: { toString(): string }; sk: Uint8Array }
-
-/** Turns the typed words into an account. Only the 25-word Algo25 phrase works for now. */
-export function accountFromWords(words: string): AuditorAccount {
-  const count = words.trim().split(/\s+/).filter(Boolean).length
-  if (count === 24) {
-    throw new Error('A 24-word phrase is not supported yet. Support comes later.')
-  }
-  if (count !== 25) {
-    throw new Error(`The key must be a 25-word Algorand mnemonic. You typed ${count} words.`)
-  }
-  try {
-    return algosdk.mnemonicToSecretKey(words.trim())
-  } catch {
-    throw new Error('The 25 words are not a valid Algorand mnemonic. Check each word.')
-  }
-}
-
-/** Asks for the key on a hidden prompt. The caller wipes `sk` after use. */
-export async function promptAccount(deps: AuditorDeps): Promise<AuditorAccount> {
-  return accountFromWords(await deps.askSecret('Auditor key (25 words, not shown): '))
+/** Asks for the key on a hidden prompt: 25 words, or 24 words with an optional derivation. */
+export async function promptAccount(
+  deps: AuditorDeps,
+  choice: DerivationChoice = {},
+): Promise<KeyAccount> {
+  const words = await deps.askSecret('Auditor key (25 or 24 words, not shown): ')
+  return accountFromPhrase(words, choice)
 }

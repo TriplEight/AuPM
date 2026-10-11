@@ -1,4 +1,6 @@
 // cli/src/auditor.test.ts
+import fs from 'node:fs'
+import * as ed from '@noble/ed25519'
 import algosdk from 'algosdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAuditor } from './auditor.js'
@@ -14,6 +16,17 @@ const INTEGRITY = 'sha512-abc'
 const auditor = algosdk.generateAccount()
 const words = algosdk.secretKeyToMnemonic(auditor.sk)
 const other = algosdk.generateAccount()
+
+// A public TestNet throwaway from a Pera Universal Wallet. It never held funds.
+const universal = fs
+  .readFileSync(
+    new URL('../../mcp/src/__fixtures__/pera-testnet-universal.txt', import.meta.url),
+    'utf8',
+  )
+  .trim()
+const DERIVATION_0 = 'JNFVWY2Q44O3K5IYRYG5JE7ZKR4KP34JEQVGCKE7ECXKTTX7364VXFDK7M'
+const DERIVATION_1 = 'XRGJY2DYXW3E3O34VFKLSA4VLUESY77Z2D6NBNKTNFBA76WM3NYKPTRH7A'
+const REVIEW_ANSWERS = ['full source', 'none', 'none', 'first review', 'yes']
 
 interface World {
   network?: string
@@ -129,8 +142,6 @@ function captureErrors() {
 }
 afterEach(() => vi.restoreAllMocks())
 
-const words24 = words.split(' ').slice(0, 24).join(' ')
-
 describe('aupm auditor review', () => {
   it('refuses with no TTY before any network call', async () => {
     captureErrors()
@@ -140,12 +151,77 @@ describe('aupm auditor review', () => {
     expect(errors.join()).toContain('needs a terminal')
   })
 
-  it('refuses a 24-word phrase before any network call', async () => {
+  it('signs with derivation 1 of a 24-word phrase by default', async () => {
+    const t = setup({ secret: universal, mapped: DERIVATION_1, answers: REVIEW_ANSWERS })
+    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(0)
+    const signed = algosdk.decodeSignedTransaction(t.sent[0])
+    expect(signed.txn.sender.toString()).toBe(DERIVATION_1)
+    const publicKey = algosdk.decodeAddress(DERIVATION_1).publicKey
+    expect(
+      await ed.verifyAsync(signed.sig as Uint8Array, signed.txn.bytesToSign(), publicKey),
+    ).toBe(true)
+  })
+
+  it('signs with --derivation 0 and with --address', async () => {
+    const byDerivation = setup({ secret: universal, mapped: DERIVATION_0, answers: REVIEW_ANSWERS })
+    const args = ['review', 'ms@1.2.0']
+    expect(await runAuditor([...args, '--derivation', '0'], byDerivation.deps)).toBe(0)
+    expect(algosdk.decodeSignedTransaction(byDerivation.sent[0]).txn.sender.toString()).toBe(
+      DERIVATION_0,
+    )
+    const byAddress = setup({ secret: universal, mapped: DERIVATION_0, answers: REVIEW_ANSWERS })
+    expect(await runAuditor([...args, '--address', DERIVATION_0], byAddress.deps)).toBe(0)
+    expect(algosdk.decodeSignedTransaction(byAddress.sent[0]).txn.sender.toString()).toBe(
+      DERIVATION_0,
+    )
+  })
+
+  it('refuses a derivation that is not the mapped address and sends nothing', async () => {
     captureErrors()
-    const t = setup({ secret: words24 })
-    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
+    const t = setup({ secret: universal, mapped: DERIVATION_1, answers: REVIEW_ANSWERS })
+    expect(await runAuditor(['review', 'ms@1.2.0', '--derivation', '0'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('is not the address mapped')
+    expect(t.sent).toHaveLength(0)
+  })
+
+  it.each([
+    [['--derivation', '1', '--address', DERIVATION_1], 'not both'],
+    [['--derivation', 'x'], 'non-negative integer'],
+    [['--derivation'], 'non-negative integer'],
+    [['--address'], 'needs an Algorand address'],
+  ])('refuses the flags %j before the key prompt', async (flags, message) => {
+    captureErrors()
+    const t = setup({ secret: universal })
+    expect(await runAuditor(['review', 'ms@1.2.0', ...flags], t.deps)).toBe(1)
+    expect(errors.join()).toContain(message)
+    expect(t.deps.askSecret).not.toHaveBeenCalled()
     expect(t.fetchMock).not.toHaveBeenCalled()
-    expect(errors.join()).toContain('24-word phrase is not supported yet')
+  })
+
+  it('refuses the flags with a 25-word key before any network call', async () => {
+    captureErrors()
+    const t = setup({ answers: REVIEW_ANSWERS })
+    expect(await runAuditor(['review', 'ms@1.2.0', '--derivation', '1'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('apply to 24-word Universal Wallet phrases only')
+    expect(t.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses a 24-word phrase with a bad checksum and does not echo the words', async () => {
+    captureErrors()
+    const t = setup({ secret: 'abandon '.repeat(24).trim() })
+    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
+    expect(errors.join()).toBe(
+      'The 24 words are not a valid Universal Wallet phrase. Check each word.',
+    )
+    expect(t.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses 23 words and names both formats', async () => {
+    captureErrors()
+    const t = setup({ secret: universal.split(' ').slice(0, 23).join(' ') })
+    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('25-word Algorand mnemonic or a 24-word Universal Wallet')
+    expect(t.fetchMock).not.toHaveBeenCalled()
   })
 
   it('refuses an unread coverage on MainNet', async () => {
@@ -321,11 +397,27 @@ describe('aupm auditor claim', () => {
     expect(errors.join()).toContain('microALGO')
   })
 
-  it('refuses a 24-word phrase', async () => {
+  it('claims with derivation 1 of a 24-word phrase by default', async () => {
+    const t = setup({ ...base, secret: universal, mapped: DERIVATION_1 })
+    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(0)
+    expect(algosdk.decodeSignedTransaction(t.sent[0]).txn.sender.toString()).toBe(DERIVATION_1)
+  })
+
+  it('claims with --address of a 24-word phrase', async () => {
+    const t = setup({ ...base, secret: universal, mapped: DERIVATION_0 })
+    expect(await runAuditor(['claim', '--login', 'alice', '--address', DERIVATION_0], t.deps)).toBe(
+      0,
+    )
+    expect(algosdk.decodeSignedTransaction(t.sent[0]).txn.sender.toString()).toBe(DERIVATION_0)
+  })
+
+  it('refuses an --address that no derivation gives', async () => {
     captureErrors()
-    const t = setup({ ...base, secret: words24 })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(t.fetchMock).not.toHaveBeenCalled()
+    const t = setup({ ...base, secret: universal })
+    const unknown = other.addr.toString()
+    expect(await runAuditor(['claim', '--login', 'alice', '--address', unknown], t.deps)).toBe(1)
+    expect(errors.join()).toContain('No derivation from 0 to 19')
+    expect(t.sent).toHaveLength(0)
   })
 
   it('sends one claim call with the pooled outer fee and the box references', async () => {

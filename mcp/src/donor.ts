@@ -114,20 +114,26 @@ function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) =
   }
 }
 
-// Derives the donor signer only when the scheme actually reads address or
-// signTransactions -- that only happens once a real 402 is being paid. A
-// free (200) response never touches AUPM_DONOR_MNEMONIC.
-function lazyDonorSigner(): ClientAvmSigner {
+// Derives the donor signer only when a payment is about to be created -- that only happens once
+// a real 402 passed the cap policy. A free (200) response never touches AUPM_DONOR_MNEMONIC.
+// The key derivation is async, so the before-creation hook loads the signer before the scheme
+// reads `address`.
+function lazyDonorSigner(): { signer: ClientAvmSigner; load: () => Promise<void> } {
   let cached: ClientAvmSigner | undefined
-  function resolve(): ClientAvmSigner {
-    if (!cached) cached = signerFromMnemonic(loadDonorMnemonic())
+  function loaded(): ClientAvmSigner {
+    if (!cached) throw new Error('donor signer used before it was loaded')
     return cached
   }
   return {
-    get address() {
-      return resolve().address
+    load: async () => {
+      if (!cached) cached = await signerFromMnemonic(loadDonorMnemonic())
     },
-    signTransactions: (txns, indexesToSign) => resolve().signTransactions(txns, indexesToSign),
+    signer: {
+      get address() {
+        return loaded().address
+      },
+      signTransactions: (txns, indexesToSign) => loaded().signTransactions(txns, indexesToSign),
+    },
   }
 }
 
@@ -136,12 +142,14 @@ function buildDonationClient(
   onApproved: (amountMicro: number) => void,
 ): x402Client {
   const client = new x402Client()
+  const { signer, load } = lazyDonorSigner()
   registerExactAvmScheme(client, {
-    signer: lazyDonorSigner(),
+    signer,
     algodConfig: { algodUrl: DONOR_ALGOD_URL },
     networks: [CAIP2_NETWORK],
     policies: [donationCapPolicy(capMicro, onApproved)],
   })
+  client.onBeforePaymentCreation(load)
   return client
 }
 

@@ -1,26 +1,38 @@
 # Two recovery-phrase formats for keys that a person types
 
-Every AuPM tool reads only a 25-word Algorand mnemonic (Algo25). Pera makes a 24-word "Universal
+AuPM tools first read only a 25-word Algorand mnemonic (Algo25). Pera makes a 24-word "Universal
 Wallet" by default. That phrase is a BIP-39 seed, and Pera derives its accounts from it with
 ARC-52 (BIP32-Ed25519). On chain, both formats give an ordinary ed25519 account. Only the backup
-format and the derivation are different. A person with a Pera Universal Wallet cannot use AuPM
-today without a second account.
+format and the derivation are different. A person with a Pera Universal Wallet needed a second
+account to use AuPM.
 
 AuPM accepts two formats where a person types or stores a recovery phrase:
 
 1. A 25-word Algo25 mnemonic. Existing keys stay valid: the MainNet donor, the
    `aupm-action-demo` CI secret and the MainNet auditor.
-2. A 24-word Universal Wallet phrase. The tool derives the first account in the same way as
-   Pera.
+2. A 24-word Universal Wallet phrase. The tool derives the account in the same way as Pera.
 
 The tool identifies the format from the word count. Any other word count is an error that names
 the two accepted formats.
 
-The 24-word support needs one fact before code: the ARC-52 variant (Peikert or Khovratovich)
-and the path (`m/44'/283'/n'/0/0` or `m/44'/283'/0'/0/n`) that Pera uses for its first account.
-A person makes a TestNet Universal Wallet in Pera with throwaway words. The orchestrator compares
-its first address with `peikertXHdWalletGenerator` from `@algorandfoundation/algokit-utils/crypto`
-and records the test vector here. Until then, the tools accept only Algo25.
+A TestNet Universal Wallet from Pera with throwaway words gave the derivation. The phrase is a
+BIP-39 English phrase with an empty passphrase. The 64-byte seed goes to ARC-52 BIP32-Ed25519 with
+the Peikert variant and the path `m/44'/283'/n'/0/0`. The account is `n`, the index is 0.
+`peikertXHdWalletGenerator` and `peikertXHdAccountGenerator` from
+`@algorandfoundation/algokit-utils/crypto` do the derivation. The tools check the BIP-39 checksum
+with `@scure/bip39` and the English word list.
+
+The default is `n = 1`. Pera's first named account is `n = 1`. `n = 0` is the wallet root, and
+the tools never use it by default. The commands that sign for an auditor (`aupm auditor review`
+and `aupm auditor claim`) accept `--derivation <n>`, a non-negative integer, or
+`--address <address>`, which searches `n = 0` to `19` for that address and gives an error when
+none matches. The two flags exclude each other. With a 25-word key, both flags are an error. The
+donor key (the key file and the env var) accepts 24 words and always uses `n = 1`. It has no
+flag. `aupm donor init` still makes a 25-word key.
+
+Test vector (a public TestNet throwaway, no funds): derivation 0 gives
+`JNFVWY2Q44O3K5IYRYG5JE7ZKR4KP34JEQVGCKE7ECXKTTX7364VXFDK7M`. Derivation 1 gives
+`XRGJY2DYXW3E3O34VFKLSA4VLUESY77Z2D6NBNKTNFBA76WM3NYKPTRH7A`.
 
 Native Falcon-1024 post-quantum accounts are live on MainNet since go-algorand v5.0.0. Their
 backup is also a 25-word mnemonic. AuPM does not accept them yet. A later item tests a

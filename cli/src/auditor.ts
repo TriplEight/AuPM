@@ -3,6 +3,7 @@
 // `aupm auditor review|balance|claim|status`. The key is typed on a hidden prompt for each
 // command that signs (ADR 0028). No key file, no env var, no flag. The app id and the payTo
 // address come from GET /api/v1/contract. The anchor and the claim go to algod.
+import type { DerivationChoice } from 'aupm-mcp/key-phrase'
 import {
   type AccountFacts,
   assertClaimable,
@@ -37,8 +38,9 @@ const TESTNET_CAIP2 = 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
 export const AUDITOR_USAGE = [
   'Usage:',
   '  aupm auditor review <name>@<version> [--login <github-login>]',
+  '      [--derivation <n> | --address <address>]',
   '  aupm auditor balance <github-login>',
-  '  aupm auditor claim [--login <github-login>]',
+  '  aupm auditor claim [--login <github-login>] [--derivation <n> | --address <address>]',
   '  aupm auditor status <github-login>',
 ]
 
@@ -70,6 +72,22 @@ export function parsePackageSpec(spec: string): { name: string; version: string 
   return { name: spec.slice(0, at), version: spec.slice(at + 1) }
 }
 
+/** Reads --derivation and --address. Both apply to 24-word phrases only (ADR 0028). */
+function derivationChoice(args: string[]): DerivationChoice {
+  const raw = flagValue(args, '--derivation')
+  const address = flagValue(args, '--address')
+  if (args.includes('--derivation') && (raw === undefined || !/^\d+$/.test(raw))) {
+    throw new Error('--derivation needs a non-negative integer, for example --derivation 1.')
+  }
+  if (args.includes('--address') && !address) {
+    throw new Error('--address needs an Algorand address.')
+  }
+  if (raw !== undefined && address !== undefined) {
+    throw new Error('Use --derivation or --address, not both.')
+  }
+  return { derivation: raw === undefined ? undefined : Number(raw), address }
+}
+
 async function loginFrom(args: string[], deps: AuditorDeps): Promise<string> {
   return normalizeLogin(flagValue(args, '--login') ?? (await deps.ask('GitHub login: ')))
 }
@@ -96,45 +114,41 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
   const spec = positionals(args)[0]
   if (!spec) throw new Error(AUDITOR_USAGE.join('\n'))
   const { name, version } = parsePackageSpec(spec)
-  const account = await promptAccount(deps)
-  try {
-    const login = await loginFrom(args, deps)
-    const contract = await fetchContract(deps.fetch, deps.origin)
-    const network = networkOf(contract)
-    const algod = deps.algod(network)
-    assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
-    const mapped = await readMappedAddress(algod, contract.appId, `github:${login}`)
-    assertMappedSigner(mapped, account.addr.toString())
-    const integrity = await fetchNpmIntegrity(deps.fetch, name, version)
-    const reviews = await fetchReviews(deps.fetch, deps.origin, login)
-    const previous = previousReviewedVersion(reviews, name, version)
-    const answers = await askScope(deps, previous)
-    const scope = buildScope(answers, previous)
-    assertReadAllowed(answers.coverage, scope, network === 'testnet')
-    const reviewer = `github:${login}`
-    const note = encodeReviewNote({ name, version, integrity, reviewer, scope })
-    assertNoteFits(note)
-    for (const line of [
-      `package:   ${name}`,
-      `version:   ${version}`,
-      `integrity: ${integrity}`,
-      `reviewer:  ${reviewer}`,
-      `scope:     ${scope}`,
-      `network:   ${network}`,
-      `signer:    ${account.addr}`,
-    ]) {
-      deps.print(line)
-    }
-    if ((await deps.ask('Send this review anchor? Type "yes" to confirm: ')).trim() !== 'yes') {
-      deps.print('Stopped. No transaction sent.')
-      return
-    }
-    const txid = await sendAnchor(algod, account, note)
-    deps.print(`Anchored. Transaction: ${txid}`)
-    deps.print(`Explorer: ${loraLink(network, txid)}`)
-  } finally {
-    account.sk.fill(0)
+  const account = await promptAccount(deps, derivationChoice(args))
+  const login = await loginFrom(args, deps)
+  const contract = await fetchContract(deps.fetch, deps.origin)
+  const network = networkOf(contract)
+  const algod = deps.algod(network)
+  assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
+  const mapped = await readMappedAddress(algod, contract.appId, `github:${login}`)
+  assertMappedSigner(mapped, account.address)
+  const integrity = await fetchNpmIntegrity(deps.fetch, name, version)
+  const reviews = await fetchReviews(deps.fetch, deps.origin, login)
+  const previous = previousReviewedVersion(reviews, name, version)
+  const answers = await askScope(deps, previous)
+  const scope = buildScope(answers, previous)
+  assertReadAllowed(answers.coverage, scope, network === 'testnet')
+  const reviewer = `github:${login}`
+  const note = encodeReviewNote({ name, version, integrity, reviewer, scope })
+  assertNoteFits(note)
+  for (const line of [
+    `package:   ${name}`,
+    `version:   ${version}`,
+    `integrity: ${integrity}`,
+    `reviewer:  ${reviewer}`,
+    `scope:     ${scope}`,
+    `network:   ${network}`,
+    `signer:    ${account.address}`,
+  ]) {
+    deps.print(line)
   }
+  if ((await deps.ask('Send this review anchor? Type "yes" to confirm: ')).trim() !== 'yes') {
+    deps.print('Stopped. No transaction sent.')
+    return
+  }
+  const txid = await sendAnchor(algod, account, note)
+  deps.print(`Anchored. Transaction: ${txid}`)
+  deps.print(`Explorer: ${loraLink(network, txid)}`)
 }
 
 async function chainFacts(deps: AuditorDeps, login: string) {
@@ -169,31 +183,27 @@ async function balance(args: string[], deps: AuditorDeps): Promise<void> {
 }
 
 async function claim(args: string[], deps: AuditorDeps): Promise<void> {
-  const account = await promptAccount(deps)
-  try {
-    const login = await loginFrom(args, deps)
-    const state = await chainFacts(deps, login)
-    const signer = account.addr.toString()
-    assertGenesis(state.network, (await state.algod.getTransactionParams().do()).genesisID ?? '')
-    assertClaimable({
-      balance: state.balance,
-      minClaim: state.contract.minClaim,
-      mapped: state.mapped,
-      signer,
-      facts: state.facts ?? { optedIn: false, algoAvailable: 0n },
-    })
-    deps.print(`Claiming ${state.balance} microUSDC for ${state.identity} (${signer}).`)
-    const txid = await sendClaim(state.algod, account, {
-      appId: state.contract.appId,
-      identity: state.identity,
-      payTo: state.contract.payTo,
-      usdcAssetId: state.contract.usdcAssetId,
-    })
-    deps.print(`Claimed. Transaction: ${txid}`)
-    deps.print(`Explorer: ${loraLink(state.network, txid)}`)
-  } finally {
-    account.sk.fill(0)
-  }
+  const account = await promptAccount(deps, derivationChoice(args))
+  const login = await loginFrom(args, deps)
+  const state = await chainFacts(deps, login)
+  const signer = account.address
+  assertGenesis(state.network, (await state.algod.getTransactionParams().do()).genesisID ?? '')
+  assertClaimable({
+    balance: state.balance,
+    minClaim: state.contract.minClaim,
+    mapped: state.mapped,
+    signer,
+    facts: state.facts ?? { optedIn: false, algoAvailable: 0n },
+  })
+  deps.print(`Claiming ${state.balance} microUSDC for ${state.identity} (${signer}).`)
+  const txid = await sendClaim(state.algod, account, {
+    appId: state.contract.appId,
+    identity: state.identity,
+    payTo: state.contract.payTo,
+    usdcAssetId: state.contract.usdcAssetId,
+  })
+  deps.print(`Claimed. Transaction: ${txid}`)
+  deps.print(`Explorer: ${loraLink(state.network, txid)}`)
 }
 
 async function status(args: string[], deps: AuditorDeps): Promise<void> {
