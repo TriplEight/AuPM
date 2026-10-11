@@ -9,9 +9,8 @@ import {
   distIntegrityForVersion,
   encodeReviewNote,
   fetchNpmPackument,
-  loginForAddress,
+  githubIdentity,
   NOTE_PREFIX,
-  parseAuditors,
   repositoryForVersion,
   resolveRepoKey,
 } from './review-anchor.mjs'
@@ -85,83 +84,44 @@ test('decodeReviewNote throws when "reviewer" lacks the "github:" prefix', () =>
   assert.throws(() => decodeReviewNote(`${NOTE_PREFIX}${JSON.stringify(bad)}`), /"reviewer"/)
 })
 
-test('parseAuditors parses one or more "github:<login>=<address>" entries', () => {
-  const auditors = parseAuditors('github:alice=ADDR1,github:bob=ADDR2')
-  assert.equal(auditors.get('alice'), 'ADDR1')
-  assert.equal(auditors.get('bob'), 'ADDR2')
-  assert.equal(auditors.size, 2)
+test('githubIdentity lower-cases a bare login and a prefixed identity', () => {
+  assert.equal(githubIdentity('Alice'), 'github:alice')
+  assert.equal(githubIdentity('github:Alice-B'), 'github:alice-b')
+  assert.equal(githubIdentity('github:alice'), 'github:alice')
 })
 
-test('parseAuditors trims whitespace around entries and fields', () => {
-  const auditors = parseAuditors(' github:alice = ADDR1 , github:bob=ADDR2 ')
-  assert.equal(auditors.get('alice'), 'ADDR1')
-  assert.equal(auditors.get('bob'), 'ADDR2')
-})
-
-test('parseAuditors returns an empty map for undefined or blank input', () => {
-  assert.equal(parseAuditors(undefined).size, 0)
-  assert.equal(parseAuditors('').size, 0)
-  assert.equal(parseAuditors('   ').size, 0)
-})
-
-test('parseAuditors throws on an entry with no "="', () => {
-  assert.throws(() => parseAuditors('github:alice-ADDR1'), /malformed AUDITORS/)
-})
-
-test('parseAuditors throws on a login missing the "github:" prefix', () => {
-  assert.throws(() => parseAuditors('alice=ADDR1'), /malformed AUDITORS/)
-})
-
-test('parseAuditors throws on an empty address', () => {
-  assert.throws(() => parseAuditors('github:alice='), /malformed AUDITORS/)
-})
-
-test('loginForAddress finds the login mapped to an address', () => {
-  const auditors = parseAuditors('github:alice=ADDR1,github:bob=ADDR2')
-  assert.equal(loginForAddress(auditors, 'ADDR2'), 'bob')
-})
-
-test('loginForAddress returns null for an address with no mapped login', () => {
-  const auditors = parseAuditors('github:alice=ADDR1')
-  assert.equal(loginForAddress(auditors, 'UNKNOWN'), null)
-})
-
-// -- checkSenderIsMappedAuditor: the two "wrong sender" shapes -------------
-
-test('checkSenderIsMappedAuditor throws when the sender is not in AUDITORS at all', () => {
-  const auditors = parseAuditors('github:alice=ADDR1')
+test('checkSenderIsMappedAuditor throws when the identity box does not exist', () => {
   assert.throws(
     () =>
       checkSenderIsMappedAuditor({
-        sender: 'SOMEONE_ELSE',
-        note: { reviewer: 'github:alice' },
-        auditors,
+        sender: 'ADDR1',
+        identity: 'github:alice',
+        mappedAddress: null,
       }),
-    /is not a mapped auditor address/,
+    /not mapped in PaymentRouter/,
   )
 })
 
-test('checkSenderIsMappedAuditor throws when the mapped login differs from the note reviewer', () => {
-  const auditors = parseAuditors('github:alice=ADDR1,github:bob=ADDR2')
+test('checkSenderIsMappedAuditor throws when the sender differs from the mapped address', () => {
   assert.throws(
     () =>
       checkSenderIsMappedAuditor({
-        sender: 'ADDR2', // bob's address
-        note: { reviewer: 'github:alice' }, // but the note claims alice
-        auditors,
+        sender: 'ADDR2',
+        identity: 'github:alice',
+        mappedAddress: 'ADDR1',
       }),
-    /does not match the login mapped to sender/,
+    /is not the address mapped to github:alice/,
   )
 })
 
-test('checkSenderIsMappedAuditor returns the bare login on a matching sender', () => {
-  const auditors = parseAuditors('github:alice=ADDR1')
-  const login = checkSenderIsMappedAuditor({
-    sender: 'ADDR1',
-    note: { reviewer: 'github:alice' },
-    auditors,
-  })
-  assert.equal(login, 'alice')
+test('checkSenderIsMappedAuditor accepts the mapped address', () => {
+  assert.doesNotThrow(() =>
+    checkSenderIsMappedAuditor({
+      sender: 'ADDR1',
+      identity: 'github:alice',
+      mappedAddress: 'ADDR1',
+    }),
+  )
 })
 
 // -- checkIntegrityMatchesNpm -----------------------------------------------
