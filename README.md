@@ -241,6 +241,8 @@ Attestations use DSSE envelopes with in-toto Statement v1 and ed25519 signatures
 ## Links
 
 - [SPEC.md](SPEC.md) — the authoritative specification.
+- [docs/ONBOARDING.md](docs/ONBOARDING.md) — step-by-step onboarding for each user role.
+- [docs/API.md](docs/API.md) — the HTTP routes, attestations and the offline check.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
 - [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, and where help is welcome.
 - [docs/adr/](docs/adr/) — design decisions.
