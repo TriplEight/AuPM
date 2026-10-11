@@ -24,9 +24,11 @@ body:
     id: account-type
     attributes:
       label: Account type
-      description: The backup format of the account.
+      description: >-
+        The backup format of the account. Falcon-1024 accounts are not supported yet. See
+        [ADR 0028](https://github.com/TriplEight/AuPM/blob/master/docs/adr/0028-account-formats.md).
       options:
-        - 25-word Algorand mnemonic
+        - 25-word Algo25 account (legacy Algorand mnemonic)
         - 24-word Universal Wallet (Pera)
     validations:
       required: true
@@ -36,7 +38,12 @@ body:
       label: Checks
       options:
         - label: The account is opted in to USDC (ASA 31566704).
-        - label: I will never paste my recovery phrase anywhere, including this issue.
+        - label: >-
+            I understand that this account is a cold wallet: its recovery phrase never goes on a
+            computer that is connected to the internet, except in the hidden prompt of an
+            `aupm auditor` command.
+          required: true
+        - label: I keep a copy of the recovery phrase offline, in a safe place.
           required: true
   - type: textarea
     id: experience
