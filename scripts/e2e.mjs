@@ -25,14 +25,13 @@ import {
   assertSignerIsMappedAddress,
   MIN_CLAIM,
   MIN_CLAIM_FEE,
-  readIdentityBalance,
-  readMappedAddress,
   submitClaim,
 } from './claim.mjs'
 import { assertSqliteWriteAllowed } from './e2e-guard.mjs'
 import { algodEndpoint, indexerEndpoint, usdcAssetId } from './network.mjs'
 import { optinAccountToUsdc } from './optin-usdc.mjs'
 import { assertNetworkMatchesGenesis, rekeyPayToToApp } from './rekey-payto.mjs'
+import { readIdentityBalance, readMappedAddress } from './router-boxes.mjs'
 
 // Anchors a CJS `require()` at each workspace package's own node_modules —
 // scripts/ has no node_modules of its own. Mirrors the pattern already
