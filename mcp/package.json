@@ -57,7 +57,10 @@
   "publishConfig": {
     "access": "public",
     "exports": {
-      "./config": "./src/config.ts",
+      "./config": {
+        "types": "./dist/config.d.ts",
+        "default": "./dist/config.js"
+      },
       "./money": {
         "types": "./dist/money.d.ts",
         "default": "./dist/money.js"
