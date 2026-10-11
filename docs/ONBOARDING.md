@@ -183,7 +183,7 @@ aupm install --no-donate        # skips the donation one time
 ```
 
 The order of precedence is: `--donate` or `--no-donate`, then `AUPM_DONATE`, then the config
-file, then off. Every other `aupm config` command goes to `npm config` unchanged.
+file, then off. `aupm config` manages AuPM settings only. For npm settings, use `npm config`.
 
 ### Key rules
 
