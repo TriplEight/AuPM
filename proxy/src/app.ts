@@ -18,7 +18,9 @@ import { buildFrontPage } from './front-page.js'
 import { proxyToNpm } from './proxy.js'
 import type { AttestRoutesOptions } from './routes/attest.js'
 import { buildAttestRoutes } from './routes/attest.js'
+import contractRouter from './routes/contract.js'
 import healthRouter from './routes/health.js'
+import reviewsRouter from './routes/reviews.js'
 import statusRouter from './routes/status.js'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
 import { OG_DESCRIPTION } from './x402/routes.js'
@@ -90,6 +92,12 @@ export function createApp(
   // reason as statusRouter above; absent from the x402 route table, so the
   // gate would no-op on it anyway.
   app.route('/api/v1/health', healthRouter)
+
+  // Free, unauthenticated, never gated — the public contract coordinates and
+  // one auditor's recorded reviews, for the auditor CLI. Same placement
+  // reasoning as statusRouter above; both are absent from the x402 route table.
+  app.route('/api/v1/contract', contractRouter)
+  app.route('/api/v1/reviews', reviewsRouter)
 
   // Free, unauthenticated, never gated — the published attestation public
   // keys (SPEC.md 6.2). A verifier needs this to check a DSSE envelope
