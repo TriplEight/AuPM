@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ConfigError } from '../config.js'
+import { attestLockfileTool } from './attest.js'
 import { installTool } from './install.js'
 
 function requestHeader(input: RequestInfo | URL, init?: RequestInit): string | null {
@@ -103,5 +104,69 @@ describe('donation setting in the install tool', () => {
   it('states the setting in the tool description', () => {
     expect(installTool.description).toContain('AUPM_DONATE')
     expect(installTool.description).toContain('config.toml')
+  })
+})
+
+describe('donation setting in the attest_lockfile tool', () => {
+  let dir: string
+  let seen: (string | null)[]
+  let lockfilePath: string
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-setting-attest-test-'))
+    lockfilePath = path.join(dir, 'package-lock.json')
+    fs.writeFileSync(
+      lockfilePath,
+      JSON.stringify({ lockfileVersion: 3, packages: { 'node_modules/ms': { version: '2.1.3' } } }),
+    )
+    seen = []
+    vi.stubEnv('XDG_CONFIG_HOME', dir)
+    vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(requestHeader(input, init))
+        return new Response(JSON.stringify({ summary: {}, attestation: {} }), { status: 200 })
+      }),
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const attest = (allowDonation?: boolean) =>
+    attestLockfileTool.handler({ lockfilePath, allowDonation })
+
+  it('env true donates without allowDonation', async () => {
+    vi.stubEnv('AUPM_DONATE', 'true')
+    await attest()
+    expect(seen).toEqual(['1'])
+  })
+
+  it('allowDonation false overrides env true', async () => {
+    vi.stubEnv('AUPM_DONATE', 'true')
+    await attest(false)
+    expect(seen).toEqual(['0'])
+  })
+
+  it('file true donates', async () => {
+    fs.mkdirSync(path.join(dir, 'aupm'), { recursive: true })
+    fs.writeFileSync(path.join(dir, 'aupm', 'config.toml'), 'donate = true\n')
+    await attest()
+    expect(seen).toEqual(['1'])
+  })
+
+  it('a malformed env var fails with no request', async () => {
+    vi.stubEnv('AUPM_DONATE', 'yes')
+    await expect(attest()).rejects.toThrow(ConfigError)
+    expect(seen).toEqual([])
+  })
+
+  it('states the setting in the tool description', () => {
+    expect(attestLockfileTool.description).toContain('AUPM_DONATE')
   })
 })

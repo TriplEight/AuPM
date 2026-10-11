@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
+import { toToolResult } from './tool-result.js'
 import { attestLockfileTool } from './tools/attest.js'
 import { checkTool } from './tools/check.js'
 import { installTool } from './tools/install.js'
@@ -21,14 +22,7 @@ server.tool(
     pkg: z.string().describe('Package name, e.g. "lodash" or "@scope/pkg"'),
     version: z.string().describe('Exact version string, e.g. "4.17.21"'),
   },
-  async ({ pkg, version }) => ({
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(await checkTool.handler({ pkg, version }), null, 2),
-      },
-    ],
-  }),
+  async ({ pkg, version }) => toToolResult(() => checkTool.handler({ pkg, version })),
 )
 
 server.tool(
@@ -44,14 +38,8 @@ server.tool(
         'Set true or false to override the AUPM_DONATE env var and the config file. Unset: they decide, and the default is off.',
       ),
   },
-  async ({ pkg, version, allowDonation }) => ({
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(await installTool.handler({ pkg, version, allowDonation }), null, 2),
-      },
-    ],
-  }),
+  async ({ pkg, version, allowDonation }) =>
+    toToolResult(() => installTool.handler({ pkg, version, allowDonation })),
 )
 
 server.tool(
@@ -70,18 +58,8 @@ server.tool(
         'Set true or false to override the AUPM_DONATE env var and the config file. Unset: they decide, and the default is off.',
       ),
   },
-  async ({ lockfilePath, allowDonation }) => ({
-    content: [
-      {
-        type: 'text' as const,
-        text: JSON.stringify(
-          await attestLockfileTool.handler({ lockfilePath, allowDonation }),
-          null,
-          2,
-        ),
-      },
-    ],
-  }),
+  async ({ lockfilePath, allowDonation }) =>
+    toToolResult(() => attestLockfileTool.handler({ lockfilePath, allowDonation })),
 )
 
 const transport = new StdioServerTransport()
