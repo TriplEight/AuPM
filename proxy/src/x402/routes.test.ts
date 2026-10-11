@@ -91,7 +91,8 @@ describe('buildRoutes', () => {
     ]
     for (const text of texts) {
       expect(text).toContain('$0.001')
-      expect(text).toContain('30/10/20/25/10/5')
+      expect(text).toContain('Target split 40/10/25/20/5')
+      expect(text).not.toContain('30/10/20/25/10/5')
       expect(text).toContain('30% to the auditor, 70% to the operator')
       expect(text).not.toContain(OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER)
     }
