@@ -190,12 +190,14 @@ Target split, per $0.001 donated:
 
 | Recipient | Share |
 |---|---|
-| Auditor | 30% |
-| Contributor | 10% |
-| Maintainer | 20% |
-| Adversarial reviewer pool | 25% |
-| Treasury | 10% |
+| Reviewer line (auditors of that exact version) | 40% |
+| Contributor (author of a confirmed fix) | 10% |
+| Maintainer | 25% |
+| Treasury (bounties, arbiters, spot-checks) | 20% |
 | Ops | 5% |
+
+Treasury and ops come off the top. The other 75% goes to a pool for the exact package version.
+A pool share with no payee goes to treasury.
 
 MVP split. So far, the split pays only the auditor and ops roles:
 
@@ -204,9 +206,10 @@ MVP split. So far, the split pays only the auditor and ops roles:
 | Auditor | 30% |
 | Ops | 70% |
 
-The MVP's 70% is ops income now, not a debt owed to the other roles. Each role gets its
-target share once it onboards. TestNet runs the same split. See
-[ADR 0011](docs/adr/0011-split-30-10-20-25-10-5.md) for the split rationale.
+The MVP's 70% is ops income now, not a debt owed to the other roles. The live contract pays
+this split. A new contract version moves to the target split, and then a role with no payee
+sends its share to treasury, not to ops. TestNet runs the same split. See
+[ADR 0019](docs/adr/0019-split-40-10-25-20-5-package-pools.md) for the split rationale.
 
 ### Trust model
 
