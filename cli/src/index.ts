@@ -20,10 +20,8 @@ const USAGE_LINES = [
   '  aupm donor [status]  show the balances and the next step',
   '  aupm config set donate <true|false>   always donate (or never) without the flag',
   '  aupm config get donate               show the effective value and where it comes from',
-  '  aupm config <other args>             runs npm config with those args (any key but donate)',
   '',
   'Every first argument other than attest, verify, auditor, donor, config, pnpm, yarn and npx goes to npm unchanged.',
-  'config goes to npm config unless it is get donate or set donate.',
   'AuPM adds only --donate, --no-donate and --attest-out <path>; all are removed before npm, pnpm or yarn runs.',
   'Donation setting, highest first: --donate or --no-donate, env AUPM_DONATE=true|false,',
   'config file $XDG_CONFIG_HOME/aupm/config.toml (donate = true), off.',
@@ -44,10 +42,8 @@ async function main(): Promise<void> {
   }
 
   if (command === 'config') {
-    const { isDonateConfig, runConfig } = await import('./config.js')
-    if (isDonateConfig(argv.slice(1))) process.exit(runConfig(argv.slice(1)))
-    const { runNpmConfig } = await import('./npm-wrapper.js')
-    process.exit(await runNpmConfig(argv.slice(1)))
+    const { runConfig } = await import('./config.js')
+    process.exit(runConfig(argv.slice(1)))
   }
 
   if (command === 'auditor') {
