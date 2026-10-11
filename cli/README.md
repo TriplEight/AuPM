@@ -26,7 +26,6 @@ aupm attest yarn.lock [--donate|--no-donate] [--out <path>]          # yarn clas
 aupm verify attestation.json [--lockfile <path>] [--keys aupm-keys.json]   # offline
 aupm config set donate <true|false>                      # always donate, or never
 aupm config get donate                                   # effective value and its source
-aupm config get registry                                 # any other config call runs npm config
 aupm donor init [--yes]                                  # create a donor key; guided on a terminal
 aupm donor optin                                         # opt the donor in to USDC (one check)
 aupm donor status                                        # balances and the next step (read-only)
@@ -40,6 +39,8 @@ exits 2 before the install and before any donation. `aupm npx` has no lockfile: 
 other first argument goes to npm unchanged. `aupm verify` checks the signed DSSE envelope
 offline. It makes no network call.
 
+`AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.
+
 ### What the npm passthrough changes
 
 - `aupm <npm args>`, `aupm pnpm`, `aupm yarn` and `aupm npx` inherit stdio. They pass argv and
@@ -48,13 +49,10 @@ offline. It makes no network call.
   removal.
 - AuPM sets the registry through `npm_config_registry`. A `--registry` flag from you wins.
 - After a successful install-like command, AuPM prints the lockfile summary lines (`aupm: ...`).
-- `attest`, `verify`, `donor` and `config get|set donate` are AuPM commands.
-  `aupm config` with any other arguments (`get registry`, `list`, `set foo bar`, `delete x`,
-  `edit`, or none) runs `npm config` with the same arguments. It sets no registry, so
-  `aupm config get registry` prints the value that npm uses. `aupm config list` does not show
-  the AuPM `donate` value.
+- `attest`, `verify`, `donor` and `config` are AuPM commands. They do not go to npm.
 
-`AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.
+`aupm config` manages AuPM settings only. Today the only setting is `donate`. For npm settings,
+run `npm config`.
 
 ## Donation opt-in
 

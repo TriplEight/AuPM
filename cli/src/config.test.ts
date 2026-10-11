@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { configFilePath, readConfigDonate } from 'aupm-mcp/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isDonateConfig, runConfig } from './config.js'
+import { runConfig } from './config.js'
 
 describe('config', () => {
   let dir: string
@@ -59,31 +59,18 @@ describe('config', () => {
     expect(fs.existsSync(configFilePath())).toBe(false)
   })
 
+  it('runConfig refuses an npm key and names npm config, with no npm call', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    expect(runConfig(['get', 'registry'])).toBe(1)
+    expect(log).toHaveBeenCalledWith(
+      'aupm config manages AuPM settings only. For npm settings, run npm config.',
+    )
+  })
+
   it('runConfig get reports a malformed file and exits 1', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     writeConfig('nonsense\n')
     expect(runConfig(['get', 'donate'])).toBe(1)
     expect(err).toHaveBeenCalledWith(expect.stringContaining('config.toml:1:'))
-  })
-
-  it.each([
-    [['get', 'donate'], true],
-    [['set', 'donate', 'true'], true],
-    [['set', 'donate'], true],
-    [['get', 'registry'], false],
-    [['set', 'foo', 'bar'], false],
-    [['list'], false],
-    [['delete', 'donate'], false],
-    [['edit'], false],
-    [[], false],
-  ])('routes %j to AuPM: %s', (argv, expected) => {
-    expect(isDonateConfig(argv)).toBe(expected)
-  })
-
-  it('handles get donate and set donate without running npm', () => {
-    vi.spyOn(console, 'log').mockImplementation(() => {})
-    expect(runConfig(['set', 'donate', 'true'])).toBe(0)
-    expect(runConfig(['get', 'donate'])).toBe(0)
-    expect(readConfigDonate()).toBe(true)
   })
 })
