@@ -59,6 +59,14 @@ describe('config', () => {
     expect(fs.existsSync(configFilePath())).toBe(false)
   })
 
+  it('runConfig refuses an npm key and names npm config, with no npm call', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {})
+    expect(runConfig(['get', 'registry'])).toBe(1)
+    expect(log).toHaveBeenCalledWith(
+      'aupm config manages AuPM settings only. For npm settings, run npm config.',
+    )
+  })
+
   it('runConfig get reports a malformed file and exits 1', () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
     writeConfig('nonsense\n')

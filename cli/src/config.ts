@@ -14,6 +14,7 @@ const CONFIG_USAGE = 'Usage: aupm config set donate <true|false>  |  aupm config
 export function runConfig(argv: string[]): number {
   const [action, key, value] = argv
   if (key !== 'donate' || (action !== 'get' && action !== 'set')) {
+    console.log('aupm config manages AuPM settings only. For npm settings, run npm config.')
     console.log(CONFIG_USAGE)
     return 1
   }
