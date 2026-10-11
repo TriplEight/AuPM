@@ -31,9 +31,10 @@ change to the plan.
 
 ## Phase 2: more roles, more funding
 
-- Onboard the contributor, maintainer, adversarial reviewer and treasury roles, so that the
-  split moves to its target: auditor 30%, contributor 10%, maintainer 20%, adversarial reviewer
-  pool 25%, treasury 10%, ops 5%.
+- A new contract version with the target split: treasury 20% and ops 5% off the top, and a pool
+  per package version that pays the reviewer line 40%, the contributor 10% and the maintainer
+  25%. Pool money unlocks after a hold period, so a ruling can still stop a wrong payout.
+- Onboard the contributor, maintainer and treasury roles.
 - Auditor registration and acceptance: an auditor registers a wallet (`aupm register`) and
   applies. Ops reviews the application and accepts or rejects it. Registration alone does not
   let anyone record a review.
@@ -43,7 +44,7 @@ change to the plan.
 
 ## Later
 
-- Phase 3: `PEER_REVIEWED` (two or more independent auditors), adversarial review bounties,
-  conflict-of-interest rules, and a tier filter for installs (`--audit-level`).
+- Phase 3: `PEER_REVIEWED` (two or more independent auditors), challenges with an
+  independent arbiter and treasury bounties, conflict-of-interest rules, and a tier filter for installs (`--audit-level`).
 - Phase 4: more ecosystems: PyPI, crates.io, Maven, Docker.
 - Phase 5: open governance of the treasury and the fee parameters.

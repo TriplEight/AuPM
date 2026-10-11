@@ -74,14 +74,16 @@ Target split, per 1,000 microUSDC:
 
 | Recipient | Share |
 |---|---|
-| Auditor | 30% |
-| Contributor | 10% |
-| Maintainer | 20% |
-| Adversarial reviewer pool | 25% |
-| Treasury | 10% |
+| Reviewer line (auditors of that exact version) | 40% |
+| Contributor (author of a confirmed fix) | 10% |
+| Maintainer | 25% |
+| Treasury (bounties, arbiters, spot-checks) | 20% |
 | Ops | 5% |
 
-MVP split: only the auditor and ops roles are onboarded, so the auditor gets 30% and ops gets
-70%. Each other role gets its target share once it onboards.
+Treasury and ops come off the top. The other 75% goes to a pool for the exact package version.
+A pool share with no payee goes to treasury.
+
+MVP split: only the auditor and ops roles are onboarded, and the live contract pays the auditor
+30% and ops 70%. A new contract version moves to the target split.
 
 Source, spec and license (AGPL-3.0-only): <https://github.com/TriplEight/AuPM>.

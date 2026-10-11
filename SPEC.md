@@ -4,7 +4,8 @@
 **Repo:** `github.com/TriplEight/AuPM` (public, `master`)
 
 Part I is the product: the problem, the model, the roles and the phases. Part II is Phase 1,
-the MVP for the Global x402 Challenge on Algorand MainNet. Read the whole document before you
+the MVP for the Global x402 Challenge on Algorand MainNet. Part III is the trust layer after
+the MVP: identity, review records, package pools, disputes and the waves that build them. Read the whole document before you
 write code. §10 lists the constraints that invalidate parts of the built code.
 
 Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items are not tracked in this repository.
@@ -32,6 +33,14 @@ Terms: `CONTEXT.md`. Decisions: `docs/adr/`. Work items are not tracked in this 
   with a note transaction; `attest()` leaves the contract (ADR 0007). The lockfile costs
   1,000 µUSDC per reviewed package, no discount (ADR 0008). One nightly job reconciles, backs
   up and credits. Harness: prek, Claude Code hooks, one task file. Next-version items: §21.
+- **v7 (2026-10-11):** Part III, the trust layer after the MVP. Target split 40/10/25/20/5:
+  treasury 20% and ops 5% off the top, the rest to a pool per `name@version` (reviewer line 40,
+  contributor 10, maintainer 25). The adversarial pool is dissolved; treasury pays challengers,
+  arbiters and spot-checks. Shares with no payee go to treasury, not ops. Pool money unlocks on
+  a rolling hold; admitted disputes freeze it; rulings slash it; credited money is never
+  clawed back. Auditor identity `aud:<id>` with a hardware-attested OpenPGP key; DSSE review
+  records; disputes, disclosure, leases, anti-hunt rules, autoscan flags; waves 0–5.
+  ADRs 0019–0027. The MVP split (30/70) stays until a new contract ships.
 
 ---
 
@@ -102,9 +111,10 @@ and x402-capable npm plugins are post-MVP. The proxy half attests a yarn classic
 - **Supply-chain injection at publish/update time** — every new version automatically resets
   to `UNREVIEWED`. This is the moment attacks are injected (axios, Sept 2025 phishing). A new
   version also creates a review bounty (Phase 2).
-- **Fake/captured reviewers** — on-chain reputation (post-MVP); 2nd-reviewer bounties reward
-  finding flaws in a 1st review; conflict-of-interest rule (no reviewing your employer's
-  packages); append-only public audit log.
+- **Fake/captured reviewers** — reputation computed off-chain from the append-only record log
+  (§29); treasury bounties reward upheld challenges of a review; conflict bans and signed
+  conflict declarations at lease time (§29); a rolling hold lets a ruling slash uncredited pay
+  (§24); append-only public audit log.
 - **Cache/mirror bypass** — audit attestation travels with the tarball in response headers,
   not only the registry API. Stripped mirrors lose the attestation chain, which is what
   compliance users pay for.
@@ -116,9 +126,8 @@ and x402-capable npm plugins are post-MVP. The proxy half attests a yarn classic
 - **Standard not fork** — AuPM never replaces npm; a user can always go direct. This bounds
   the attack surface of AuPM as a gatekeeper.
 
-Known-open attack economics (deferred to governance, Phase 5): maintainer↔contributor
-collusion to farm the 10% fix line (self-introduced bugs), deliberate sloppiness loops,
-sloppy reviews.
+Attack economics: cheap fix-farming rules (§25), anti-hunt rules (§29) and the wash-trading
+floor (§23) are part of Part III. Stake and identity weighting stay governance scope (Phase 5).
 
 ## 4. Audit status model
 
@@ -146,8 +155,11 @@ explicit.
 | Flag | Meaning |
 |---|---|
 | `cve:[CVE-ID]` | Active known vulnerability (repeatable). IDs are data in a flag list, never in a tier value. Sources: OSV / NVD / GHSA + auto-scan |
-| `auto_scan:clean` / `auto_scan:findings` | Machine-scan outcome, superseded (not erased) by human review |
-| `adversarial:challenged` | Adversarial reviewer disputes an existing review |
+| `autoscan:no-known-issues@<sources,date>` / `autoscan:malicious-package` / `autoscan:typosquat-suspect` | Machine-scan outcome with its source and date, superseded (not erased) by human review (ADR 0026). Never "clean". |
+| `adversarial:challenged` | An admitted challenge disputes an existing review (§28) |
+| `review:refuted` / `finding:rejected` | Outcome of a ruling (§28) |
+| `findings:open` / `malicious:suspected` | A confirmed open S1+ finding / an S0 claim with its evidence hash (§28). No donation is solicited for a version with `findings:open`. |
+| `key:compromised` | The signing key was compromised before this review had a trusted time (§26) |
 | `deprecated` / `unmaintained` | Post-MVP |
 
 A `PEER_REVIEWED` package can carry `cve:CVE-2026-xxxx` at the same time. Sorting/filtering
@@ -165,14 +177,16 @@ works on flags as a set.
 
 ## 5. Roles
 
-Per-repo roles: auditor, contributor, maintainer, adversarial reviewer. Global roles: treasury,
-ops. Callers: donor, free user. Each repo accumulates its own pool strictly from payments for
-its packages.
+Pool roles: auditor (the reviewer line), contributor, maintainer. Global roles: treasury, ops.
+Callers: donor, free user. Paid by treasury, not by a pool: challenger, arbiter, spot-checker.
+Each package version accumulates its own package pool strictly from payments for that exact
+tarball (ADR 0019). In the MVP the ledger keys pools by repository (§13.1); the package-pool
+model lands with the new contract.
 
-**Forks are standalone repos:** a fork has its own repo pool. If a fork fixes findings from an
-upstream audit, the auditor gets paid from the fork's pool (paid by the fork's users). Forks
-are indistinguishable from roots at the protocol level. The fork metadata model (attestation,
-linkage) is Phase 3.
+**Forks are standalone packages:** a fork publishes under its own name, so it has its own
+package pools. If a fork fixes findings from an upstream audit, the auditor gets finding credit
+from the fork's pools (paid by the fork's users). Forks are indistinguishable from roots at the
+protocol level. The fork metadata model (attestation, linkage) is Phase 3.
 
 **MVP onboards only four roles: auditor, ops, donor and free user.** The code is written for
 these four only. The shares of the other roles are ops income until those roles launch (§6.2).
@@ -181,12 +195,13 @@ these four only. The shares of the other roles are ops income until those roles 
 |---|---|---|---|---|
 | **Free user** | Installs unreviewed packages; reads status; attests zero-coverage lockfiles | Yes | Set registry or install `aupm` wrapper | — |
 | **Donor** | Opts in and pays for reviewed resources (§11.4) | Yes | `--donate`, `allowDonation`, `donate: 'true'` | — |
-| **Auditor** | Security-audits a package version; publishes signed review + findings | Yes — the team; admin maps identity → address | Phase 2: register Algorand wallet (`aupm register`, USDC opt-in) and apply; ops reviews the application and accepts the auditor manually (registration is not acceptance); GPG tiers later | 30%, claimed from PaymentRouter |
-| **Contributor** | Authors the fix PR; PR must reference the audit ID | No | Register wallet; link forge account | 10%, credited on merge of the fix PR. Fix completeness is verified by the maintainer who reviewed, approved and merged the PR |
-| **Maintainer** | Reviews/merges code; verifies fix completeness; keeps the package at a high tier | No | Register wallet; prove package ownership | 20% (covers merge-review work) |
-| **Adversarial reviewer** | Same mechanics as auditor, distinct flag; finds flaws in existing reviews | No | Same as auditor | 25% pool share; bounty on successful challenge |
-| **Treasury** (global) | Grants, bounties, incentivization (high-dep/low-download packages) | No | Multisig-held address; later an elected council | 10% |
-| **Ops** (global) | Registry hosting, facilitator fees, gas | Yes | — | 5%; in the MVP also the shares of roles not yet onboarded |
+| **Auditor** | Security-audits a package version; publishes signed review + findings; delta and peer reviews | Yes — the team; admin maps identity → address | MVP: GitHub issue form, manual mapping. Target: async form, `aud:<id>`, hardware-attested OpenPGP key, probation (§26, §31) | Reviewer line 40% of the payment, shared per live review (§25); MVP 30% |
+| **Contributor** | Authors the merged fix of a finding | No | Linked forge account; payout binding | 10%, from the pool of the fix version once a delta review confirms the fix and the audit is published (§25) |
+| **Maintainer** | Reviews/merges code; fixes findings; keeps the package at a high tier | No | Prove package ownership; payout binding | 25%, from onboarding on, for versions with no confirmed open S1+ finding (§25) |
+| **Challenger** | An onboarded auditor who disputes a review per finding | No | Same as auditor | Fixed severity-based bounty from treasury per upheld challenge (§28) |
+| **Arbiter** | Rules per finding; never the challenger or the original auditor | No | Pilot: the owner (`admin-interim`); later a panel | Flat fee from treasury per ruling (§28) |
+| **Treasury** (global) | Bounties, arbiter and spot-check fees, subsidies for low-visibility critical packages | No | Multisig-held address; later an elected council | 20% off the top, plus unallocated shares, slashes and forfeits |
+| **Ops** (global) | Registry hosting, facilitator fees, gas | Yes | — | 5% off the top; in the MVP contract also the shares of roles not yet onboarded |
 
 ### 5.1 Unclaimed funds
 
@@ -195,27 +210,37 @@ Phase 5 governance, together with the decline/donate flow.
 
 ### 5.2 Abuse vectors
 
-- ❌ Maintainers split projects to inflate repo pools → dependency-graph weighting is Phase 5
+- ❌ Maintainers split projects to inflate package pools → dependency-graph weighting is Phase 5
   governance scope (cf. thanks.dev), out of MVP.
-- ⚠️ Fix farming: controlled by maintainer verification, but maintainer↔contributor collusion
-  (self-introduced bug → paid fix) has no mitigation yet → known-open, governance.
-- ⚠️ Auditor ↔ adversarial collusion / sloppy work → reputation decay + append-only log;
-  dispute resolution, judging and appeal path are governance mechanics (Phase 5).
+- ⚠️ Fix farming: blame check, vulnerable code in the audited tarball, pay after publication,
+  maintainer/contributor overlap → contributor share to treasury (§25).
+- ⚠️ Auditor ↔ challenger collusion / sloppy work → random assignment, pair caps, flat treasury
+  fees, arbiter-approved bounties, spot-checks, reputation decay (§28, §29).
+- ⚠️ Hunts for old or ultra-popular packages → exposure-weighted lease priority, saturation,
+  freshness decay, lottery, multi-reviewer threshold (§29).
 - ✅ "Paid even when a review finds nothing" — the download split is usage-compensation for the
   work, by design. The unequal-pay-for-unequal-work question is deferred to governance.
 
 ## 6. Revenue split
 
-### 6.1 Target split (per payment for a reviewed resource)
+### 6.1 Target split (per payment for a reviewed resource, ADR 0019)
 
-| Recipient | Share | Per 1,000 µUSDC | Rationale |
+| Recipient | Share | Per 1,000 µUSDC | Where |
 |---|---|---|---|
-| Auditor(s) | 30% | 300 | Compensation for audit work. Cut to fund the adversarial reviewer line |
-| Contributor(s) | 10% | 100 | Author of the merged fix PR; completeness verified by the merging maintainer |
-| Maintainer | 20% | 200 | Quality + audit cooperation + merge-review work |
-| Adversarial reviewer pool | 25% | 250 | Funds secondary review of existing audits |
-| Treasury | 10% | 100 | Bounty subsidies for high-dep/low-download packages (xz mode) |
-| Ops | 5% | 50 | Registry hosting, gas |
+| Reviewer line (auditor, delta and peer reviewers, finding credit) | 40% | 400 | Package pool |
+| Contributor | 10% | 100 | Package pool |
+| Maintainer | 25% | 250 | Package pool |
+| Treasury | 20% | 200 | Off the top |
+| Ops | 5% | 50 | Off the top |
+
+Treasury and ops come off the top of each payment. The other 75% goes to the package pool of
+the exact `name@version`. A pool share with no payee goes to treasury, never to ops. Treasury
+pays challengers, arbiters and spot-checks; there is no adversarial pool. Pool money unlocks on
+a rolling hold (§24). Payees per pool: §25. A self-dealer who holds every pool role recovers at
+most 75% of a self-paid payment, so wash trading always loses (§23).
+
+The live PaymentRouter asserts the MVP split. The target split needs a new contract version
+(ADR 0010 migration).
 
 ### 6.2 MVP split
 
@@ -227,9 +252,9 @@ Phase 5 governance, together with the decline/donate flow.
 The 70% is ops income, not a debt owed to anyone (ADR 0011).
 
 **Disclosure rule.** Every public text (README, `og:description`, Bazaar descriptions, the
-submission form) shows both splits: "Target split 30/10/20/25/10/5. In the MVP: 30% to the
-auditor, 70% to the operator until the other roles launch." Never write "20% goes to
-maintainers" while that share is ops income.
+submission form) shows both splits: "Target split 40/10/25/20/5 (reviewer line, contributor,
+maintainer, treasury, ops). Today: 30% to the auditor, 70% to the operator until a new contract
+ships." Never write "25% goes to maintainers" while that share is ops income.
 
 TestNet runs the same 30/70 split (P8d). The earlier TestNet app (772553842,
 40/60) is retired; TestNet now runs a new app from the rebuilt 300/700 contract.
@@ -264,23 +289,22 @@ in PaymentRouter → the auditor and ops claim.
 
 Dependabot/Renovate integration; Stripe x402
 subscriptions/donations + business tiers; IDE/MCP status badges; forge integrations (Codeberg,
-Radicle) + pay-at-forge; onboarding of contributor, maintainer, adversarial reviewer and
-treasury, with balances per `(repo, role, identity)`; wallet registration (`aupm register`)
-with manual acceptance of each auditor by ops,
-`aupm audit`, `POST /api/v1/review`; claim registration and GitHub proof verification;
-oracle-signed identity binding for claims; on-chain AuditorRegistry; review bounty on each new
-version; review lineage with delta review (§21); `AUTO_SCANNED`
+Radicle) + pay-at-forge; onboarding of contributor, maintainer and treasury, with package
+pools per `name@version` (§23); auditor identity `aud:<id>` with hardware-attested keys and
+async onboarding (§26, §31); `aupm auditor init`, `aupm audit claim|diff|sign|publish`;
+signed review records (§27); payout-binding statements; review bounty on each new
+version; review lineage with delta review (§21); leases and anti-hunt rules (§29); `AUTO_SCANNED`
 pipeline and flags; IPFS/ARC-19/mirror manifest upgrades;
 AI-skills/MCP-plugin publishing; opt-in maintainer notifications; provenance-verified
 maintainer mapping; L2 online verification.
 
 ### Phase 3 — cross-signing and ecosystem
 
-`PEER_REVIEWED` (≥2 independent auditors), `MISSION_CRITICAL_SAFE`; adversarial review
-bounties + pool distribution; conflict-of-interest enforcement; `--audit-level` filters;
-reverse-dep bounty pool funding; GPG attestation tiers (① wallet registration → ② GPG
-fingerprint linkage → ③ GPG-signed manifests + on-chain fingerprint attestation); fork metadata
-model.
+`PEER_REVIEWED` (≥2 independent auditors), `MISSION_CRITICAL_SAFE`; challenges, arbiters and
+treasury bounties (§28); disclosure policy and embargo store (§28); conflict-of-interest
+enforcement; `--audit-level` filters; reputation and spot-checks (§29); extra witnesses; fork
+metadata model. The order of the identity tiers is inverted against the earlier plan: the
+OpenPGP key comes first, the wallet registration last (§26). Wave plan: §32.
 
 ### Phase 4 — scale
 
@@ -289,11 +313,10 @@ PyPI, crates.io, Maven, Docker; PostgreSQL when a second proxy instance runs (AD
 
 ### Phase 5 — governance
 
-Elected-council treasury; DAO for fee parameters/tier thresholds; reputation mechanics —
-stake/identity weighting, dispute resolution, repairable reputation, judging and appeal path;
+Elected-council treasury; DAO for fee parameters/tier thresholds; governance council for
+disputes; stake/identity weighting; other payout rails;
 dependency-graph fair-split weighting for popular-vs-transitive packages (study thanks.dev
-first); bounty marketplace; 1-year escrow for unclaimed funds; collusion/sloppiness economics
-from §5.2.
+first); bounty marketplace; 1-year escrow for unclaimed funds.
 
 ---
 
@@ -1096,8 +1119,9 @@ income in the MVP (§6.2).
 
 ### 13.1 Repo key
 
-A repo pool is keyed by the GitHub `owner/repo` from the `repository` field of the npm packument
-for the reviewed version. If the field is missing or not on GitHub, the key is `npm:<name>`. The
+In the MVP ledger, a repo pool is keyed by the GitHub `owner/repo` from the `repository` field
+of the npm packument for the reviewed version. If the field is missing or not on GitHub, the key
+is `npm:<name>`. The
 `record-review` tool resolves and stores the key when it records the review. No fetch happens
 at payment time, and unreviewed packages never trigger a fetch.
 
@@ -1113,6 +1137,8 @@ batches(app_id INTEGER, batch_seq INTEGER, attributed_micro INTEGER,
 ```
 
 The ledger is the crediter's input queue and the audit trail. PaymentRouter holds the balances.
+This section describes the MVP ledger. The target ledger (package pools, unlock times, freeze
+states, the four treasury kinds) is in §23–§25.
 
 **Attribution rules:**
 - The ledger records all six target roles for each payment, so Phase 2 can add roles with no
@@ -1213,7 +1239,8 @@ on-chain AuditorRegistry · `attest()` or `setAttestationKey()` in PaymentRouter
 automated maintainer notifications · automated payouts · L2 online verification · bulk
 discounts or price caps · 1-year escrow.
 
-Use the `scope-sentinel` subagent before anything sizable.
+Use the `scope-sentinel` subagent before anything sizable. Part III lists what lands after
+the contest window, and in which wave (§32).
 
 ## 16. Canonical facts
 
@@ -1225,7 +1252,8 @@ Use the `scope-sentinel` subagent before anything sizable.
 - Price: 1,000 µUSDC per reviewed package on every route. The lockfile price is
   1,000 × reviewed entries, no cap, no discount; free at zero.
 - `extra = { asset, feePayer, tag: "x402-global-challenge" }` on every paid route.
-- Target split **30/10/20/25/10/5** → per 1,000 µUSDC: 300/100/200/250/100/50.
+- Target split **40/10/25/20/5** (ADR 0019) → per 1,000 µUSDC: reviewer line 400, contributor
+  100, maintainer 250 (package pool), treasury 200, ops 50 (off the top).
 - MVP split **30/70** → per 1,000 µUSDC: auditor 300, ops 700. One split on every network
   (P8d); the earlier TestNet app (772553842, 40/60) is retired.
 - `credit(batchSeq, attributedTotal, unattributedTotal, entries)`, one call per nightly batch.
@@ -1354,14 +1382,252 @@ Decided in the v6 review. Not in the MVP.
 
 - **Review lineage and delta review.** A later version inside the same major version becomes
   `COMMUNITY_REVIEWED` only after a delta review of the diff against the last reviewed version
-  in the lineage. Payments for a version in the lineage split between the original auditor and
-  the delta reviewers. The tier never carries forward; a patch release is the moment attacks are
+  in the lineage. The reviewer line of each version pays the live reviews of that version; the
+  original auditor shares it only as finding credit when the version fixes their findings
+  (§25). The tier never carries forward; a patch release is the moment attacks are
   injected (axios 1.14.1). Each new version creates a delta-review bounty (Phase 2).
-- **Reviews as a file in git.** The review records live in the repo, signed and anchored
-  on-chain; SQLite keeps only the ledger.
+- **Reviews as signed records.** Proxy canonical at `/audits/<sha256>`, mirrored to a public
+  git repository; SQLite keeps only the ledger (§27).
 - **Litestream** replication of the ledger, if the nightly copy is not enough.
 - **PostgreSQL** when a second proxy instance runs (ADR 0001).
 - **Timelocked admin remaps.** Put `setIdentity` (at least for an identity with a nonzero
   balance) and `setCrediter` behind the same announce-then-delay flow as `executeRelease`. Today
   the 2-of-3 multisig can redirect every balance at once (§10.2a, pre-MainNet audit finding H1).
   Needs a new contract.
+
+---
+
+# Part III — Trust layer (after the MVP)
+
+Part III is the design for the work after the contest window. §15 still applies until that
+window closes. Decisions are in ADRs 0019–0027; this part connects them. Labels: a value marked
+*tunable* is a start value to calibrate after Wave 2 data, not a policy. §35 lists the facts
+that are not verified.
+
+## 22. Principles
+
+- Identity, reputation and payment rails are separate. The identity is `aud:<id>`; the signing
+  key is OpenPGP on a hardware token; the payout address is a binding that the admin maps.
+- Every security claim names who made it and what it covers. Nothing says "safe" or "clean".
+- Pay follows outcomes, not volume. No reward scales with AuPM-observed downloads except the
+  pool payouts themselves.
+- Nothing is edited or deleted. Each outcome is a new signed record.
+- AuPM never holds a private key of an auditor or a donor.
+- The admin and the registry key are trusted. Public text says so.
+
+## 23. Economics: split and package pools (ADR 0019)
+
+Per 1,000 µUSDC: treasury 200 and ops 50 off the top; 750 to the package pool of the exact
+`name@version` (reviewer line 400, contributor 100, maintainer 250). A pool share with no payee
+goes to treasury. Pools exist only in the ledger; on chain each identity has one balance and
+claims once for all pools.
+
+Treasury income kinds: `cut`, `unallocated`, `slash`, `forfeit`. Treasury spending: challenger
+bounties, arbiter fees, spot-check fees, delta-review and fix bounties, subsidies for
+low-visibility critical packages. Download income alone will be small at 1,000 µUSDC per
+package, so early bounties need grants or donations into treasury. Public text never promises a
+bounty size.
+
+Wash trading: a self-dealer who holds every pool role recovers at most 750 per 1,000 (650 on a
+clean version) and gains nothing else (ADR 0019).
+
+## 24. Pool lifecycle: hold, freeze, slash (ADR 0020)
+
+Each pool accrual unlocks H days after settlement (H *tunable*, start 30). The nightly job
+credits matured, unfrozen shares in the next batch; the payee claims with `claim()`. An admitted
+challenge freezes the challenged reviewer shares; a confirmed S1+ finding freezes the maintainer
+share. Waiting never moves money; only a ruling or a passed deadline does. Credited money is
+never clawed back, so H is the security window.
+
+```mermaid
+flowchart LR
+  P["Settled payment for name@version"] --> TOP["Off the top: treasury 20 (cut), ops 5"]
+  P --> POOL[("Pool name@version: reviewer line 40, contributor 10, maintainer 25")]
+  POOL -->|"role has no payee in this version"| TU["Treasury (unallocated)"]
+  POOL --> L{"Accrual older than H and share not frozen?"}
+  L -->|"no: wait"| POOL
+  L -->|"yes"| B["Nightly credit batch"]
+  TOP --> B
+  D["Admitted challenge or confirmed S1+ finding"] -->|"freeze the affected role's uncredited shares"| POOL
+  D -->|"other roles' shares: never frozen"| L
+  D -->|"challenge upheld: reviewer share"| TS["Treasury (slash)"]
+  D -->|"deadline passed, confirmed finding not fixed: maintainer share"| TF["Treasury (forfeit)"]
+  D -->|"challenge rejected, or fix delta-confirmed"| L
+  B --> ID[("Identity balance on chain")]
+  ID -->|"one claim for all pools"| C["claim()"]
+  D -.->|"outcome"| REP["Reputation per aud:id"]
+  REP -.->|"lease eligibility, not payout weight"| LEASE["Review leases"]
+```
+
+## 25. Pool payees: pay on fix (ADR 0021)
+
+| Situation | Rule |
+|---|---|
+| Clean V, reviewed | The reviewer line pays the live reviews of V for as long as people install V. |
+| V has a confirmed open S1+ finding | No donation is solicited for V; flag `findings:open`. The maintainer share of V freezes. |
+| Fix released as V′ and confirmed by a delta review | V′ pays the delta reviewer and the original auditor (finding credit) from the reviewer line, the fix author as contributor, and the maintainer. For S1+, "fixed" needs a second independent signature. |
+| No fix by the embargo deadline | AuPM publishes the audit; treasury opens a fix bounty; the frozen maintainer share of V is forfeited. |
+| Maintainer ignores a real finding | An arbiter rules per finding. Treasury pays the auditor a severity-based finding bounty at publication, independent of the maintainer. |
+
+Fix-farming rules: no contributor pay for code the contributor wrote in the 12 months before
+the audit; the vulnerable code must exist in the audited tarball; pay only after publication;
+maintainer/contributor overlap sends the contributor share to treasury.
+
+## 26. Auditor identity and keys (ADR 0022)
+
+`aud:<id>` is the identity; a verified email is the private contact and recovery factor; forge
+and npm accounts are optional linked claims for conflict checks. The OpenPGP signing subkey
+lives on a hardware token, with a one-year expiry, an offline certify-only primary key and an
+escrowed revocation certificate. `keyAssurance` is `hardware-attested` (full rights) or
+`software` (probation only). Rotation retires a key; a compromise at time T marks later or
+unwitnessed reviews `key:compromised`; a lost token means re-onboarding with the same
+`aud:<id>`. AuPM publishes fingerprints in a signed, append-only `auditors.json`.
+
+Until the contest window closes, the MVP identity `github:<login>` and the Algorand-signed
+review anchor stay in use (§14).
+
+## 27. Review records (ADR 0023)
+
+A review record is an in-toto Statement v1 in a DSSE envelope, signed with the auditor's OpenPGP
+key over the PAE bytes. The review anchor (ADR 0007) stays required; `witnesses[]` can add more.
+Kinds: `audit`, `delta`, `adversarial`, `rebuttal`, `ruling`, `supersession`, `key-event`.
+Records form an append-only graph with per-finding stances; the effective status comes from a
+walk of the graph. AuPM ships its own verifier (Ed25519 only, keys pinned to `auditors.json`,
+record ID = sha256 of the payload, time only from witnesses, exact bytes). An external
+cryptography review and published test vectors come before the format freezes. Hosting: the
+proxy at `/audits/<sha256>`, a public git mirror, IPFS later.
+
+Example payload (abridged):
+
+```json
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [{"name": "pkg:npm/ms@2.1.3", "digest": {"sha512": "<hex from dist.integrity>"}}],
+  "predicateType": "https://<domain>/audit/v1",
+  "predicate": {
+    "kind": "audit",
+    "reviewer": {"id": "aud:7f3k", "fingerprint": "<openpgp fpr>",
+                 "keyAssurance": "hardware-attested"},
+    "source": {"forge": "github", "repo": "<canonical url>", "commit": "<sha>",
+               "tarballMatchesCommit": false},
+    "scope": ["full-source", "install-scripts", "network-fs", "obfuscation",
+              "maintainer-changes"],
+    "findings": [{"id": "F1", "severity": "S3", "affected": ">=2.1.0 <2.1.4",
+                  "evidence": [{"type": "poc", "sha256": "<blob>"}], "summary": "..."}],
+    "conflicts": {"declaredAt": "2026-10-07T12:00:00Z", "status": "none"},
+    "refs": [],
+    "createdAt": "2026-10-07T12:00:00Z",
+    "witnesses": []
+  }
+}
+```
+
+## 28. Disputes and disclosure (ADR 0024)
+
+Disputes are per finding. Triage admits a challenge on reproducible evidence and the minimum
+severity; only an admitted challenge freezes money. Rebuttal within 14 days, published beside
+the audit. An independent arbiter (never the challenger, never the original auditor) rules
+within 14 days for a flat treasury fee; in the pilot the owner rules as `admin-interim`. One
+appeal within 7 days. Upheld S1+ or a missed S0 → `review:refuted`, tier `UNREVIEWED`.
+
+Severity classes S0–S3 with embargoes (S1: 45 + 14 days, S2: 90, S3: 7 days notice; S0: no
+embargo for the flag) are *tunable* drafts. The maintainer is told first; an independent
+reviewer verifies S1 and any "malicious" claim before publication; release of details never
+depends on a payment; refusing an install is opt-in only; embargoed audits are stored encrypted
+on the proxy.
+
+## 29. Leases, anti-hunt, reputation, quality (ADR 0025)
+
+An auditor takes a review lease before a review (72 hours, one renewal, at most 3 at a time;
+all *tunable*). Conflict bans and a signed conflict declaration apply at lease time. Anti-hunt
+rules: exposure-weighted lease priority, per-package saturation, freshness decay with a cheap
+"still holds" re-attestation, a lottery for hot packages, two auditors above an exposure
+threshold, and a fixed delta-review bounty. Exposure comes from public npm counts. Reputation is
+per `aud:<id>` and role, counts outcomes only, decays, and gates leases; it never changes pay.
+No AI policing: quality comes from evidence rules, spot-checks, challenges and delta-review
+survival.
+
+## 30. Autoscan (ADR 0026)
+
+Flags carry source, snapshot date and scanner version: `cve:<id>` (OSV),
+`autoscan:malicious-package` (OpenSSF malicious-packages), `autoscan:typosquat-suspect`
+(heuristic), `autoscan:no-known-issues@<sources,date>`. Scorecard is a health signal only.
+Autoscan never sets a human tier.
+
+## 31. Auditor journey and tooling (ADR 0027)
+
+1. Apply with the async form: email, pseudonym, conflict declaration, payout-binding draft,
+   hardware attestation. AuPM checks the attestation chain; the admin certifies in a weekly
+   batch.
+2. Probation: a small package, a test review, spot-checked.
+3. `aupm audit claim <pkg@ver>`: conflict check, lease, exact tarball fetched and checked
+   against its integrity.
+4. Review from the template; attach evidence; `aupm audit sign` (token touch); `publish`.
+5. `aupm challenge <record-id>` with per-finding stances; the auditor is notified; an arbiter
+   rules.
+
+Commands: `aupm auditor init` (guided key ceremony, attestation, revocation certificate),
+`aupm audit claim|diff|run-scripts|draft|sign|publish`, `aupm challenge`, `aupm status`
+(earnings, standing, leases, deadlines). A small web view: record page (status, graph, rebuttal
+beside the audit), auditor page, queue. Notifications by email or webhook for lease expiry,
+challenge, ruling, payout. Error states to design: integrity mismatch, expired lease, conflict
+at lease time, revoked key, token absent, lease race, embargo deadline.
+
+Personas (inferred, not measured): freelance auditor (income, predictable pay), hobbyist
+(learning, low friction, pseudonymous), security-firm employee (clear conflict rules),
+ex-maintainer (fast delta reviews, highest conflict risk), challenger (bounties, clear rulings).
+
+## 32. Waves
+
+| Wave | Scope | Exit criteria |
+|---|---|---|
+| E: economics v2 | Package pools, rolling hold, treasury kinds in the ledger; new PaymentRouter with the target split (ADR 0010 migration, old app drained to zero) | Old contract balance zero; ledger tests for hold, freeze, slash, forfeit |
+| 0: manual pilot | 5–10 auditors, hardware-attested keys, async form, public git repository with a signed JSON/Markdown template beside the Algorand anchors, conflict declarations as signed YAML | ≥ 20 signed reviews; median review time measured; AuPM held no key |
+| 1: records and CLI | `aupm auditor init`, `audit claim|diff|sign|publish`, record schema, OpenPGP verifier with test vectors, external crypto review, `aud:<id>` mapping, payout-binding statement | L1 verifies every pilot record; crypto review passed |
+| 2: lineage, leases, autoscan | Delta review and lineage, leases, exposure cap, saturation, freshness decay, lottery, `autoscan:*` ingestion | Lease race tests pass; flags show source and date |
+| 3: disputes | Record graph, stances, conflict checks, arbiter, treasury bounties, embargo store, disclosure policy live | First challenge resolved within its deadlines; no ruling by a challenger |
+| 4: reputation and witnesses | Standing levels, spot-checks, pair caps, Rekor v2 witnesses, IPFS mirror, L2 verify | A third party reproduces standing from the log |
+| 5: governance and rails | Other payout rails, governance council, staking, Radicle re-evaluation, lawyer-reviewed policy | — |
+
+Wave E does not depend on waves 0–5. Metrics per wave: reviews per auditor per month, time per
+review, challenge rate, upheld rate, dispute duration, embargo compliance, exposure share
+distribution.
+
+## 33. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Sloppy or mass reviews to farm income | Evidence lint, spot-checks, freshness decay, saturation, rolling hold |
+| Auditor and challenger collusion | Random assignment, pair caps, flat treasury fees, arbiter-approved bounties |
+| Maintainer and contributor fix farming | Blame check, vulnerable code in the audited tarball, pay after publication, overlap detection |
+| Sybil auditors | Hardware attestation, admin approval, probation, wallet clustering; not fully excludable |
+| Registry key or admin compromise | Append-only `auditors.json`, signed git tags, witnesses, timelocked admin remaps (§21) |
+| Auditor key compromise | Hardware token, revocation certificate, compromise-time rules, witness timestamps |
+| Embargo leak | Minimal recipients, encrypted blob, deadlines |
+| Defamation from a wrong "malicious" claim | Independent verification before publication, observed-facts wording, legal review |
+| Hunts for old or popular packages | Exposure priority, saturation, decay, lottery, two-auditor threshold |
+| Misleading autoscan flags | "No known issues" with source and date; dataset-backed versus heuristic labels |
+| Frivolous challenges that freeze pay | Triage before freeze, evidence, severity floor, reputation cost |
+| Contract churn | ADR 0010 drain-to-zero runbook for each contract version |
+
+Legal questions (defamation, publisher liability, pseudonymous auditors, privacy of declaration
+data and email, holding and forfeiting third-party money, MiCA and GDPR) need a lawyer before
+the first third-party payout (§13.4).
+
+## 34. Open decisions
+
+- Tunables: H, saturation m, cap threshold e0, freshness half-life and floor, lease lengths,
+  embargo lengths.
+- Initial treasury funding (grants, donations).
+- The external cryptography reviewer for the record format.
+- A challenger bond, or triage alone.
+- How the new contract checks the split when batches mix shares of different ages (ADR 0020).
+- Pool rules for several maintainers of one package.
+
+## 35. Not verified
+
+Do not state these as facts: GitHub coordinated-disclosure details; the npm security process
+beyond the malware report page; hardware attestation from vendors other than Yubico; any
+OpenPGP-in-DSSE verifier; npm coverage of third-party malware datasets; Socket redistribution
+terms; the npm download-count API for exposure; all legal points; the severity and embargo
+numbers as policy values; all economic parameters.
