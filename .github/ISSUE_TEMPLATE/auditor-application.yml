@@ -1,0 +1,47 @@
+name: Auditor application
+description: Apply to review npm packages for AuPM and get paid in USDC.
+title: "Auditor application: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This form starts the MVP auditor process. The process will change after the auditor
+        pilot starts.
+
+        Your GitHub login is the login of the account that opens this issue. AuPM maps that
+        login to the account address below.
+
+        WARNING: this issue is public. Never write a recovery phrase or a private key here.
+  - type: input
+    id: address
+    attributes:
+      label: Account address
+      description: The Algorand address that signs your review anchors and receives your USDC.
+      placeholder: 58 characters, A-Z and 2-7
+    validations:
+      required: true
+  - type: dropdown
+    id: account-type
+    attributes:
+      label: Account type
+      description: The backup format of the account.
+      options:
+        - 25-word Algorand mnemonic
+        - 24-word Universal Wallet (Pera)
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: The account is opted in to USDC (ASA 31566704).
+        - label: I will never paste my recovery phrase anywhere, including this issue.
+          required: true
+  - type: textarea
+    id: experience
+    attributes:
+      label: Review experience (optional)
+      description: Code review or security review work that you did before. Links are welcome.
+    validations:
+      required: false
