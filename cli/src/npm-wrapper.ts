@@ -108,11 +108,20 @@ function exitCodeForSignal(signal: NodeJS.Signals): number {
  * wins over the env var.
  */
 export function runToolProcess(tool: Tool, npmArgs: string[]): Promise<number> {
+  return spawnInherited(tool, npmArgs, { ...process.env, npm_config_registry: proxyUrl() })
+}
+
+/**
+ * Runs `npm config <args>` with argv, env and exit code unchanged. It sets no registry, so
+ * `npm config get registry` prints npm's own value, not the AuPM registry.
+ */
+export function runNpmConfig(configArgs: string[]): Promise<number> {
+  return spawnInherited('npm', ['config', ...configArgs], process.env)
+}
+
+function spawnInherited(tool: Tool, args: string[], env: NodeJS.ProcessEnv): Promise<number> {
   return new Promise((resolve, reject) => {
-    const child: ChildProcess = spawn(tool, npmArgs, {
-      stdio: 'inherit',
-      env: { ...process.env, npm_config_registry: proxyUrl() },
-    })
+    const child: ChildProcess = spawn(tool, args, { stdio: 'inherit', env })
     child.on('error', reject)
     child.on('exit', (code, signal) => {
       resolve(signal ? exitCodeForSignal(signal) : (code ?? 1))

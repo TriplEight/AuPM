@@ -10,6 +10,12 @@ import {
 
 const CONFIG_USAGE = 'Usage: aupm config set donate <true|false>  |  aupm config get donate'
 
+/** True for `get donate` and `set donate ...`: the only config calls AuPM handles itself. */
+export function isDonateConfig(argv: string[]): boolean {
+  const [action, key] = argv
+  return key === 'donate' && (action === 'get' || action === 'set')
+}
+
 /** Runs `aupm config set|get donate`. Returns the process exit code. */
 export function runConfig(argv: string[]): number {
   const [action, key, value] = argv

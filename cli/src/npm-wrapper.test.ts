@@ -818,4 +818,53 @@ describe('runWrapper with yarn', () => {
       expect(attestLockfileTool.handler).not.toHaveBeenCalled()
     },
   )
+
+  describe('runNpmConfig', () => {
+    it('forwards `config get registry` to npm with argv unchanged and no AuPM registry', async () => {
+      vi.stubEnv('npm_config_registry', '')
+      const child = fakeChild()
+      vi.mocked(spawn).mockReturnValue(child as never)
+      const { runNpmConfig } = await import('./npm-wrapper.js')
+
+      const runPromise = runNpmConfig(['get', 'registry'])
+      child.emit('exit', 0, null)
+
+      expect(await runPromise).toBe(0)
+      expect(spawn).toHaveBeenCalledWith('npm', ['config', 'get', 'registry'], {
+        stdio: 'inherit',
+        env: process.env,
+      })
+      expect(vi.mocked(spawn).mock.calls[0][2]?.env?.npm_config_registry).not.toBe(
+        'https://aupm.fyi',
+      )
+    })
+
+    it('passes a non-zero npm exit code through', async () => {
+      const child = fakeChild()
+      vi.mocked(spawn).mockReturnValue(child as never)
+      const { runNpmConfig } = await import('./npm-wrapper.js')
+
+      const runPromise = runNpmConfig(['delete'])
+      child.emit('exit', 1, null)
+
+      expect(await runPromise).toBe(1)
+    })
+
+    it('does not strip AuPM flag names or run the donation summary', async () => {
+      const child = fakeChild()
+      vi.mocked(spawn).mockReturnValue(child as never)
+      const { runNpmConfig } = await import('./npm-wrapper.js')
+
+      const runPromise = runNpmConfig(['set', 'foo', '--donate'])
+      child.emit('exit', 0, null)
+      await runPromise
+
+      expect(spawn).toHaveBeenCalledWith(
+        'npm',
+        ['config', 'set', 'foo', '--donate'],
+        expect.anything(),
+      )
+      expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    })
+  })
 })
