@@ -7,6 +7,7 @@ import {
   type AccountFacts,
   assertClaimable,
   assertGenesis,
+  assertMappedSigner,
   type NetworkName,
   readAccountFacts,
   readBalance,
@@ -100,6 +101,10 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
     const login = await loginFrom(args, deps)
     const contract = await fetchContract(deps.fetch, deps.origin)
     const network = networkOf(contract)
+    const algod = deps.algod(network)
+    assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
+    const mapped = await readMappedAddress(algod, contract.appId, `github:${login}`)
+    assertMappedSigner(mapped, account.addr.toString())
     const integrity = await fetchNpmIntegrity(deps.fetch, name, version)
     const reviews = await fetchReviews(deps.fetch, deps.origin, login)
     const previous = previousReviewedVersion(reviews, name, version)
@@ -124,8 +129,6 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
       deps.print('Stopped. No transaction sent.')
       return
     }
-    const algod = deps.algod(network)
-    assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
     const txid = await sendAnchor(algod, account, note)
     deps.print(`Anchored. Transaction: ${txid}`)
     deps.print(`Explorer: ${loraLink(network, txid)}`)

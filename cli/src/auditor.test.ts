@@ -174,6 +174,28 @@ describe('aupm auditor review', () => {
     expect(errors.join()).toContain("Write 'none'")
   })
 
+  it('refuses an unmapped login and sends nothing', async () => {
+    captureErrors()
+    const t = setup({
+      mapped: null,
+      answers: ['full source', 'none', 'none', 'first review', 'yes'],
+    })
+    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('not mapped')
+    expect(t.sent).toHaveLength(0)
+  })
+
+  it('refuses a key that is not the mapped address and sends nothing', async () => {
+    captureErrors()
+    const t = setup({
+      mapped: other.addr.toString(),
+      answers: ['full source', 'none', 'none', 'first review', 'yes'],
+    })
+    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('is not the address mapped')
+    expect(t.sent).toHaveLength(0)
+  })
+
   it('stops on a server 503', async () => {
     captureErrors()
     const t = setup({ contractStatus: 503 })
