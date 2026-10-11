@@ -24,3 +24,6 @@ not 40%.
 
 Amended by P8d: TestNet moves to a new app from the rebuilt 30% contract; the
 earlier TestNet app, which still asserted 40%, is retired.
+
+Amended by ADR 0019: the ledger keeps one pool per `name@version`, not per repository. The
+contract still keeps one balance per identity.
