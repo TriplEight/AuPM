@@ -49,7 +49,7 @@ transaction". Never call `credit()` permissionless.
 
 ## Split
 
-- Target: 30 auditor / 10 contributor / 20 maintainer / 25 adversarial / 10 treasury / 5 ops.
+- Target: 40 auditor / 10 contributor / 25 maintainer / 20 treasury / 5 ops.
 - MVP on-chain: auditor 300, ops 700 per 1,000 microUSDC (`AUDITOR_SHARE_NUM`). The 70% is
   ops income.
 - Every attributed price is 1,000 microUSDC per reviewed package, so
