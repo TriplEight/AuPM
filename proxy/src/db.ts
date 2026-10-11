@@ -80,6 +80,12 @@ export const getStatus = db.prepare<[string, string], StatusRow>(
   'SELECT * FROM audit_status WHERE pkg = ? AND version = ?',
 )
 
+export const getReviewsByReviewer = db.prepare<[string], StatusRow>(
+  `SELECT * FROM audit_status
+   WHERE reviewer = ? COLLATE NOCASE
+   ORDER BY pkg, version`,
+)
+
 export const upsertStatus = db.prepare<
   [
     string,
