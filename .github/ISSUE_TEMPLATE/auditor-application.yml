@@ -1,6 +1,7 @@
 name: Auditor application
 description: Apply to review npm packages for AuPM and get paid in USDC.
 title: "Auditor application: "
+labels: ["auditor-application"]
 body:
   - type: markdown
     attributes:
@@ -38,6 +39,7 @@ body:
       label: Checks
       options:
         - label: The account is opted in to USDC (ASA 31566704).
+          required: true
         - label: >-
             I understand that this account is a cold wallet: its recovery phrase never goes on a
             computer that is connected to the internet, except in the hidden prompt of an
@@ -48,7 +50,9 @@ body:
   - type: textarea
     id: experience
     attributes:
-      label: Review experience (optional)
-      description: Code review or security review work that you did before. Links are welcome.
+      label: Review experience
+      description: >-
+        Code review or security review work that you did before, with links. The ops decide on
+        the application from this record.
     validations:
-      required: false
+      required: true
