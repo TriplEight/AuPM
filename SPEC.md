@@ -633,6 +633,8 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 | `GET /v1/attest?name=&version=` | $0.001, free unless reviewed |
 | `GET /<pkg>/-/<tarball>` | $0.001 only with `X-AuPM-Donate: 1` and a reviewed version; else free |
 | `GET /api/v1/status/...` | free |
+| `GET /api/v1/contract` | free (public PaymentRouter coordinates: `network`, `appId`, `payTo`, `usdcAssetId`, `minClaim`; 503 when `PAYMENT_ROUTER_APP_ID` is unset) |
+| `GET /api/v1/reviews?reviewer=<login>` | free (the review records stored for one GitHub login, sorted by name and version; 400 for a malformed login) |
 | `GET /api/v1/health` | free (nightly job state, plus the release `version` and `commit` of the running image; 503 when the last nightly success is older than 26 hours) |
 | `GET /api/v1/earnings/github/:login` | free (ledger read) |
 | `GET /.well-known/aupm-keys.json` | free (attestation pubkeys) |

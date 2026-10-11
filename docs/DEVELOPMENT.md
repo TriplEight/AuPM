@@ -70,6 +70,8 @@ a package's review status to `UNREVIEWED`.
 | tarball download | reviewed version | $0.001 |
 | tarball download | unreviewed version | free |
 | `GET /api/v1/status/...` | — | free |
+| `GET /api/v1/contract` | — | free |
+| `GET /api/v1/reviews?reviewer=<login>` | — | free |
 | `GET /api/v1/earnings/github/:login` | — | free |
 
 Every price is a multiple of 1,000 microUSDC. The lockfile price has no cap and no discount: it
