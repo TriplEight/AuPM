@@ -1,0 +1,372 @@
+# AuPM onboarding
+
+This guide gives the onboarding procedure for each AuPM user role. Do the steps in order.
+
+NOTE: the AuPM authors are not affiliated with any third-party service or app that this guide
+links, and do not endorse it. The links are for convenience only.
+
+| Role | You want to | Wallet | Cost |
+|---|---|---|---|
+| [CLI user](#1-cli-user) | Install packages through AuPM | None | Free |
+| [Donor](#2-donor) | Pay for reviews of the packages you install | A key that `aupm` makes | 0.001 USDC per reviewed package |
+| [MCP user](#3-mcp-user) | Let a coding agent check and install packages | None, or the donor key | Free, or as a donor |
+| [GitHub Action user](#4-github-action-user) | Install through AuPM in CI, and donate from CI | None, or the donor key | Free, or as a donor |
+| [Auditor](#5-auditor) | Read tarballs, record reviews and get paid | A cold account that you control | Small ALGO fees |
+
+The HTTP routes, the status lookup and the offline check of an attestation are in
+[API.md](API.md).
+
+## 0. Before you start
+
+### Public values
+
+| Value | MainNet |
+|---|---|
+| AuPM origin | `https://aupm.fyi` |
+| USDC asset id | `31566704` (6 decimals) |
+| Price | 1,000 microUSDC (0.001 USDC) per reviewed package |
+
+WARNING: other assets use the name "USDC". Always select the USDC asset by the id `31566704`.
+
+### Install the CLI
+
+You need Node 22.14.0 or later.
+
+```bash
+npm install -g aupm-cli
+aupm
+```
+
+The second command prints the usage.
+
+If npm stops with `ENOVERSIONS`, your npm `before` or `min-release-age` setting hides the new
+versions. Run `npm install -g aupm-cli --min-release-age=0`, or wait some days.
+
+### Optional: fund an account
+
+Do this phase only if you donate or audit. A CLI user and a free MCP or Action user need no
+account.
+
+1. Donors: make the donor key first. Run `aupm donor init` (section 2, step 1). It prints the
+   address to fund.
+2. Get ALGO and USDC on Algorand. Two examples:
+   - Pera Wallet: buy with Pera Fund. See the
+     [Pera Fund guide](https://support.perawallet.app/en/article/funding-an-account-using-pera-fund-oyinow/).
+   - From USDC on another chain: use a cross-chain swap that delivers USDC on Algorand, for example
+     [SideShift](https://sideshift.ai/usd0eth/usdcalgo). Give the Algorand address as the
+     receiver.
+3. Do a check of the first 6 and the last 6 characters of each address before you send.
+
+## 1. CLI user
+
+You need the CLI (section 0). You need no wallet and no account. Nothing in this section costs
+money.
+
+1. Install a package through AuPM. Use `aupm` where you use `npm`:
+
+   ```bash
+   aupm install ms@2.1.3
+   ```
+
+   `aupm` runs the real npm against the AuPM registry. It passes npm's arguments, output and exit
+   code through. After the install, it prints the number of packages in each group: audited, not
+   audited, integrity mismatch and unresolvable.
+2. Use pnpm, yarn classic or npx the same way:
+
+   ```bash
+   aupm pnpm add ms@2.1.3
+   aupm yarn add ms@2.1.3       # yarn classic (v1) only
+   aupm npx cowsay hi
+   ```
+
+3. Optional: use plain npm with the AuPM registry:
+
+   ```bash
+   npm config set registry https://aupm.fyi/
+   ```
+
+   To go back, run `npm config delete registry`.
+
+Plain `npm install` never donates. `aupm install` donates only with `--donate`, or after
+`aupm config set donate true` (section 2).
+
+Each donation pays for human review. The live contract pays the auditor who read the tarball
+(30%) and the AuPM operations (70%). This is the MVP split. The target split is 40/10/25/20/5:
+treasury (20%) and ops (5%) come off the top, and 75% goes to a pool for the exact package
+version (reviewer line 40%, contributor 10%, maintainer 25%). A new contract version brings the
+target split. See [Where the money goes](../README.md#where-the-money-goes).
+
+| Status | Meaning |
+|---|---|
+| `UNREVIEWED` | No auditor read this exact tarball. This is the normal answer today. |
+| `COMMUNITY_REVIEWED` | A human auditor read this exact tarball and anchored the review on chain. |
+| `INTEGRITY_MISMATCH` | The tarball does not match the npm integrity. Do not install it. |
+| `UNRESOLVABLE` | AuPM cannot resolve this entry. |
+
+## 2. Donor
+
+A donor pays 0.001 USDC for each reviewed package in a lockfile. The live contract pays the
+auditor who read the tarball (30%) and the AuPM operations (70%). This is the MVP split.
+
+The target split is 40/10/25/20/5. Treasury (20%) and ops (5%) come off the top. The other 75%
+goes to a pool for the exact package version: the reviewer line (40%), the contributor (10%) and
+the maintainer (25%). A new contract version brings the target split. See
+[Where the money goes](../README.md#where-the-money-goes).
+
+A donation happens only when you opt in.
+
+### What you need
+
+- The `aupm` CLI (section 0).
+- About 0.3 ALGO and 1 to 5 USDC on Algorand (section 0). 1 USDC pays for 1,000 reviewed
+  packages.
+
+The donor key is a hot key. It is in a file on your computer. Keep only a small amount of USDC
+in it. Do not use an account that holds anything else.
+
+### Procedure
+
+1. Make the donor key:
+
+   ```bash
+   aupm donor init
+   ```
+
+   - `init` makes a new Algorand account. It writes the 25 words to
+     `~/.config/aupm/donor.key` (mode 0600). It never prints the words and never overwrites the
+     file.
+   - On a terminal, `init` shows one step on each screen and waits for you.
+   - When it asks, write the 25 words on paper: open the key file in a text editor, copy the
+     words by hand, then close the editor. Type `yes`.
+   - `init` prints the donor address.
+2. Optional: import the donor key into Pera Wallet. Pera then keeps a second copy of the key, and
+   you can fund the donor account from Pera directly. In Pera, select **Add account**, then
+   **Import an account**, and type the 25 words.
+3. Send about 0.3 ALGO to the donor address. `init` shows a QR code for 0.3 ALGO. The minimum is
+   0.201 ALGO: 0.1 for the account, 0.1 for the USDC opt-in and 0.001 for the fee. The
+   facilitator pays the fee of each donation, so donations do not spend this ALGO.
+4. Opt the donor account in to USDC. On the terminal, press Enter. `init` checks the balance one
+   time and sends the opt-in. If you stopped `init`, run:
+
+   ```bash
+   aupm donor optin
+   ```
+
+   If the ALGO is not there yet, `optin` prints the shortfall and exits 1. Run it again later.
+5. Send 1 to 5 USDC (asset `31566704`) to the donor address. `aupm donor status` shows a QR code
+   for 1 USDC.
+6. Check the donor account:
+
+   ```bash
+   aupm donor status
+   ```
+
+   It shows the ALGO balance, the opt-in, the USDC balance, the number of reviewed packages that
+   the USDC pays for, and the next step. It sends nothing.
+7. Donate. Add `--donate` to an install command:
+
+   ```bash
+   aupm install --donate
+   ```
+
+   The cost is 1,000 microUSDC times the reviewed entries in the lockfile. There is no cap and no
+   discount. A lockfile with no reviewed entry is free.
+8. Check the payment. A paid run prints the settlement txid. Open it in an Algorand explorer, for
+   example `https://lora.algokit.io/mainnet/transaction/<txid>`.
+
+### Donate on every run
+
+```bash
+aupm config set donate true     # writes donate = true to ~/.config/aupm/config.toml
+aupm config get donate          # prints the value and its source
+aupm install --no-donate        # skips the donation one time
+```
+
+The order of precedence is: `--donate` or `--no-donate`, then `AUPM_DONATE`, then the config
+file, then off. Every other `aupm config` command goes to `npm config` unchanged.
+
+### Key rules
+
+- The `AUPM_DONOR_MNEMONIC` environment variable wins over the key file. When you set it, `init`
+  and `status` tell you.
+- `aupm` refuses a key file with a mode wider than 0600. To correct it, run `chmod 600 <path>`.
+- `aupm` refuses to sign more than 1,000 microUSDC per lockfile entry. It refuses any asset other
+  than USDC.
+- If you lose the key file and all copies of the 25 words, you lose the USDC in the donor
+  account.
+- To stop: send the remaining USDC and ALGO to another account. Then remove the key file.
+
+## 3. MCP user
+
+The MCP server gives a coding agent three tools:
+
+| Tool | Cost | What it does |
+|---|---|---|
+| `check_audit_status` | Free | Returns the review status of one exact package version. |
+| `install_audited_package` | Free, or a donation | Downloads the tarball of one package version through AuPM to a temporary folder. It returns the path. It does not change your project. |
+| `attest_lockfile` | Free, or a donation | Returns one signed attestation for a `package-lock.json`, `pnpm-lock.yaml` or `yarn.lock`. |
+
+### Procedure
+
+1. Install Node 22.14.0 or later.
+2. Add the server to the configuration of your MCP client:
+
+   ```json
+   { "mcpServers": { "aupm": { "command": "npx", "args": ["-y", "aupm-mcp"] } } }
+   ```
+
+   - Claude Code: run `claude mcp add aupm -- npx -y aupm-mcp`.
+   - Other clients: put the JSON in the MCP configuration file of the client.
+3. Restart the client. Make sure that the three tools are in the tool list.
+4. Ask the agent to check a package, for example: "Check the AuPM audit status of ms 2.1.3."
+
+Without a donation setting, a reviewed package returns `status: 'donation_required'` with the
+price and the resource URL. The server signs nothing.
+
+### Donations
+
+1. Do the donor procedure in section 2, steps 1 to 6. The MCP server reads the same key file,
+   `~/.config/aupm/donor.key`. The MCP server never makes a key.
+2. Do not put the 25 words in the MCP configuration file. A configuration file is often shared
+   or synced.
+3. Select one of the two ways to donate:
+   - **Always.** Run `aupm config set donate true`, or set `AUPM_DONATE=true` in the environment
+     of the MCP server. Each paid tool call then donates. A call with `allowDonation: false`
+     does not donate.
+   - **Per call.** Keep the setting off. The agent sets `allowDonation: true` on each call that
+     pays. Example: "Attest package-lock.json with AuPM and donate for the reviewed packages."
+4. Check the result. A paid call returns the settlement txid.
+
+CAUTION: with the setting on, or with `allowDonation`, an agent can spend from the donor account.
+Keep a small USDC balance in it. Check the balance with `aupm donor status`.
+
+An agent without MCP can read `https://aupm.fyi/llms.txt`. It describes the HTTP routes and the
+results.
+
+## 4. GitHub Action user
+
+The AuPM Action replaces an `npm ci`, `pnpm install --frozen-lockfile` or
+`yarn install --frozen-lockfile` step. It installs through AuPM. If AuPM fails, it installs from
+the public registry. An AuPM failure never fails your job. An install failure fails the job, as
+with plain npm. The full reference is
+[.github/actions/aupm/README.md](../.github/actions/aupm/README.md). A working example is
+[TriplEight/AuPM-action-demo](https://github.com/TriplEight/AuPM-action-demo).
+
+### Procedure
+
+1. Get a full 40-character commit SHA of `TriplEight/AuPM` from the `master` branch. Never use a
+   branch name, a tag or a short SHA.
+2. Set up Node, and pnpm or yarn if the project uses them, before the AuPM step.
+3. To donate, do the donor procedure in section 2 first. Then store the same key file as a
+   repository secret:
+
+   ```bash
+   gh secret set AUPM_DONOR_MNEMONIC_MAINNET < ~/.config/aupm/donor.key
+   ```
+
+   Without `gh`: open **Settings > Secrets and variables > Actions > New repository secret**.
+   Name it `AUPM_DONOR_MNEMONIC_MAINNET`. Paste the 25 words. Never paste the words in a workflow
+   file, an issue or a log.
+4. Replace the install step:
+
+   ```yaml
+   - name: Install through AuPM
+     id: aupm
+     uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+     with:
+       endpoint: https://aupm.fyi
+       donate: 'true'                                            # omit for free use
+       donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}  # omit for free use
+   ```
+
+   For a lockfile in a subdirectory, add `lockfile: apps/web/pnpm-lock.yaml`.
+5. Optional: upload the signed receipt `aupm-receipt.json` with `actions/upload-artifact`.
+6. Push. In the run log, find the AuPM step.
+   - Free use: a `::warning::` that names withheld reviewed packages is normal.
+   - Donations: the `::notice::AuPM donation: <N> microUSDC, settlement txid <txid>` annotation
+     and the "AuPM donation" table in the job summary show the payment.
+
+NOTE: A pull request from a branch of the same repository gets the secret, so its run pays. The
+merge to the default branch is a push, and that run pays again. You can put `[skip ci]` in the
+merge commit message to skip the payment.
+
+Do not add a `schedule` trigger to a workflow that donates. Do not re-run a job that paid.
+
+## 5. Auditor
+
+An auditor reads the exact tarball of a package version and records the review on chain. Then
+AuPM shows that version as `COMMUNITY_REVIEWED`. The live contract pays the auditor 30% of each
+donation for that version (the MVP split).
+
+### What you need
+
+- A GitHub account. Your GitHub login is your auditor identity.
+- A cold Algorand account with a 25-word recovery phrase. This account signs your reviews and
+  receives your USDC.
+- About 0.5 ALGO (section 0): 0.1 for the account, 0.1 for the USDC opt-in, 0.001 for each
+  review and at least 0.002 for each claim.
+- The `aupm` CLI (section 0).
+
+### Precautions
+
+- Keep the recovery phrase on paper, offline. Never type it into a website, a chat, an issue or
+  an AI agent.
+- Type the phrase only into the hidden prompt of an `aupm auditor` command, on your own computer.
+  `aupm` does not store it.
+- Use this account only for AuPM reviews. Do not keep other funds in it.
+- The AuPM team never asks for your recovery phrase.
+
+### Procedure
+
+1. Apply. Open an issue in `TriplEight/AuPM` with the "Auditor application" form. Give the
+   address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
+2. Audit the files. Get the exact tarball that users install:
+
+   ```bash
+   npm pack ms@2.1.3
+   tar -xzf ms-2.1.3.tgz
+   ```
+
+   Read the files in `package/`.
+3. Record the review:
+
+   ```bash
+   aupm auditor review ms@2.1.3
+   ```
+
+   - The command asks four questions: what you read, the install scripts, your findings, and the
+     changes since the previous reviewed version. It shows the previous reviewed version.
+   - It prints every field of the review. Type `yes` to send it.
+   - It asks for your recovery phrase in a hidden prompt. It sends one 0-ALGO transaction from
+     your account to your own account. The note holds the review. The fee is 0.001 ALGO.
+   - It prints the txid and an explorer link.
+4. Post the txid in your application issue.
+5. Check your reviews. After the ops record a review, this command shows it:
+
+   ```bash
+   aupm auditor status <your GitHub login>
+   ```
+
+6. Wait for the ops to return to you. They reply in your issue.
+7. Check your balance. Each donation for a version that you reviewed adds 300 microUSDC. The
+   nightly job credits the balances. You can claim at 100,000 microUSDC (0.1 USDC) or more.
+
+   ```bash
+   aupm auditor balance <your GitHub login>
+   ```
+
+8. Claim:
+
+   ```bash
+   aupm auditor claim
+   ```
+
+   The command asks for your recovery phrase in a hidden prompt. It refuses below the minimum,
+   without the USDC opt-in, or when the account is not your mapped account. The contract pays
+   your whole balance to your account.
+
+## Help
+
+- Questions and bugs: open an issue in `TriplEight/AuPM`.
+- How AuPM works: [README.md](../README.md), [SPEC.md](../SPEC.md) and [docs/adr/](adr/).
+- The HTTP routes: [API.md](API.md).
