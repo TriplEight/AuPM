@@ -7,6 +7,7 @@ on:
       - scripts/record-review.mjs
       - scripts/review-anchor.mjs
       - scripts/network.mjs
+      - scripts/router-boxes.mjs
       - package.json
       - pnpm-lock.yaml
       - pnpm-workspace.yaml
