@@ -52,8 +52,8 @@ Use one donor secret for each network. Put the network in the secret name,
 for example `AUPM_DONOR_MNEMONIC_MAINNET` and `AUPM_DONOR_MNEMONIC_TESTNET`.
 Then a secret cannot pay on the wrong network.
 
-The value of the donor secret is a 25-word Algorand mnemonic of a funded
-account. You may use a separate wallet for CI.
+The value of the donor secret is a 25-word Algorand mnemonic or a 24-word Pera
+Universal Wallet phrase (derivation 1) of a funded account. You may use a separate wallet for CI.
 
 `aupm donor init` prints the steps. In bash or zsh, `aupm donor optin` and
 `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm/donor.key"`
@@ -136,7 +136,7 @@ review sets, so the same lockfile costs a different amount on each network.
 | `lockfile` | (empty) | Path to the lockfile. The install command runs in its directory. Empty means the Action uses the one of `package-lock.json`, `pnpm-lock.yaml` and `yarn.lock` in the working directory. |
 | `install` | `auto` | `auto` picks the tool from the lockfile name. `npm`, `pnpm` and `yarn` (classic) force one tool. Each installs through the AuPM registry, with fallback to the public registry. `none` skips the install. Any other value fails the step. |
 | `donate` | `false` | Set to `true` to donate to the reviewed packages. |
-| `donor-secret` | (empty) | The donor mnemonic (25 words) from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
+| `donor-secret` | (empty) | The donor mnemonic (25 words, or a 24-word Universal Wallet phrase) from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
 | `output` | `aupm-receipt.json` | Path where the Action writes the signed receipt. |
 | `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
 

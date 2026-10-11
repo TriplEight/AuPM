@@ -49,7 +49,7 @@ offline. It makes no network call.
   removal.
 - AuPM sets the registry through `npm_config_registry`. A `--registry` flag from you wins.
 - After a successful install-like command, AuPM prints the lockfile summary lines (`aupm: ...`).
-- `attest`, `verify`, `donor` and `config` are AuPM commands. They do not go to npm.
+- `attest`, `verify`, `donor`, `auditor` and `config` are AuPM commands. They do not go to npm.
 
 `aupm config` manages AuPM settings only. Today the only setting is `donate`. For npm settings,
 run `npm config`.
@@ -64,7 +64,8 @@ error. Only the `aupm` command reads this setting. Plain `npm install` stays fre
 After an install, `aupm` prints how many packages are audited, not audited, integrity
 mismatch and unresolvable. `--donate` pays for every audited package in the whole lockfile. The donor key is the environment variable
 `AUPM_DONOR_MNEMONIC`, or the file that `aupm donor init` writes to
-`~/.config/aupm/donor.key` (mode 0600; the 25 words and a newline). A donation costs 1,000 microUSDC per reviewed package. A
+`~/.config/aupm/donor.key` (mode 0600; the words and a newline). The key is 25 words (Algorand mnemonic) or 24 words
+(Pera Universal Wallet phrase, derivation 1). `aupm donor init` makes a 25-word key. A donation costs 1,000 microUSDC per reviewed package. A
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
 
@@ -80,6 +81,30 @@ For CI, `aupm donor init --yes` prints the commands. You may use a separate wall
 `gh secret set AUPM_DONOR_MNEMONIC_MAINNET < "$HOME/.config/aupm/donor.key"` stores the key as a
 GitHub secret. Back up each key file offline: write the 25 words on paper, or copy the file to
 an external drive.
+
+## Auditors
+
+An auditor anchors a human review and claims the credited USDC. The commands that sign ask for
+the key on a hidden prompt each time. The key is 25 words (Algorand mnemonic) or 24 words
+(Pera Universal Wallet phrase). There is no key file, no environment variable and no key flag.
+The commands need a terminal.
+
+```sh
+aupm auditor review <name>@<version> [--login <github-login>]   # four questions, then a 0-ALGO anchor
+aupm auditor balance <github-login>                             # credited balance, MIN_CLAIM, opt-in
+aupm auditor claim [--login <github-login>]                     # one claim() call
+aupm auditor status <github-login>                              # your reviews on the server
+```
+
+`review` shows every field and sends the anchor only after you type `yes`. An unread review
+is allowed on TestNet only. The app id and the `payTo` address come from the server
+(`GET /api/v1/contract`). `claim` refuses below `MIN_CLAIM`, without the USDC opt-in, and when
+the key address is not the address mapped to `github:<login>`.
+
+A 24-word phrase derives its account with ARC-52 at `m/44'/283'/n'/0/0`. The default is
+`n = 1`, the first named account in Pera. `n = 0` is the wallet root. `review` and `claim`
+accept `--derivation <n>` to pick another `n`, or `--address <address>` to search `n = 0`
+to `19` for that address. Use one flag, not both. Both flags are an error with a 25-word key.
 
 ## Where a donation goes
 

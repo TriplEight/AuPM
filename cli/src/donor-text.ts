@@ -135,7 +135,7 @@ export function addressLines(address: string, network: Network): string[] {
 
 export function envNoticeLines(address: string | null): string[] {
   const lead = 'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.'
-  if (address === null) return [lead, 'The value is not a valid 25-word mnemonic.']
+  if (address === null) return [lead, 'The value is not a valid 25-word or 24-word phrase.']
   return [lead, `Address in use: ${address}`]
 }
 
