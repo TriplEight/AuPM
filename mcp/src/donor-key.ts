@@ -1,18 +1,17 @@
 // mcp/src/donor-key.ts
 //
 // The donor key file: `$XDG_CONFIG_HOME/aupm/donor.key` (default `~/.config/aupm/donor.key`).
-// It holds the 25 words and a newline, nothing else. Directory 0700, file 0600 (SPEC.md §11.4).
+// It holds the 25 words (Algo25) or the 24 words (Universal Wallet, ADR 0028) and a newline,
+// nothing else. Directory 0700, file 0600 (SPEC.md §11.4).
 //
 // WARNING: never print or expose the mnemonic. Error messages name the path only.
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { seedFromMnemonic } from '@algorandfoundation/algokit-utils/algo25'
+import { isValidPhrase } from './key-phrase.js'
 
-/** Env var holding the donor's 25-word Algorand mnemonic. */
+/** Env var holding the donor's 25-word Algorand mnemonic or 24-word Universal Wallet phrase. */
 export const AUPM_DONOR_MNEMONIC_ENV = 'AUPM_DONOR_MNEMONIC'
-
-const MNEMONIC_WORDS = 25
 
 /** Path of the donor key file. Reads XDG_CONFIG_HOME at call time. */
 export function donorKeyFilePath(): string {
@@ -32,20 +31,10 @@ export function writeDonorKeyFile(mnemonic: string): string {
   return file
 }
 
-function isMnemonic(value: string): boolean {
-  if (value.split(/\s+/).length !== MNEMONIC_WORDS) return false
-  try {
-    seedFromMnemonic(value)
-    return true
-  } catch {
-    return false
-  }
-}
-
 /**
  * Reads the mnemonic from the key file. Returns null when the file does not exist.
  * Refuses a file whose mode is wider than 0600. Windows has no POSIX mode: it skips this check.
- * Refuses a file that is not exactly one valid 25-word mnemonic.
+ * Refuses a file that is not exactly one valid 25-word or 24-word phrase.
  */
 export function readDonorKeyFile(): string | null {
   const file = donorKeyFilePath()
@@ -63,8 +52,8 @@ export function readDonorKeyFile(): string | null {
     )
   }
   const value = fs.readFileSync(file, 'utf8').trim()
-  if (value.includes('\n') || !isMnemonic(value)) {
-    throw new Error(`donor key file ${file} must hold one line with 25 valid mnemonic words`)
+  if (value.includes('\n') || !isValidPhrase(value)) {
+    throw new Error(`donor key file ${file} must hold one line with 25 or 24 valid mnemonic words`)
   }
   return value
 }

@@ -4,6 +4,8 @@
 // transactions. It ports scripts/claim.mjs and scripts/anchor-review.mjs. Every send goes to
 // algod. The facilitator is not involved (the anchor and the claim are the auditor's own).
 import algosdk from 'algosdk'
+import type { KeyAccount } from 'aupm-mcp/key-phrase'
+import { signTxn } from './sign.js'
 
 export const MIN_CLAIM_FEE = 2_000
 export const CLAIM_METHOD_SIGNATURE = 'claim(string)void'
@@ -130,8 +132,12 @@ export function assertClaimable(args: {
   }
 }
 
-async function sendAndConfirm(algod: algosdk.Algodv2, txn: algosdk.Transaction, sk: Uint8Array) {
-  await algod.sendRawTransaction(txn.signTxn(sk)).do()
+async function sendAndConfirm(
+  algod: algosdk.Algodv2,
+  txn: algosdk.Transaction,
+  account: KeyAccount,
+) {
+  await algod.sendRawTransaction(await signTxn(account, txn)).do()
   const txid = txn.txID()
   await algosdk.waitForConfirmation(algod, txid, 6)
   return txid
@@ -140,10 +146,10 @@ async function sendAndConfirm(algod: algosdk.Algodv2, txn: algosdk.Transaction, 
 /** Sends the review anchor: a 0-ALGO payment from the auditor to itself with the note. */
 export async function sendAnchor(
   algod: algosdk.Algodv2,
-  account: { addr: { toString(): string }; sk: Uint8Array },
+  account: KeyAccount,
   note: Uint8Array,
 ): Promise<string> {
-  const address = account.addr.toString()
+  const { address } = account
   const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
     sender: address,
     receiver: address,
@@ -151,13 +157,13 @@ export async function sendAnchor(
     note,
     suggestedParams: await algod.getTransactionParams().do(),
   })
-  return sendAndConfirm(algod, txn, account.sk)
+  return sendAndConfirm(algod, txn, account)
 }
 
 /** Sends one claim(identity) call. The outer fee pools the inner transfer fee. */
 export async function sendClaim(
   algod: algosdk.Algodv2,
-  account: { addr: { toString(): string }; sk: Uint8Array },
+  account: KeyAccount,
   call: { appId: number; identity: string; payTo: string; usdcAssetId: number },
 ): Promise<string> {
   const suggestedParams = await algod.getTransactionParams().do()
@@ -165,7 +171,7 @@ export async function sendClaim(
   suggestedParams.fee = BigInt(Math.max(Number(suggestedParams.minFee), MIN_CLAIM_FEE))
   const method = algosdk.ABIMethod.fromSignature(CLAIM_METHOD_SIGNATURE)
   const txn = algosdk.makeApplicationCallTxnFromObject({
-    sender: account.addr.toString(),
+    sender: account.address,
     appIndex: call.appId,
     onComplete: algosdk.OnApplicationComplete.NoOpOC,
     appArgs: [method.getSelector(), algosdk.ABIType.from('string').encode(call.identity)],
@@ -177,5 +183,5 @@ export async function sendClaim(
     ],
     suggestedParams,
   })
-  return sendAndConfirm(algod, txn, account.sk)
+  return sendAndConfirm(algod, txn, account)
 }
