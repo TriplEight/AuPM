@@ -106,6 +106,7 @@ describe('attest_lockfile', () => {
   let lockfilePath: string
 
   beforeEach(() => {
+    vi.stubEnv('XDG_CONFIG_HOME', os.tmpdir())
     lockfilePath = writeLockfile()
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     process.env.AUPM_PROXY_URL = 'http://localhost:4873'
@@ -113,6 +114,7 @@ describe('attest_lockfile', () => {
   })
 
   afterEach(() => {
+    vi.unstubAllEnvs()
     vi.unstubAllGlobals()
     delete process.env.AUPM_DONOR_MNEMONIC
     delete process.env.AUPM_PROXY_URL

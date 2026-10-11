@@ -23,6 +23,7 @@
     "aupm-mcp": "dist/index.js"
   },
   "exports": {
+    "./config": "./src/config.ts",
     "./money": "./src/money.ts",
     "./donor": "./src/donor.ts",
     "./donor-key": "./src/donor-key.ts",
@@ -56,6 +57,7 @@
   "publishConfig": {
     "access": "public",
     "exports": {
+      "./config": "./src/config.ts",
       "./money": {
         "types": "./dist/money.d.ts",
         "default": "./dist/money.js"

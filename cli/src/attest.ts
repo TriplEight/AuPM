@@ -6,9 +6,9 @@
 // the reviewed entries are withheld, not refused — the CLI still writes
 // the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
+import { ConfigError, resolveDonate } from 'aupm-mcp/config'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { attestLockfileTool } from 'aupm-mcp/tools/attest'
-import { ConfigError, resolveDonate } from './config.js'
 import { countsFromSummary, summaryLines } from './summary.js'
 
 const DEFAULT_OUT_PATH = 'aupm-attestation.json'
