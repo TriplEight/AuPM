@@ -24,6 +24,7 @@ import {
 } from 'aupm-mcp/donor-key'
 import { accountFromPhrase, type KeyAccount } from 'aupm-mcp/key-phrase'
 import {
+  ALGO_PENDING_LINE,
   ALGO_SUGGESTED_MICRO,
   addressLines,
   afterOptInStep,
@@ -32,6 +33,7 @@ import {
   continueLines,
   currentNetwork,
   envNoticeLines,
+  formatMicro,
   initNextSteps,
   type Network,
   optedInLines,
@@ -49,7 +51,12 @@ import {
 } from './donor-text.js'
 import { signTxn } from './sign.js'
 
-const USAGE = 'Usage: aupm donor [init [--yes]|optin|status]'
+const USAGE = [
+  'Usage: aupm donor init [--yes] | optin | status',
+  '  init     Make a donor wallet and show the next steps. --yes asks no questions.',
+  '  optin    Let the wallet hold USDC.',
+  '  status   Show the balances and the next step. This is the default.',
+]
 
 export interface DonorIo {
   out(line: string): void
@@ -77,8 +84,11 @@ async function accountOf(mnemonic: string): Promise<KeyAccount> {
   try {
     return await accountFromPhrase(mnemonic)
   } catch {
+    const source = process.env[AUPM_DONOR_MNEMONIC_ENV]
+      ? `the ${AUPM_DONOR_MNEMONIC_ENV} variable`
+      : `the key file ${donorKeyFilePath()}`
     throw new Error(
-      'The donor key is not a valid 25-word or 24-word phrase. Nothing was printed or sent.',
+      `The donor key is not a valid recovery phrase. Check ${source}. Nothing was sent.`,
     )
   }
 }
@@ -112,6 +122,13 @@ async function readSnapshot(address: string, usdcAsset: string): Promise<Snapsho
   }
 }
 
+/** The reason of a failure. A fetch failure keeps its cause: `fetch failed` alone says nothing. */
+function failureReason(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined
+  if (cause instanceof Error) return cause.message
+  return error instanceof Error ? error.message : String(error)
+}
+
 async function sendOptIn(account: KeyAccount, network: Network) {
   const algod = newAlgod()
   const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
@@ -122,7 +139,14 @@ async function sendOptIn(account: KeyAccount, network: Network) {
     suggestedParams: await algod.getTransactionParams().do(),
   })
   await algod.sendRawTransaction(await signTxn(account, txn)).do()
-  await algosdk.waitForConfirmation(algod, txn.txID(), 4)
+  try {
+    await algosdk.waitForConfirmation(algod, txn.txID(), 4)
+  } catch (error) {
+    throw new Error(
+      `The opt-in was sent but is not confirmed yet: ${failureReason(error)}. ` +
+        'Run `aupm donor status` in a minute to check it.',
+    )
+  }
   return txn.txID()
 }
 
@@ -138,7 +162,8 @@ async function runOptin(io: DonorIo, network: Network): Promise<number> {
     return 0
   }
   if (snapshot.algo < snapshot.required) {
-    io.err('The wallet has too little ALGO to opt in. Nothing was sent.')
+    const short = formatMicro(snapshot.required - snapshot.algo)
+    io.err(`Cannot opt in to USDC yet. The wallet needs ${short} more ALGO. Nothing was sent.`)
     emit(io, [
       ...shortfallLines(snapshot, network),
       'Run `aupm donor optin` again when the ALGO arrives.',
@@ -217,9 +242,13 @@ async function waitForYes({ io, ask }: Session): Promise<boolean> {
 }
 
 /** Checks the wallet once per Enter, sends the opt-in when the ALGO is there, then stops. */
-async function guideFromState(session: Session, account: KeyAccount): Promise<number> {
+async function guideFromState(
+  session: Session,
+  account: KeyAccount,
+  afterEnter: boolean,
+): Promise<number> {
   const { io, network } = session
-  for (;;) {
+  for (let pressedEnter = afterEnter; ; pressedEnter = true) {
     const snapshot = await readSnapshot(account.address, network.usdcAsset)
     if (snapshot.optedIn) {
       emit(io, ['', ...afterOptInStep(snapshot, network)])
@@ -230,7 +259,11 @@ async function guideFromState(session: Session, account: KeyAccount): Promise<nu
       emit(io, ['', ...optedInLines(txid, snapshot.address, network)])
       return 0
     }
-    emit(io, ['', ...shortfallLines(snapshot, network)])
+    emit(io, [
+      '',
+      ...(pressedEnter ? [ALGO_PENDING_LINE] : []),
+      ...shortfallLines(snapshot, network),
+    ])
     if (!(await waitForEnter(session))) return stopped(io)
   }
 }
@@ -255,7 +288,7 @@ async function guideNewWallet(
   if (!(await waitForYes(session))) return stopped(io)
   emit(io, ['', ...algoStep('Step 1.', address, network, ALGO_SUGGESTED_MICRO, true)])
   if (!(await waitForEnter(session))) return stopped(io)
-  return await guideFromState(session, account)
+  return await guideFromState(session, account, true)
 }
 
 async function guideExistingWallet(session: Session, file: string): Promise<number> {
@@ -264,7 +297,7 @@ async function guideExistingWallet(session: Session, file: string): Promise<numb
     ...continueLines(file, account.address, session.network),
     ...(await envNotice()),
   ])
-  return await guideFromState(session, account)
+  return await guideFromState(session, account, false)
 }
 
 async function createWallet(): Promise<KeyAccount> {
@@ -318,12 +351,23 @@ function validArguments(subcommand: string, rest: string[]): boolean {
   return rest.length === 0
 }
 
+/** A fetch failure means the Algorand node was unreachable. Other errors keep their message. */
+function describeFailure(error: unknown): string {
+  if (error instanceof TypeError) {
+    return (
+      `Cannot reach the Algorand node (${donorAlgodUrl()}): ${failureReason(error)}. ` +
+      'Check your network and run the command again. Nothing was sent.'
+    )
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 /** Runs `aupm donor <init|optin|status>`. Returns the process exit code. */
 export async function runDonor(argv: string[], options: DonorOptions = {}): Promise<number> {
   const [subcommand = 'status', ...rest] = argv
   const io = options.io ?? consoleIo
   if (!validArguments(subcommand, rest)) {
-    io.err(USAGE)
+    io.err(USAGE.join('\n'))
     return 1
   }
   const network = currentNetwork()
@@ -335,7 +379,7 @@ export async function runDonor(argv: string[], options: DonorOptions = {}): Prom
     if (subcommand === 'optin') return await runOptin(io, network)
     return await runStatus(io, network)
   } catch (error) {
-    io.err(error instanceof Error ? error.message : String(error))
+    io.err(describeFailure(error))
     return 1
   }
 }
