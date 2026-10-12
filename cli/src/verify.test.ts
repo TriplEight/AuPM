@@ -166,6 +166,15 @@ describe('runVerify argument parsing (value-taking flags with no value)', () => 
     }
   }
 
+  test('no --key and no --keys names the keys URL and exits 1', async () => {
+    const { code, output } = await runAndCapture([join(FIXTURES_DIR, 'attestation.json')])
+    expect(code).toBe(1)
+    expect(output).toContain('keys: FAIL - no verification keys supplied')
+    expect(output).toContain('/.well-known/aupm-keys.json')
+    expect(output).toContain('https://aupm.fyi/.well-known/aupm-keys.json')
+    expect(output).toContain('--keys <file>')
+  })
+
   test('--lockfile with no value exits non-zero, prints a usage message, and never prints PASS', async () => {
     const { code, output } = await runAndCapture([
       join(FIXTURES_DIR, 'attestation.json'),

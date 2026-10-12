@@ -39,6 +39,14 @@ exits 2 before the install and before any donation. `aupm npx` has no lockfile: 
 other first argument goes to npm unchanged. `aupm verify` checks the signed DSSE envelope
 offline. It makes no network call.
 
+`aupm verify` needs the verification keys. Download them from the server that signed the
+attestation, then pass the file with `--keys`:
+
+```bash
+curl -o aupm-keys.json https://aupm.fyi/.well-known/aupm-keys.json
+aupm verify attestation.json --keys aupm-keys.json
+```
+
 `AUPM_PROXY_URL` sets the registry. It defaults to `https://aupm.fyi`.
 
 ### What the npm passthrough changes

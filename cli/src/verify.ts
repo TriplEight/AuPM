@@ -359,7 +359,15 @@ export async function runVerify(argv: string[]): Promise<number> {
     return 1
   }
   if (keys.length === 0) {
-    console.log('keys: FAIL - no verification keys supplied (use --key or --keys)')
+    console.log(
+      [
+        'keys: FAIL - no verification keys supplied.',
+        'Download the keys from the server that signed the attestation:',
+        '<server>/.well-known/aupm-keys.json',
+        '(MainNet: https://aupm.fyi/.well-known/aupm-keys.json).',
+        'Then use --keys <file>.',
+      ].join(' '),
+    )
     return 1
   }
   console.log(`keys: OK (${keys.length} verification key(s) loaded)`)
