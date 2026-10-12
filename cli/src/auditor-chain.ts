@@ -1,7 +1,7 @@
 // cli/src/auditor-chain.ts
 //
 // The chain side of the auditor commands: box reads, the claim() checks and the two
-// transactions. It ports scripts/claim.mjs and scripts/anchor-review.mjs. Every send goes to
+// transactions. It ports scripts/claim.mjs and the former anchor script. Every send goes to
 // algod. The facilitator is not involved (the anchor and the claim are the auditor's own).
 import algosdk from 'algosdk'
 import type { KeyAccount } from 'aupm-mcp/key-phrase'

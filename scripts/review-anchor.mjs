@@ -1,6 +1,8 @@
-// Pure logic shared by scripts/anchor-review.mjs (the auditor's machine)
-// and scripts/record-review.mjs (the operator's machine) — SPEC §14, ADR
-// 0007. No I/O, no network, no chain: every function here takes plain data
+// Pure logic used by scripts/record-review.mjs (the operator's machine) and
+// its tests — SPEC §14, ADR 0007. The auditor's anchor is sent by
+// `aupm auditor review` (cli/src/auditor*.ts).
+//
+// No I/O, no network, no chain: every function here takes plain data
 // and either returns a value or throws a clear Error. This is what makes
 // the review flow testable under plain `node --test`, with no TTY, no
 // network and no facilitator involved (this is the auditor's own
