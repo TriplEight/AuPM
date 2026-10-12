@@ -861,3 +861,70 @@ describe('runWrapper with yarn', () => {
     },
   )
 })
+
+describe('runWrapper audit pointer', () => {
+  let cwd: string
+  let originalCwd: string
+  const countsLine = 'aupm: Reviewed: 0. Not reviewed: 1. Integrity mismatch: 0. Unresolvable: 0.'
+
+  beforeEach(() => {
+    cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-audit-pointer-test-'))
+    originalCwd = process.cwd()
+    process.chdir(cwd)
+    vi.mocked(spawn).mockReset()
+    vi.mocked(attestLockfileTool.handler).mockReset()
+    vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
+    vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
+    vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873')
+    vi.mocked(attestLockfileTool.handler).mockResolvedValue({
+      status: 'attested',
+      summary: { total: 1, reviewed: 0, unreviewed: 1, unresolvable: 0, integrityMismatch: 0 },
+      attestation: {},
+      settlement: null,
+    })
+    vi.mocked(spawn).mockImplementation(((_tool: string, args: string[]) => {
+      const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter }
+      child.stdout = new EventEmitter()
+      queueMicrotask(() => {
+        if (args.includes('--version')) {
+          child.stdout.emit('data', Buffer.from('1.22.22'))
+          child.emit('close', 0, null)
+        } else {
+          child.emit('exit', 0, null)
+        }
+      })
+      return child
+    }) as never)
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    process.chdir(originalCwd)
+    fs.rmSync(cwd, { recursive: true, force: true })
+  })
+
+  it.each([
+    ['npm', 'package-lock.json', ['install', 'ms']],
+    ['pnpm', 'pnpm-lock.yaml', ['add', 'ms']],
+    ['yarn', 'yarn.lock', ['add', 'ms']],
+  ] as const)(
+    '%s prints one audit pointer line after the counts line',
+    async (tool, lock, argv) => {
+      fs.writeFileSync(path.join(cwd, lock), '{}')
+      vi.spyOn(console, 'log').mockImplementation(() => {})
+      const logSpy = vi.mocked(console.log)
+      const { runWrapper } = await import('./npm-wrapper.js')
+
+      await runWrapper(tool, [...argv])
+
+      const lines = logSpy.mock.calls.map((call) => String(call[0]))
+      const pointer =
+        `aupm: Known advisories: run \`${tool} audit\` ` +
+        '(source: npm, GitHub Advisory Database). AuPM does not check advisories yet.'
+      expect(lines.filter((line) => line === pointer)).toHaveLength(1)
+      expect(lines.indexOf(pointer)).toBe(lines.indexOf(countsLine) + 1)
+      logSpy.mockRestore()
+    },
+  )
+})

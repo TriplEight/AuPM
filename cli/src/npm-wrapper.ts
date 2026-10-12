@@ -230,6 +230,14 @@ export async function findLockfileDir(
   return cwd
 }
 
+/** ADR 0030: a fixed pointer to the tool's own audit. AuPM reads no advisory data. */
+function auditPointer(tool: Tool): string {
+  return (
+    `Known advisories: run \`${tool} audit\` (source: npm, GitHub Advisory Database). ` +
+    'AuPM does not check advisories yet.'
+  )
+}
+
 /**
  * Requests a lockfile attestation after a successful install-like npm
  * command and prints the lockfile summary (`summaryLines`): the four counts,
@@ -279,9 +287,10 @@ export async function printPostInstallSummary(
     hasDonorKey: donorKeyExists(),
     donationFailed: donationFailure !== undefined,
   }
-  for (const line of summaryLines(input)) {
+  summaryLines(input).forEach((line, index) => {
     console.log(`aupm: ${line}`)
-  }
+    if (index === 0) console.log(`aupm: ${auditPointer(tool)}`)
+  })
   if (donationFailure) console.log(`aupm: ${donationFailure.reason}`)
 
   if (attestOutPath && 'attestation' in outcome && outcome.attestation !== undefined) {
