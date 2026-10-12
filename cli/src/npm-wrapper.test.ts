@@ -84,6 +84,7 @@ describe('runWrapper', () => {
     vi.mocked(attestLockfileTool.handler).mockReset()
     vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
     vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
   })
 
   afterEach(() => {
@@ -208,7 +209,8 @@ describe('runWrapper', () => {
     expect(exitCode).toBe(0)
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: no package-lock.json found; skipping the donation summary.',
+      'aupm: no package-lock.json in this folder. AuPM prints no review summary. ' +
+        'Run the install in the project folder.',
     )
     logSpy.mockRestore()
   })
@@ -231,7 +233,7 @@ describe('runWrapper', () => {
     await runPromise
 
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: Audited: 0. Not audited: 3. Integrity mismatch: 0. Unresolvable: 0.',
+      'aupm: Reviewed: 0. Not reviewed: 3. Integrity mismatch: 0. Unresolvable: 0.',
     )
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('donat'))
     logSpy.mockRestore()
@@ -262,12 +264,15 @@ describe('runWrapper', () => {
       allowDonation: false,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: Audited: 2. Not audited: 1. Integrity mismatch: 0. Unresolvable: 0.',
+      'aupm: Reviewed: 2. Not reviewed: 1. Integrity mismatch: 0. Unresolvable: 0.',
     )
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: A donation would be 0.002 USDC for 2 audited packages. Add --donate to send it.',
+      'aupm: You can donate 0.002 USDC for 2 reviewed packages. This is optional. ' +
+        'To donate, run `aupm donor init` once, then add --donate.',
     )
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('whole lockfile'))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining('all reviewed packages in the lockfile'),
+    )
     logSpy.mockRestore()
   })
 
@@ -299,18 +304,20 @@ describe('runWrapper', () => {
       lockfilePath: path.join(cwd, 'package-lock.json'),
       allowDonation: true,
     })
-    expect(logSpy).toHaveBeenCalledWith('aupm: Donated 0.001 USDC for 1 audited package.')
+    expect(logSpy).toHaveBeenCalledWith('aupm: Donated 0.001 USDC for 1 reviewed package.')
     expect(logSpy).toHaveBeenCalledWith(
       expect.stringMatching(
         /^aupm: Settlement txid: SETTLE1 https:\/\/lora\.algokit\.io\/.+\/SETTLE1$/,
       ),
     )
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('whole lockfile'))
+    expect(logSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('all reviewed packages in the lockfile'),
+    )
     expect(fs.existsSync(outPath)).toBe(true)
     logSpy.mockRestore()
   })
 
-  it('with --donate but no settlement, says no donation settled, never "Donated"', async () => {
+  it('with --donate but no settlement, says no donation was paid, never "Donated"', async () => {
     fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
     vi.mocked(attestLockfileTool.handler).mockResolvedValue({
       status: 'attested',
@@ -327,7 +334,10 @@ describe('runWrapper', () => {
     child.emit('exit', 0, null)
     await runPromise
 
-    expect(logSpy).toHaveBeenCalledWith('aupm: No donation settled.')
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: No donation was paid. The install is not affected. ' +
+        'Run `aupm donor status` to check your donor wallet.',
+    )
     expect(logSpy).not.toHaveBeenCalledWith(expect.stringContaining('Donated'))
     logSpy.mockRestore()
   })
@@ -345,7 +355,29 @@ describe('runWrapper', () => {
     const exitCode = await runPromise
 
     expect(exitCode).toBe(0)
-    expect(logSpy).toHaveBeenCalledWith('aupm: donation summary failed: refusing to donate')
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: the install worked. AuPM could not get the review summary: refusing to donate. ' +
+        'No donation was confirmed. Try again later.',
+    )
+    logSpy.mockRestore()
+  })
+
+  it('a failed summary request without --donate does not mention a donation', async () => {
+    fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
+    vi.mocked(attestLockfileTool.handler).mockRejectedValue(new Error('fetch failed'))
+    const child = fakeChild()
+    vi.mocked(spawn).mockReturnValue(child as never)
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+    const { runWrapper } = await import('./npm-wrapper.js')
+
+    const runPromise = runWrapper('npm', ['install', 'ms@2.1.3'])
+    child.emit('exit', 0, null)
+    await runPromise
+
+    expect(logSpy).toHaveBeenCalledWith(
+      'aupm: the install worked. AuPM could not get the review summary: fetch failed. ' +
+        'Try again later.',
+    )
     logSpy.mockRestore()
   })
 
@@ -375,6 +407,7 @@ describe('runWrapper with pnpm and npx', () => {
     vi.mocked(attestLockfileTool.handler).mockReset()
     vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
     vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
   })
 
   afterEach(() => {
@@ -438,7 +471,8 @@ describe('runWrapper with pnpm and npx', () => {
       allowDonation: false,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: A donation would be 0.001 USDC for 1 audited package. Add --donate to send it.',
+      'aupm: You can donate 0.001 USDC for 1 reviewed package. This is optional. ' +
+        'To donate, run `aupm donor init` once, then add --donate.',
     )
     logSpy.mockRestore()
   })
@@ -471,7 +505,8 @@ describe('runWrapper with pnpm and npx', () => {
 
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: no pnpm-lock.yaml found; skipping the donation summary.',
+      'aupm: no pnpm-lock.yaml in this folder. AuPM prints no review summary. ' +
+        'Run the install in the project folder.',
     )
     logSpy.mockRestore()
   })
@@ -525,7 +560,9 @@ describe('runWrapper with pnpm and npx', () => {
 
     expect(exitCode).toBe(2)
     expect(spawn).not.toHaveBeenCalled()
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('npx has no lockfile'))
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('To pass a flag to the program, put it after `--`.'),
+    )
     errorSpy.mockRestore()
   })
 })
@@ -550,6 +587,7 @@ describe('runWrapper donate setting', () => {
     fs.writeFileSync(path.join(cwd, 'package-lock.json'), '{}')
     vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
     vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
   })
 
   afterEach(() => {
@@ -628,7 +666,9 @@ describe('runWrapper donate setting', () => {
     expect(await runWrapper('npm', ['install', 'ms'])).toBe(2)
     expect(spawn).not.toHaveBeenCalled()
     expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('AUPM_DONATE'))
-    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('true or false'))
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringMatching(/Accepted values: true or false\. The command did not run\.$/),
+    )
   })
 
   it('a malformed config line exits 2 before the tool runs, with path and line number', async () => {
@@ -649,7 +689,7 @@ describe('runWrapper donate setting', () => {
 
   it('prints all four counts in both modes', async () => {
     const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-    const counts = 'aupm: Audited: 2. Not audited: 1. Integrity mismatch: 0. Unresolvable: 1.'
+    const counts = 'aupm: Reviewed: 2. Not reviewed: 1. Integrity mismatch: 0. Unresolvable: 1.'
     await install()
     expect(logSpy).toHaveBeenCalledWith(counts)
     logSpy.mockClear()
@@ -681,6 +721,7 @@ describe('runWrapper with yarn', () => {
     vi.mocked(attestLockfileTool.handler).mockReset()
     vi.stubEnv('XDG_CONFIG_HOME', path.join(cwd, 'xdg'))
     vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
     vi.stubEnv('AUPM_PROXY_URL', 'http://localhost:4873')
   })
 

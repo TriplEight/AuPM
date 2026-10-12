@@ -20,6 +20,7 @@ describe('aupm attest', () => {
     vi.mocked(attestLockfileTool.handler).mockReset()
     vi.stubEnv('XDG_CONFIG_HOME', path.join(outDir, 'xdg'))
     vi.stubEnv('AUPM_DONATE', '')
+    vi.stubEnv('AUPM_DONOR_MNEMONIC', '')
   })
 
   afterEach(() => {
@@ -80,9 +81,11 @@ describe('aupm attest', () => {
     expect(exitCode).toBe(0)
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
     const printed = logSpy.mock.calls.map((call) => String(call[0])).join('\n')
-    expect(printed).toContain('Audited: 2. Not audited: 0. Integrity mismatch: 0. Unresolvable: 0.')
-    expect(printed).toContain('A donation would be 0.002 USDC for 2 audited packages.')
-    expect(printed).toContain('whole lockfile')
+    expect(printed).toContain(
+      'Reviewed: 2. Not reviewed: 0. Integrity mismatch: 0. Unresolvable: 0.',
+    )
+    expect(printed).toContain('You can donate 0.002 USDC for 2 reviewed packages.')
+    expect(printed).toContain('all reviewed packages in the lockfile')
     expect(printed).not.toContain('microUSDC')
     logSpy.mockRestore()
   })
@@ -109,7 +112,7 @@ describe('aupm attest', () => {
     expect(attestLockfileTool.handler).toHaveBeenCalledWith({ lockfilePath, allowDonation: true })
     expect(JSON.parse(fs.readFileSync(outPath, 'utf8'))).toEqual(attestation)
     const printed = logSpy.mock.calls.map((call) => String(call[0]))
-    expect(printed).toContain('Donated 0.03 USDC for 30 audited packages.')
+    expect(printed).toContain('Donated 0.03 USDC for 30 reviewed packages.')
     expect(printed.some((line) => line.startsWith('Settlement txid: SETTLETXID '))).toBe(true)
     expect(JSON.parse(printed.at(-1) ?? '')).toEqual({
       reviewed: 30,
