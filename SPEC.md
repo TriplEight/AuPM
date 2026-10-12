@@ -849,8 +849,9 @@ wins. The directory is 0700 and the file is 0600. A client refuses a file with a
 prints `chmod 600 <path>`. It refuses a file that is not one line of 25 valid words and names
 only the path.
 
-`aupm donor init` creates a donor account (ADR 0016). It writes the key file exclusively. It
-never prints the mnemonic. No `aupm donor` command uses a timer or polls. Without a terminal, or
+`aupm donor init` creates a donor account (ADR 0016, ADR 0029). It writes the key file
+exclusively. Without a terminal it never prints the mnemonic; on a terminal it shows the 25 words
+one time, before it saves the file (ADR 0029). No `aupm donor` command uses a timer or polls. Without a terminal, or
 with `--yes`, `init` prints the text below and exits. On a terminal, `init` shows one step per
 screen and does the opt-in (see "Terminal path" below). `init` prints, in this order:
 a warning block, the address and the network, and five numbered next steps.
@@ -889,14 +890,20 @@ On TestNet (`NETWORK=testnet`), `init`, `optin` and `status` print one note near
 is for development, put `NETWORK=testnet` before every `aupm` command and set `AUPM_PROXY_URL` to
 the TestNet server. `optin` and `status` print the network.
 
-Terminal path (stdin and stdout are terminals, no `--yes`). `init` creates the key, then shows:
-the warning block with the address; the backup screen ("Type yes when the 25 words are on paper";
-any other answer asks again); the ALGO step ("Press Enter when you have sent the ALGO"). After
-Enter, `init` reads the balance once. With enough ALGO it sends the opt-in and shows the USDC
-step. With too little ALGO it shows the shortfall and the ALGO step, and waits for Enter again.
-It never sends a transaction without enough ALGO. A wallet that has opted in already gets the next
-step, as `status` does. Ctrl-C or a closed input stops `init` with exit 0. There is no timer and no
-poll: a check happens only after the donor presses Enter.
+Terminal path (stdin and stdout are terminals, no `--yes`). `init` makes the key in memory and
+saves nothing yet. It shows: the warning block with the address; the backup screen with the 25
+words, on the alternate screen when `TERM` is not `dumb` ("Type yes when the 25 words are on
+paper"; any other answer asks again). After `yes`, the words leave the screen and `init` writes
+the key file, then shows an optional Pera import line and the ALGO step ("Press Enter when you
+have sent the ALGO"). Ctrl-C or a closed input before `yes` saves nothing; the next `init` makes a
+new key. After Enter, `init` reads the balance once. With enough ALGO it sends the opt-in and
+shows the USDC step. With too little ALGO it shows the shortfall and the ALGO step, and waits for
+Enter again. It never sends a transaction without enough ALGO. The USDC step waits for Enter in
+the same way ("Press Enter when you have sent the USDC"). When the key file exists, a wallet that
+is opted in and holds USDC gets a short "All set." block: the address, the ALGO and USDC
+balances, the number of reviewed packages that the USDC pays for, the donate setting with its
+source, and one line on how to donate. Ctrl-C or a closed input stops `init` with exit 0. There is
+no timer and no poll: a check happens only after the donor presses Enter.
 
 `aupm donor optin` makes one check. An existing opt-in prints "already opted in" and exits 0. A
 funded wallet sends one 0-amount USDC transfer to self, signed by the donor, then prints the
