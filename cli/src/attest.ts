@@ -97,7 +97,8 @@ export async function runAttest(argv: string[]): Promise<number> {
       const counts = countsFromSummary(result.summary)
       const input = {
         counts,
-        donate: donate && !result.donationFailure,
+        donate,
+        donationFailed: result.donationFailure !== undefined,
         settlement: null,
         hasDonorKey: donorKeyExists(),
       }
@@ -126,7 +127,8 @@ export async function runAttest(argv: string[]): Promise<number> {
   const { donationFailure } = result
   const input = {
     counts,
-    donate: donate && !donationFailure,
+    donate,
+    donationFailed: donationFailure !== undefined,
     settlement,
     hasDonorKey: donorKeyExists(),
   }
