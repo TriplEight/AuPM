@@ -12,7 +12,11 @@ vi.mock('aupm-mcp/tools/attest', () => ({
   attestLockfileTool: { handler: vi.fn() },
 }))
 
-describe('lockfile folder after an install', () => {
+const realChildProcess =
+  await vi.importActual<typeof import('node:child_process')>('node:child_process')
+const npmExists = realChildProcess.spawnSync('npm', ['--version'], { stdio: 'ignore' }).status === 0
+
+describe.skipIf(!npmExists)('lockfile folder after an install', () => {
   let root: string
   let originalCwd: string
   let logSpy: MockInstance<typeof console.log>
@@ -28,7 +32,8 @@ describe('lockfile folder after an install', () => {
     fs.mkdirSync(path.join(root, subdir), { recursive: true })
     process.chdir(path.join(root, subdir))
     const child = new EventEmitter()
-    vi.mocked(spawn).mockReturnValue(child as never)
+    vi.mocked(spawn).mockImplementation(((command: string, args: string[], options: object) =>
+      args[0] === 'prefix' ? realChildProcess.spawn(command, args, options) : child) as never)
     const { runWrapper } = await import('./npm-wrapper.js')
     const promise = runWrapper(tool, argv)
     child.emit('exit', 0, null)
@@ -77,6 +82,18 @@ describe('lockfile folder after an install', () => {
     await runIn('child', 'npm', ['install'])
 
     expect(attestedPath()).toBe(lockfile)
+  })
+
+  it('npm: a workspace subpackage uses the root lockfile', async () => {
+    fs.mkdirSync(path.join(root, 'pkgs', 'a'), { recursive: true })
+    fs.writeFileSync(path.join(root, 'package.json'), '{"workspaces":["pkgs/*"]}')
+    touch('pkgs/a/package.json')
+    const lockfile = touch('package-lock.json')
+
+    const lines = await runIn('pkgs/a', 'npm', ['install'])
+
+    expect(attestedPath()).toBe(lockfile)
+    expect(lines).toContain(`aupm: the review summary counts ${lockfile}.`)
   })
 
   it('npm: uses the child lockfile when the child has its own package.json', async () => {
@@ -171,6 +188,19 @@ describe('lockfile folder after an install', () => {
     expect(attestedPath()).toBe(lockfile)
   })
 
+  it('npm: prints one line and no summary when npm prefix fails', async () => {
+    touch('package.json')
+    touch('package-lock.json')
+    vi.stubEnv('PATH', path.join(root, 'no-npm-here'))
+
+    const lines = await runIn('child', 'npm', ['install'])
+
+    expect(attestLockfileTool.handler).not.toHaveBeenCalled()
+    expect(lines).toEqual([
+      'aupm: AuPM could not find the folder that npm used. AuPM prints no review summary.',
+    ])
+  })
+
   it('names the folder when no lockfile exists anywhere', async () => {
     touch('package.json')
 
@@ -195,7 +225,7 @@ describe('lockfile folder after an install', () => {
   it('stops at the filesystem root', async () => {
     const { findLockfileDir } = await import('./npm-wrapper.js')
 
-    const found = findLockfileDir('npm', [], path.parse(root).root)
+    const found = await findLockfileDir('pnpm', [], path.parse(root).root)
 
     expect(found).toBe(path.parse(root).root)
   })

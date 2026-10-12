@@ -17,6 +17,7 @@ import { ConfigError, resolveDonate } from 'aupm-mcp/config'
 import { YARN_BERRY_MESSAGE } from 'aupm-mcp/lockfile-entries'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
+import { runNpmPrefix } from './npm-prefix.js'
 import { countsFromSummary, donorKeyExists, type LockfileCounts, summaryLines } from './summary.js'
 
 export type Tool = 'npm' | 'pnpm' | 'npx' | 'yarn'
@@ -209,19 +210,18 @@ function walkUpTo(start: string, names: string[]): string | null {
 }
 
 /**
- * Returns the folder where the tool writes its lockfile.
- * npm: `--prefix` or `-C` wins; else the nearest folder up with `package.json`
- * or `node_modules`; else the current folder.
+ * Returns the folder where the tool writes its lockfile, or null if npm cannot tell.
+ * npm: ask `npm prefix`, because npm workspaces put the lockfile in the root.
  * pnpm: start at `--dir` or `-C`; the nearest folder up with `pnpm-workspace.yaml`
  * wins; else the nearest folder up with `package.json`; else the start folder.
  * yarn: the current folder (not verified for subfolders).
  */
-export function findLockfileDir(tool: Tool, toolArgs: string[], cwd: string): string {
-  if (tool === 'npm') {
-    const prefix = lastFlagValue(toolArgs, ['--prefix', '-C'])
-    if (prefix !== undefined) return path.resolve(cwd, prefix)
-    return walkUpTo(cwd, ['package.json', 'node_modules']) ?? cwd
-  }
+export async function findLockfileDir(
+  tool: Tool,
+  toolArgs: string[],
+  cwd: string,
+): Promise<string | null> {
+  if (tool === 'npm') return runNpmPrefix(toolArgs)
   if (tool === 'pnpm') {
     const dir = lastFlagValue(toolArgs, ['--dir', '-C'])
     const start = dir === undefined ? cwd : path.resolve(cwd, dir)
@@ -319,8 +319,14 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
   const exitCode = await runToolProcess(tool, npmArgs)
   const lockfileName = LOCKFILE_NAMES[tool]
   if (exitCode === 0 && lockfileName !== null && isInstallLike(npmArgs, tool)) {
-    const lockfileDir = findLockfileDir(tool, npmArgs, process.cwd())
-    await printPostInstallSummary(tool, lockfileDir, lockfileName, allowDonation, attestOutPath)
+    const lockfileDir = await findLockfileDir(tool, npmArgs, process.cwd())
+    if (lockfileDir === null) {
+      console.log(
+        `aupm: AuPM could not find the folder that ${tool} used. AuPM prints no review summary.`,
+      )
+    } else {
+      await printPostInstallSummary(tool, lockfileDir, lockfileName, allowDonation, attestOutPath)
+    }
   }
   return exitCode
 }

@@ -9,6 +9,7 @@ import { attestLockfileTool } from 'aupm-mcp/tools/attest'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('node:child_process', () => ({ spawn: vi.fn() }))
+vi.mock('./npm-prefix.js', () => ({ runNpmPrefix: async () => process.cwd() }))
 vi.mock('aupm-mcp/tools/attest', () => ({
   attestLockfileTool: { handler: vi.fn() },
 }))
