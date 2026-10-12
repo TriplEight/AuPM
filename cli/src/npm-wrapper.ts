@@ -180,6 +180,56 @@ function outcomeCounts(outcome: AttestLockfileOutcome): LockfileCounts {
   return counts
 }
 
+/** Value of the last `--flag <v>`, `--flag=<v>` or short `-F <v>` before a literal `--`. */
+function lastFlagValue(args: string[], names: string[]): string | undefined {
+  const end = args.indexOf('--')
+  const own = end < 0 ? args : args.slice(0, end)
+  let value: string | undefined
+  own.forEach((arg, index) => {
+    if (names.includes(arg)) value = own[index + 1]
+    const inline = names.find((name) => name.startsWith('--') && arg.startsWith(`${name}=`))
+    if (inline !== undefined) value = arg.slice(inline.length + 1)
+  })
+  return value
+}
+
+function hasEntry(dir: string, names: string[]): boolean {
+  return names.some((name) => fs.existsSync(path.join(dir, name)))
+}
+
+/** Nearest folder, from `start` up to the filesystem root, that holds one of `names`. */
+function walkUpTo(start: string, names: string[]): string | null {
+  let dir = start
+  for (;;) {
+    if (hasEntry(dir, names)) return dir
+    const parent = path.dirname(dir)
+    if (parent === dir) return null
+    dir = parent
+  }
+}
+
+/**
+ * Returns the folder where the tool writes its lockfile.
+ * npm: `--prefix` or `-C` wins; else the nearest folder up with `package.json`
+ * or `node_modules`; else the current folder.
+ * pnpm: start at `--dir` or `-C`; the nearest folder up with `pnpm-workspace.yaml`
+ * wins; else the nearest folder up with `package.json`; else the start folder.
+ * yarn: the current folder (not verified for subfolders).
+ */
+export function findLockfileDir(tool: Tool, toolArgs: string[], cwd: string): string {
+  if (tool === 'npm') {
+    const prefix = lastFlagValue(toolArgs, ['--prefix', '-C'])
+    if (prefix !== undefined) return path.resolve(cwd, prefix)
+    return walkUpTo(cwd, ['package.json', 'node_modules']) ?? cwd
+  }
+  if (tool === 'pnpm') {
+    const dir = lastFlagValue(toolArgs, ['--dir', '-C'])
+    const start = dir === undefined ? cwd : path.resolve(cwd, dir)
+    return walkUpTo(start, ['pnpm-workspace.yaml']) ?? walkUpTo(start, ['package.json']) ?? start
+  }
+  return cwd
+}
+
 /**
  * Requests a lockfile attestation after a successful install-like npm
  * command and prints the lockfile summary (`summaryLines`): the four counts,
@@ -188,17 +238,22 @@ function outcomeCounts(outcome: AttestLockfileOutcome): LockfileCounts {
  * caller keep npm's own exit code.
  */
 export async function printPostInstallSummary(
+  tool: Tool,
+  lockfileDir: string,
   lockfileName: string,
   allowDonation: boolean,
   attestOutPath?: string,
 ): Promise<void> {
-  const lockfilePath = path.resolve(lockfileName)
+  const lockfilePath = path.join(lockfileDir, lockfileName)
   if (!fs.existsSync(lockfilePath)) {
     console.log(
-      `aupm: no ${lockfileName} in this folder. AuPM prints no review summary. ` +
-        'Run the install in the project folder.',
+      `aupm: no ${lockfileName} in ${lockfileDir} (the folder that ${tool} used). ` +
+        'AuPM prints no review summary.',
     )
     return
+  }
+  if (lockfileDir !== process.cwd()) {
+    console.log(`aupm: the review summary counts ${lockfilePath}.`)
   }
 
   let outcome: AttestLockfileOutcome
@@ -264,7 +319,8 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
   const exitCode = await runToolProcess(tool, npmArgs)
   const lockfileName = LOCKFILE_NAMES[tool]
   if (exitCode === 0 && lockfileName !== null && isInstallLike(npmArgs, tool)) {
-    await printPostInstallSummary(lockfileName, allowDonation, attestOutPath)
+    const lockfileDir = findLockfileDir(tool, npmArgs, process.cwd())
+    await printPostInstallSummary(tool, lockfileDir, lockfileName, allowDonation, attestOutPath)
   }
   return exitCode
 }

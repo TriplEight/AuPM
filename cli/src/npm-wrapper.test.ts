@@ -209,8 +209,8 @@ describe('runWrapper', () => {
     expect(exitCode).toBe(0)
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: no package-lock.json in this folder. AuPM prints no review summary. ' +
-        'Run the install in the project folder.',
+      `aupm: no package-lock.json in ${cwd} (the folder that npm used). ` +
+        'AuPM prints no review summary.',
     )
     logSpy.mockRestore()
   })
@@ -505,8 +505,8 @@ describe('runWrapper with pnpm and npx', () => {
 
     expect(attestLockfileTool.handler).not.toHaveBeenCalled()
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: no pnpm-lock.yaml in this folder. AuPM prints no review summary. ' +
-        'Run the install in the project folder.',
+      `aupm: no pnpm-lock.yaml in ${cwd} (the folder that pnpm used). ` +
+        'AuPM prints no review summary.',
     )
     logSpy.mockRestore()
   })
