@@ -71,7 +71,7 @@ export function reportDonation(summary, env = process.env) {
 }
 
 /**
- * Write the lockfile counts to the job summary: audited, not audited, integrity
+ * Write the lockfile counts to the job summary: reviewed, not reviewed, integrity
  * mismatch and unresolvable. The same four counts show with and without donate.
  * Without donate, add the amount a donation would cost. Amounts are integer microUSDC.
  */
@@ -82,15 +82,15 @@ export function reportCounts(summary, donate, env = process.env) {
   const lines = [
     '### AuPM lockfile summary',
     '',
-    '| Audited | Not audited | Integrity mismatch | Unresolvable |',
+    '| Reviewed | Not reviewed | Integrity mismatch | Unresolvable |',
     '| --- | --- | --- | --- |',
     `| ${reviewed} | ${count(summary.unreviewed)} | ${count(summary.integrityMismatch)} | ${count(summary.unresolvable)} |`,
     '',
   ]
   if (!donate && reviewed !== 'unknown' && reviewed > 0) {
     lines.push(
-      `A donation would be ${formatUsdc(reviewed * 1000)} USDC for ${reviewed} audited ` +
-        "packages. Set donate: 'true' to send it. It pays for every audited package in the " +
+      `A donation would be ${formatUsdc(reviewed * 1000)} USDC for ${reviewed} reviewed ` +
+        "packages. Set donate: 'true' to send it. It pays for every reviewed package in the " +
         'whole lockfile.',
       '',
     )
