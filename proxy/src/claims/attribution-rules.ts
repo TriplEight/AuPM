@@ -35,18 +35,8 @@ export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
 }
 
 /**
- * Every role's share as a whole percent, in `ROLES` order, for the public
- * disclosure text (SPEC §6.2, CLAUDE.md invariant 8) — one string built
- * from the same table above, so the disclosed target split can never drift
- * from the split the ledger actually uses.
- */
-export function targetSplitRow(): string {
-  return ROLES.map((role) => String(ROLE_SHARE_PER_1000[role] / 10)).join('/')
-}
-
-/**
- * The MVP split (CLAUDE.md invariant 8): the auditor gets the same percent
- * as the target split, and everything else — every role not yet onboarded
+ * The MVP split (CLAUDE.md invariant 8): the auditor gets its share of the
+ * ledger table above (ADR 0011), and everything else — every role not yet onboarded
  * — is unclaimed ops income (ADR 0011) until those roles launch.
  */
 export function mvpSplit(): {

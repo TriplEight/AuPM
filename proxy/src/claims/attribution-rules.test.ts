@@ -16,7 +16,6 @@ import {
   resolveReviewerIdentity,
   resolveTreasuryIdentity,
   sortPackages,
-  targetSplitRow,
   UNASSIGNED,
 } from './attribution-rules.js'
 
@@ -42,9 +41,8 @@ describe('role shares', () => {
   })
 })
 
-describe('targetSplitRow and mvpSplit', () => {
-  test('target row and MVP split (ADR 0011)', () => {
-    expect(targetSplitRow()).toBe('30/10/20/25/10/5')
+describe('mvpSplit', () => {
+  test('MVP split (ADR 0011)', () => {
     expect(mvpSplit()).toEqual({ auditorPercent: 30, opsPercent: 70 })
   })
 })
