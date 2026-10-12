@@ -968,8 +968,12 @@ The CLI never withholds a mismatch or an unresolvable entry. With donation, it p
 "Donated X USDC for N audited packages" and the settlement txid with an explorer link.
 Without donation, it prints "A donation would be X USDC for N audited packages. Add
 --donate to send it." Both modes say that `--donate` pays for every audited package in the
-whole lockfile, not only the package on the command line. The Action writes the same
-counts to the job summary.
+whole lockfile, not only the package on the command line. After the counts line, `aupm
+install`, `aupm pnpm` and `aupm yarn` print one fixed line that points to the audit command of
+the package manager (`npm audit`, `pnpm audit` or `yarn audit`). The line names npm and the
+GitHub Advisory Database as the source and says that AuPM does not check advisories yet
+(ADR 0030). `aupm attest`, the MCP server and the Action job summary do not print it. The
+Action writes the same counts to the job summary.
 
 ## 12. Attestations
 

@@ -71,7 +71,9 @@ money.
    `aupm` runs the real npm against the AuPM registry. It passes npm's arguments, output and exit
    code through. After the install, it prints the number of packages in each group: reviewed, not
    reviewed, integrity mismatch and unresolvable. For example:
-   `Reviewed: 0. Not reviewed: 12. Integrity mismatch: 0. Unresolvable: 0.` A package that is not
+   `Reviewed: 0. Not reviewed: 12. Integrity mismatch: 0. Unresolvable: 0.` The next line is a
+   pointer: ``Known advisories: run `npm audit` (source: npm, GitHub Advisory Database). AuPM does
+   not check advisories yet.`` AuPM reads no advisory data. A package that is not
    reviewed is the normal case. If the integrity mismatch count is more than 0, do not use those
    packages. If the lockfile contains reviewed packages, `aupm` also prints what a donation would
    cost. It does not donate without `--donate`.
