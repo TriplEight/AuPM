@@ -69,9 +69,12 @@ money.
    ```
 
    `aupm` runs the real npm against the AuPM registry. It passes npm's arguments, output and exit
-   code through. After the install, it prints the number of packages in each group: audited, not
-   audited, integrity mismatch and unresolvable. It also prints the price of a donation. It does
-   not donate without `--donate`.
+   code through. After the install, it prints the number of packages in each group: reviewed, not
+   reviewed, integrity mismatch and unresolvable. For example:
+   `Reviewed: 0. Not reviewed: 12. Integrity mismatch: 0. Unresolvable: 0.` A package that is not
+   reviewed is the normal case. If the integrity mismatch count is more than 0, do not use those
+   packages. If the lockfile contains reviewed packages, `aupm` also prints what a donation would
+   cost. It does not donate without `--donate`.
 2. Use pnpm, yarn classic or npx the same way:
 
    ```bash
@@ -141,22 +144,27 @@ in it. Do not use an account that holds anything else.
      file.
    - On a terminal, `init` shows one step on each screen and waits for you.
    - When it asks, write the 25 words on paper: open the key file in a text editor, copy the
-     words by hand, then close the editor. Type `yes`.
+     words by hand, then close the editor. Type `yes`. To stop, press Ctrl-C. `init` then prints
+     `Stopped.` Run `aupm donor init` again to continue where you stopped.
    - `init` prints the donor address.
 2. Optional: import the donor key into Pera Wallet. Pera then keeps a second copy of the key, and
    you can fund the donor account from Pera directly. In Pera, select **Add account**, then
    **Import an account**, and type the 25 words.
 3. Send about 0.3 ALGO to the donor address. `init` shows a QR code for 0.3 ALGO. The minimum is
-   0.201 ALGO: 0.1 for the account, 0.1 for the USDC opt-in and 0.001 for the fee. The
-   facilitator pays the fee of each donation, so donations do not spend this ALGO.
+   0.201 ALGO. 0.1 ALGO stays locked in the account. 0.1 ALGO stays locked for the USDC
+   opt-in. 0.001 ALGO pays the fee. The facilitator pays the fee of each donation, so donations do not spend this ALGO.
 4. Opt the donor account in to USDC. On the terminal, press Enter. `init` checks the balance one
-   time and sends the opt-in. If you stopped `init`, run:
+   time and sends the opt-in. If the ALGO has not arrived, `init` prints
+   `The ALGO has not arrived yet. Wait for the transfer, then press Enter.` If you stopped
+   `init`, run:
 
    ```bash
    aupm donor optin
    ```
 
-   If the ALGO is not there yet, `optin` prints the shortfall and exits 1. Run it again later.
+   If the ALGO is not there yet, `optin` prints
+   `Cannot opt in to USDC yet. The wallet needs <N> more ALGO. Nothing was sent.` and the
+   shortfall, and exits 1. Run it again later.
 5. Send 1 to 5 USDC (asset `31566704`) to the donor address. After the opt-in, `aupm donor optin`
    and `aupm donor status` show a QR code for 1 USDC.
 6. Check the donor account:
@@ -174,7 +182,9 @@ in it. Do not use an account that holds anything else.
    ```
 
    The cost is 1,000 microUSDC times the reviewed entries in the lockfile. There is no cap and no
-   discount. A lockfile with no reviewed entry is free.
+   discount. A lockfile with no reviewed entry is free. Without `--donate`, the install summary
+   says that a donation is optional. If you have no donor key, it tells you to run
+   `aupm donor init` once.
 8. Check the payment. A paid run prints the settlement txid. Open it in an Algorand explorer, for
    example `https://lora.algokit.io/mainnet/transaction/<txid>`.
 
@@ -191,8 +201,9 @@ file, then off. `aupm config` manages AuPM settings only. For npm settings, use 
 
 ### Key rules
 
-- The `AUPM_DONOR_MNEMONIC` environment variable wins over the key file. When you set it, `init`
-  and `status` tell you.
+- If you set the `AUPM_DONOR_MNEMONIC` environment variable, `aupm` uses it and ignores the key
+  file. `init` and `status` tell you. If the value is not a valid phrase, they tell you to run
+  `unset AUPM_DONOR_MNEMONIC`.
 - `aupm` refuses a key file with a mode wider than 0600. To correct it, run `chmod 600 <path>`.
 - `aupm` refuses to sign more than 1,000 microUSDC per lockfile entry. It refuses any asset other
   than USDC.
@@ -331,7 +342,7 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 
 1. Apply. [Open an issue with the "Auditor application" form](https://github.com/TriplEight/AuPM/issues/new?template=auditor-application.yml).
    Give the address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
-2. Audit the files. Get the exact tarball that users install:
+2. Read the files. Get the exact tarball that users install:
 
    ```bash
    npm pack ms@2.1.3
@@ -345,13 +356,19 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
    aupm auditor review ms@2.1.3
    ```
 
-   - The command asks for your recovery phrase in a hidden prompt. It stops if your account is
-     not the account that the ops mapped to your login.
-   - It asks four questions: what you read, the install scripts, your findings, and the changes
-     since your previous reviewed version. It shows that previous version.
-   - It prints every field of the review. Type `yes` to send it. It sends one 0-ALGO transaction
-     from your account to your own account. The note holds the review. The fee is 0.001 ALGO.
-   - It prints the txid and an explorer link.
+   - The command asks for your recovery phrase in a hidden prompt. The screen shows nothing while
+     you type. If your terminal is not interactive, it stops and tells you so.
+   - It stops if your account is not the account that the ops linked to your login. Then it
+     prints the address that AuPM expects. For a Pera wallet with several accounts, add
+     `--address <address>`.
+   - It asks four questions: what you read, the install scripts, your findings, and what changed
+     since your previous reviewed version. It shows that previous version. Type `first review`
+     for the last question if this is your first review of the package. The whole review note
+     must fit in 1,024 bytes, so keep the answers short.
+   - It prints every field of the review. It asks `Send this review to the blockchain?` Type
+     `yes` to send it. It sends one 0-ALGO transaction from your account to your own account. The
+     note holds the review. The fee is 0.001 ALGO. You cannot undo it.
+   - It prints `Review recorded.`, the txid and an explorer link.
    - Add `--login <your GitHub login>` to skip the login question.
 4. Post the txid in your application issue.
 5. Check your reviews. After the ops record a review, this command shows it:
@@ -359,6 +376,9 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
    ```bash
    aupm auditor status <your GitHub login>
    ```
+
+   Before the ops record a review, it prints
+   `No reviews found for github:<your GitHub login>.`
 
 6. Wait for the ops to return to you. They reply in your issue.
 7. Check your balance. Each donation for a version that you reviewed adds 300 microUSDC. The
@@ -368,15 +388,19 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
    aupm auditor balance <your GitHub login>
    ```
 
+   The last line is `Next step:`. It tells you what to do: ask the ops to link your address,
+   wait, opt in to USDC with your wallet app, add ALGO, or run `aupm auditor claim`.
+
 8. Claim:
 
    ```bash
    aupm auditor claim
    ```
 
-   The command asks for your recovery phrase in a hidden prompt. It refuses below the minimum,
-   without the USDC opt-in, or when the account is not your mapped account. The contract pays
-   your whole balance to your account.
+   The command asks for your recovery phrase in a hidden prompt. It refuses below the minimum
+   claim of 100,000 microUSDC (0.1 USDC), without the USDC opt-in, or when the account is not the
+   account that the ops linked to your login. It prints the amount that it claims. The contract
+   pays your whole balance to your account.
 
 ## Help
 
