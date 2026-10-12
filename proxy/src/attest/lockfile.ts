@@ -150,6 +150,7 @@ function packageNameFromKey(key: string): string {
 }
 
 interface RawLockfileEntry {
+  name?: unknown
   version?: unknown
   resolved?: unknown
   integrity?: unknown
@@ -314,6 +315,33 @@ function classifyEntries(
 }
 
 /**
+ * Reduces one `packages` entry of a package-lock.json to a NormalizedEntry.
+ *
+ * - An aliased dependency (`"node_modules/x": { "name": "real", ... }`) is the
+ *   tarball of `name`, not of the path segment. Only an entry under
+ *   `node_modules/` takes its `name` field: a workspace package entry keeps
+ *   its key, and it never resolves to the registry.
+ * - npm omits `resolved` when it is set to omit registry URLs. An entry under
+ *   `node_modules/` with no `resolved` and an `integrity` is a registry
+ *   tarball. The integrity comparison still applies. An entry with neither
+ *   `resolved` nor `integrity` stays UNRESOLVABLE.
+ */
+function normalizeNpmEntry(key: string, entry: RawLockfileEntry): NormalizedEntry {
+  const installed = key.includes('node_modules/')
+  const integrity = typeof entry.integrity === 'string' ? entry.integrity : null
+  const resolved = typeof entry.resolved === 'string' ? entry.resolved : undefined
+  const aliasName = installed && typeof entry.name === 'string' ? entry.name : null
+  const registry =
+    resolved === undefined ? installed && integrity !== null : isNpmResolved(resolved)
+  return {
+    name: aliasName ?? packageNameFromKey(key),
+    version: typeof entry.version === 'string' ? entry.version : 'unknown',
+    integrity,
+    registry,
+  }
+}
+
+/**
  * Validates limits and `lockfileVersion`, classifies every entry, and
  * computes the sha256 of the raw body. Returns `{ ok: false, message }` for
  * every case the caller must never be charged for — the pre-middleware in
@@ -363,12 +391,7 @@ export function analyzeLockfile(
     // A workspace symlink to another package in the same monorepo — not a
     // supply-chain dependency, so it is neither reviewed nor unresolvable.
     if (entry.link === true) continue
-    normalized.push({
-      name: packageNameFromKey(key),
-      version: typeof entry.version === 'string' ? entry.version : 'unknown',
-      integrity: typeof entry.integrity === 'string' ? entry.integrity : null,
-      registry: isNpmResolved(typeof entry.resolved === 'string' ? entry.resolved : undefined),
-    })
+    normalized.push(normalizeNpmEntry(key, entry))
   }
 
   const { summary, packages, reviewedPackageRefs } = classifyEntries(normalized, integrityLookup)
