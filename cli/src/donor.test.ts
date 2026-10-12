@@ -541,6 +541,26 @@ describe('aupm donor optin', () => {
     expectNoMnemonic(text, account.mnemonic)
   })
 
+  it('signs the opt-in with derivation 1 of a 24-word key file', async () => {
+    // A public TestNet throwaway from a Pera Universal Wallet. It never held funds.
+    const mnemonic = fs
+      .readFileSync(
+        new URL('../../mcp/src/__fixtures__/pera-testnet-universal.txt', import.meta.url),
+        'utf8',
+      )
+      .trim()
+    writeKey({ mnemonic })
+    const state = freshState(201_000n)
+    installFakeAlgod(state)
+    const io = captureIo()
+    expect(await runDonor(['optin'], { io })).toBe(0)
+    const signed = algosdk.decodeSignedTransaction(state.submitted[0] as Uint8Array)
+    expect(signed.txn.sender.toString()).toBe(
+      'XRGJY2DYXW3E3O34VFKLSA4VLUESY77Z2D6NBNKTNFBA76WM3NYKPTRH7A',
+    )
+    expectNoMnemonic(allText(io), mnemonic)
+  })
+
   it('does not wait: an unfunded wallet gets the exact shortfall and exit 1', async () => {
     const account = useAccount()
     const state = freshState(150_000n)

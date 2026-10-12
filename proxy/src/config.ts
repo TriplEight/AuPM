@@ -56,6 +56,12 @@ export function assertValidPayTo(payTo: string = PAY_TO): void {
   }
 }
 
+// The contract's own claim floor in microUSDC (contracts/smart_contracts/payment_router/
+// contract.algo.ts: MIN_CLAIM). A literal copy, not an import: proxy/ never depends on
+// contracts/. Keep it in sync by hand if the contract changes. GET /api/v1/contract
+// publishes it.
+export const MIN_CLAIM = 100_000
+
 // Attribution tag, written at settlement time, not retroactive (CLAUDE.md).
 export const TAG = 'x402-global-challenge'
 

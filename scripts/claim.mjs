@@ -16,6 +16,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { algodEndpoint, assertMainnetConfirmed, parseNetworkFlag, usdcAssetId } from './network.mjs'
 import { assertNetworkMatchesGenesis } from './rekey-payto.mjs'
+import {
+  balanceBoxName,
+  identityBoxName,
+  readIdentityBalance,
+  readMappedAddress,
+} from './router-boxes.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
@@ -62,39 +68,6 @@ export const CLAIM_METHOD_SIGNATURE = 'claim(string)void'
 // exceed this many foreign references on one application-call transaction
 // (mirrors proxy/src/claims/credit.ts's MAX_TOTAL_REFERENCES).
 const MAX_TOTAL_REFERENCES = 8
-
-/**
- * Box key encoding for `identityAddress = BoxMap<string, bytes>({ keyPrefix: 'id:' })`
- * and `balances = BoxMap<string, uint64>({ keyPrefix: 'bal:' })`: the literal utf8
- * bytes of the identity string after the prefix — never ARC-4 length-prefixed
- * (verified against PaymentRouter.approval.teal's claim() branch: `bytec 6 // "id:"`
- * / `bytec 7 // "bal:"` concatenated directly onto the ARC-4-decoded identity bytes).
- */
-export function identityBoxName(identity) {
-  return new TextEncoder().encode(`id:${identity}`)
-}
-
-export function balanceBoxName(identity) {
-  return new TextEncoder().encode(`bal:${identity}`)
-}
-
-/**
- * Decodes a `balances` box value: an 8-byte big-endian uint64, written by
- * the contract's own `itob`-backed box_put (contract.algo.ts's `balances`
- * BoxMap). Pure: real algosdk, no network access.
- */
-export function decodeBoxUint64(bytes, algosdkImpl = algosdk) {
-  return Number(algosdkImpl.decodeUint64(bytes, 'safe'))
-}
-
-/**
- * Decodes an `identityAddress` box value: the raw 32-byte public key an
- * `Account` writes as `bytes` (contract.algo.ts's `setIdentity`). Pure:
- * real algosdk, no network access.
- */
-export function decodeBoxAddress(bytes, algosdkImpl = algosdk) {
-  return algosdkImpl.encodeAddress(bytes)
-}
 
 /**
  * Refuses a claim below MIN_CLAIM — the same floor claim() itself asserts
@@ -165,33 +138,6 @@ export function buildClaimCallRefs(identity, payToAddress, assetId) {
     )
   }
   return { boxes, accounts, assets }
-}
-
-function isBoxNotFound(error) {
-  const message = String(error?.message ?? error)
-  return /box not found/i.test(message) || error?.status === 404 || error?.statusCode === 404
-}
-
-/** Reads `identity`'s credited, unclaimed balance box; 0 when the box does not exist. */
-export async function readIdentityBalance(algod, appId, identity) {
-  try {
-    const box = await algod.getApplicationBoxByName(appId, balanceBoxName(identity)).do()
-    return decodeBoxUint64(box.value)
-  } catch (error) {
-    if (isBoxNotFound(error)) return 0
-    throw error
-  }
-}
-
-/** Reads `identity`'s mapped claimant address; null when unmapped. */
-export async function readMappedAddress(algod, appId, identity) {
-  try {
-    const box = await algod.getApplicationBoxByName(appId, identityBoxName(identity)).do()
-    return decodeBoxAddress(box.value)
-  } catch (error) {
-    if (isBoxNotFound(error)) return null
-    throw error
-  }
 }
 
 /**
