@@ -4,9 +4,9 @@ import * as ed from '@noble/ed25519'
 import algosdk from 'algosdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAuditor } from './auditor.js'
-import { balanceBoxName, identityBoxName } from './auditor-chain.js'
-import { buildScope, encodeReviewNote } from './auditor-note.js'
-import type { AuditorDeps } from './auditor-terminal.js'
+import { assertGenesis, balanceBoxName, identityBoxName, sendAnchor } from './auditor-chain.js'
+import { assertReadAllowed, buildScope, encodeReviewNote } from './auditor-note.js'
+import { type AuditorDeps, normalizeLogin } from './auditor-terminal.js'
 
 const MAINNET = 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8='
 const TESTNET = 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
@@ -118,7 +118,7 @@ function setup(world: World = {}) {
   })
   const ask = vi.fn(async (question: string) => {
     if (question.startsWith('GitHub login')) return 'Alice'
-    if (question.startsWith('Send this review anchor')) return answers.shift() ?? 'no'
+    if (question.startsWith('Send this review')) return answers.shift() ?? 'no'
     return answers.shift() ?? ''
   })
   const deps: AuditorDeps = {
@@ -148,7 +148,8 @@ describe('aupm auditor review', () => {
     const t = setup({ tty: false })
     expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
     expect(t.fetchMock).not.toHaveBeenCalled()
-    expect(errors.join()).toContain('needs a terminal')
+    expect(errors.join()).toContain('asks for your recovery phrase on a hidden prompt')
+    expect(errors.join()).toContain('not in a script or a pipe')
   })
 
   it('signs with derivation 1 of a 24-word phrase by default', async () => {
@@ -180,7 +181,7 @@ describe('aupm auditor review', () => {
     captureErrors()
     const t = setup({ secret: universal, mapped: DERIVATION_1, answers: REVIEW_ANSWERS })
     expect(await runAuditor(['review', 'ms@1.2.0', '--derivation', '0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('is not the address mapped')
+    expect(errors.join()).toContain('The phrase you typed belongs to address')
     expect(t.sent).toHaveLength(0)
   })
 
@@ -257,7 +258,7 @@ describe('aupm auditor review', () => {
       answers: ['full source', 'none', 'none', 'first review', 'yes'],
     })
     expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('not mapped')
+    expect(errors.join()).toContain('No wallet address is linked to the GitHub login alice.')
     expect(t.sent).toHaveLength(0)
   })
 
@@ -268,7 +269,7 @@ describe('aupm auditor review', () => {
       answers: ['full source', 'none', 'none', 'first review', 'yes'],
     })
     expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('is not the address mapped')
+    expect(errors.join()).toContain('The phrase you typed belongs to address')
     expect(t.sent).toHaveLength(0)
   })
 
@@ -313,7 +314,12 @@ describe('aupm auditor review', () => {
     expect(Array.from(txn.note ?? [])).toEqual(Array.from(expected))
     expect(txn.payment?.amount).toBe(0n)
     expect(txn.sender.toString()).toBe(txn.payment?.receiver.toString())
-    expect(t.printed.join('\n')).toContain('Previous reviewed version: 1.1.0')
+    const out = t.printed.join('\n')
+    expect(out).toContain('Previous reviewed version: 1.1.0')
+    expect(out).toContain('Answer 4 questions.')
+    expect(out).toMatch(/Review recorded\. Transaction: [A-Z2-7]{52}/)
+    expect(out).toContain('Post this txid in your auditor application issue.')
+    expect(out).toContain('`aupm auditor status alice` shows it.')
     expect(t.printed.join('\n')).toMatch(
       /Explorer: https:\/\/lora\.algokit\.io\/testnet\/transaction\/[A-Z2-7]{52}/,
     )
@@ -365,14 +371,14 @@ describe('aupm auditor claim', () => {
     captureErrors()
     const t = setup({ ...base, mapped: null })
     expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('not mapped')
+    expect(errors.join()).toContain('No wallet address is linked to the GitHub login alice.')
   })
 
   it('refuses when the key address is not the mapped address', async () => {
     captureErrors()
     const t = setup({ ...base, mapped: other.addr.toString() })
     expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('is not the address mapped')
+    expect(errors.join()).toContain('The phrase you typed belongs to address')
     expect(t.sent).toHaveLength(0)
   })
 
@@ -380,21 +386,28 @@ describe('aupm auditor claim', () => {
     captureErrors()
     const t = setup({ ...base, balance: 99_999n })
     expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('MIN_CLAIM')
+    expect(errors.join()).toBe(
+      'Your balance is 99,999 microUSDC (0.099999 USDC). ' +
+        'The minimum claim is 100,000 microUSDC (0.1 USDC). ' +
+        'Wait for more donations. Check with: aupm auditor balance alice',
+    )
   })
 
   it('refuses without the USDC opt-in', async () => {
     captureErrors()
     const t = setup({ ...base, optedIn: false })
     expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('not opted in')
+    expect(errors.join()).toContain('has not opted in to USDC (asset id 10458941).')
+    expect(errors.join()).toContain('Opt in with your wallet app.')
+    expect(errors.join()).not.toContain('donor optin')
   })
 
   it('refuses without ALGO for the fee', async () => {
     captureErrors()
-    const t = setup({ ...base, algo: 1_999n })
+    const t = setup({ ...base, algo: 1_500n })
     expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('microALGO')
+    expect(errors.join()).toContain('has 0.0015 ALGO free. The claim fee is 0.002 ALGO.')
+    expect(errors.join()).toContain('Send at least 0.0005 ALGO to')
   })
 
   it('claims with derivation 1 of a 24-word phrase by default', async () => {
@@ -435,14 +448,16 @@ describe('aupm auditor claim', () => {
 })
 
 describe('aupm auditor balance and status', () => {
-  it('balance prints the credited balance, MIN_CLAIM and the claim state', async () => {
+  it('balance prints the credited balance, the minimum claim and the claim state', async () => {
     const t = setup({ balance: 150_000n, algo: 5_000n })
     expect(await runAuditor(['balance', 'Alice'], t.deps)).toBe(0)
     const out = t.printed.join('\n')
     expect(out).toContain('credited balance: 150000 microUSDC')
-    expect(out).toContain('MIN_CLAIM:        100000 microUSDC')
+    expect(out).toContain('minimum claim:    100000 microUSDC')
+    expect(out).not.toContain('MIN_CLAIM')
     expect(out).toContain('USDC opt-in:      yes')
     expect(out).toContain('claim possible:   yes')
+    expect(out).toContain('Next step: Run: aupm auditor claim')
     expect(t.deps.askSecret).not.toHaveBeenCalled()
   })
 
@@ -474,5 +489,179 @@ describe('aupm auditor balance and status', () => {
     expect(await runAuditor(['status', 'alice'], t.deps)).toBe(0)
     expect(t.printed.join('\n')).toContain('ms@1.2.0  COMMUNITY_REVIEWED')
     expect(String(t.fetchMock.mock.calls[0][0])).toBe(`${ORIGIN}/api/v1/reviews?reviewer=alice`)
+  })
+})
+
+describe('auditor messages', () => {
+  it.each([
+    [['review'], 'Missing package. Run: aupm auditor review <name>@<version>'],
+    [['balance'], 'Missing GitHub login. Run: aupm auditor balance <github-login>'],
+    [['status'], 'Missing GitHub login. Run: aupm auditor status <github-login>'],
+  ])('names the missing item for %j', async (argv, line) => {
+    captureErrors()
+    const t = setup()
+    expect(await runAuditor(argv, t.deps)).toBe(1)
+    expect(errors.join().split('\n')[0]).toBe(line)
+    expect(errors.join()).toContain('Usage:')
+  })
+
+  it('asks the review question with the cost and the questions with their rule', async () => {
+    const t = setup({ answers: ['full source', 'none', 'none', 'first review', 'no'] })
+    await runAuditor(['review', 'ms@1.2.0'], t.deps)
+    const questions = vi.mocked(t.deps.ask).mock.calls.map((call) => call[0])
+    expect(questions).toContain(
+      'Send this review to the blockchain? It costs 0.001 ALGO and you cannot undo it. ' +
+        'Type "yes" to confirm: ',
+    )
+    expect(questions).toContain(
+      'What changed since the previous version? ' +
+        '(Type "first review" if this is your first review of the package): ',
+    )
+    expect(t.printed.join('\n')).toContain('must fit in 1,024 bytes')
+  })
+
+  it('asks for the recovery phrase on the hidden prompt', async () => {
+    const t = setup({ answers: ['full source', 'none', 'none', 'first review', 'no'] })
+    await runAuditor(['review', 'ms@1.2.0'], t.deps)
+    expect(t.deps.askSecret).toHaveBeenCalledWith(
+      'Recovery phrase (24 or 25 words). The screen shows nothing while you type. ' +
+        'AuPM does not store it: ',
+    )
+  })
+
+  it('names the server and the reason when the network fails', async () => {
+    captureErrors()
+    const t = setup()
+    t.deps.fetch = vi.fn(async () => {
+      throw new TypeError('fetch failed', { cause: new Error('getaddrinfo ENOTFOUND aupm.test') })
+    }) as unknown as typeof fetch
+    expect(await runAuditor(['status', 'alice'], t.deps)).toBe(1)
+    expect(errors.join()).toBe(
+      'Cannot reach the AuPM server (http://aupm.test): getaddrinfo ENOTFOUND aupm.test. ' +
+        'Check your network and try again.',
+    )
+  })
+
+  it('names the HTTP status of a server error', async () => {
+    captureErrors()
+    const t = setup({ contractStatus: 502 })
+    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('The AuPM server answered 502')
+    expect(errors.join()).toContain('Try again later.')
+  })
+
+  it('tells the user to update the CLI when the answer has the wrong shape', async () => {
+    captureErrors()
+    const t = setup()
+    t.deps.fetch = vi.fn(async () => new Response('{}')) as unknown as typeof fetch
+    expect(await runAuditor(['status', 'alice'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('Update the CLI: npm install -g aupm-cli.')
+  })
+
+  it('says that npm has no package on a 404', async () => {
+    captureErrors()
+    const t = setup()
+    const inner = t.deps.fetch
+    t.deps.fetch = vi.fn(async (url: string | URL | Request) =>
+      String(url).startsWith('https://registry.npmjs.org/')
+        ? new Response('{}', { status: 404 })
+        : inner(url),
+    ) as unknown as typeof fetch
+    expect(await runAuditor(['review', 'nope@1.0.0'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('npm has no package "nope". Check the spelling.')
+  })
+
+  it('names the rule of a GitHub login', () => {
+    expect(() => normalizeLogin('bad_login!')).toThrow(
+      '"bad_login!" is not a valid GitHub login. Use letters, digits and hyphens only. ' +
+        'Maximum 39 characters.',
+    )
+  })
+
+  it('explains the unread rule without an ADR number', () => {
+    expect(() => assertReadAllowed('unread', 'unread', false)).toThrow(
+      'Refused. A review that says "unread" works on TestNet only. Read the package. ' +
+        'Then describe what you read.',
+    )
+  })
+
+  it('names the Algorand node and the fix when the network differs', () => {
+    expect(() => assertGenesis('mainnet', 'testnet-v1.0')).toThrow(
+      'The Algorand node is on network "testnet-v1.0". The AuPM server uses mainnet. ' +
+        'Unset ALGOD_MAINNET_URL and ALGOD_TESTNET_URL, or set them to a mainnet node.',
+    )
+  })
+
+  it('links the explorer when the confirmation fails', async () => {
+    const algod = {
+      getTransactionParams: () => ({
+        do: async () => ({
+          fee: 0n,
+          minFee: 1000n,
+          firstValid: 1n,
+          lastValid: 1001n,
+          genesisID: 'testnet-v1.0',
+          genesisHash: new Uint8Array(32),
+          flatFee: false,
+        }),
+      }),
+      sendRawTransaction: () => ({ do: async () => ({ txid: 'X' }) }),
+      status: () => ({ do: async () => ({ lastRound: 1n }) }),
+      pendingTransactionInformation: () => ({ do: async () => ({ poolError: 'late' }) }),
+    }
+    const account = await (await import('aupm-mcp/key-phrase')).accountFromPhrase(words)
+    await expect(
+      sendAnchor(algod as unknown as algosdk.Algodv2, account, new Uint8Array(), 'testnet'),
+    ).rejects.toThrow(
+      /The transaction was sent but is not confirmed yet\. Check https:\/\/lora\.algokit\.io\/testnet\/transaction\/[A-Z2-7]{52} before you send it again\./,
+    )
+  })
+})
+
+describe('aupm auditor balance next step', () => {
+  it.each([
+    [{ mapped: null }, 'Next step: Ask the AuPM ops to link your address.'],
+    [
+      { balance: 90_000n, algo: 5_000n },
+      'Next step: Wait. You can claim from 100,000 microUSDC (0.1 USDC).',
+    ],
+    [
+      { balance: 150_000n, algo: 5_000n, optedIn: false },
+      'Next step: Opt in to USDC with your wallet app.',
+    ],
+    [{ balance: 150_000n, algo: 1_000n }, `Next step: Send 0.002 ALGO to ${auditor.addr}.`],
+  ])('prints the step for case %#', async (world, line) => {
+    const t = setup(world)
+    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(0)
+    const out = t.printed.join('\n')
+    expect(out.split('\n').at(-1)).toBe(line)
+    expect(out).toContain('claim possible:   no')
+  })
+
+  it('names the ops when no address is linked', async () => {
+    const t = setup({ mapped: null })
+    await runAuditor(['balance', 'alice'], t.deps)
+    expect(t.printed.join('\n')).toContain('none (the AuPM ops must link it)')
+  })
+})
+
+describe('aupm auditor claim and status texts', () => {
+  it('prints the value in USDC and where the USDC goes', async () => {
+    const t = setup({ balance: 150_000n, algo: 5_000n })
+    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(0)
+    const out = t.printed.join('\n')
+    expect(out).toContain(
+      `Claiming 150,000 microUSDC (0.15 USDC) for github:alice. The USDC goes to ${auditor.addr}.`,
+    )
+    expect(out).toMatch(/Claimed\. The USDC is in your wallet\. Transaction: [A-Z2-7]{52}/)
+  })
+
+  it('says why there are no reviews and what to do', async () => {
+    const t = setup()
+    expect(await runAuditor(['status', 'alice'], t.deps)).toBe(0)
+    expect(t.printed.join('\n')).toContain(
+      'No reviews found for github:alice. ' +
+        'The ops record a review after you post its txid in your application issue.',
+    )
   })
 })

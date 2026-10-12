@@ -22,7 +22,10 @@ export interface AuditorDeps {
 export function normalizeLogin(raw: string): string {
   const login = raw.trim().toLowerCase()
   if (!/^[a-z0-9](?:[a-z0-9-]{0,38})$/.test(login)) {
-    throw new Error(`"${raw.trim()}" is not a GitHub login.`)
+    throw new Error(
+      `"${raw.trim()}" is not a valid GitHub login. ` +
+        'Use letters, digits and hyphens only. Maximum 39 characters.',
+    )
   }
   return login
 }
@@ -46,7 +49,7 @@ export function readHiddenLine(question: string): Promise<string> {
     const onData = (chunk: string) => {
       for (const ch of chunk) {
         if (ch === '\r' || ch === '\n') return finish(() => resolve(line))
-        if (ch === '\u0003') return finish(() => reject(new Error('Stopped.')))
+        if (ch === '\u0003') return finish(() => reject(new Error('Stopped. Nothing was sent.')))
         if (ch === '\u007f' || ch === '\b') line = line.slice(0, -1)
         else line += ch
       }
@@ -88,6 +91,8 @@ export async function promptAccount(
   deps: AuditorDeps,
   choice: DerivationChoice = {},
 ): Promise<KeyAccount> {
-  const words = await deps.askSecret('Auditor key (25 or 24 words, not shown): ')
+  const words = await deps.askSecret(
+    'Recovery phrase (24 or 25 words). The screen shows nothing while you type. AuPM does not store it: ',
+  )
   return accountFromPhrase(words, choice)
 }
