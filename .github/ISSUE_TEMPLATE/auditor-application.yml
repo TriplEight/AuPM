@@ -7,7 +7,8 @@ body:
     attributes:
       value: |
         This form starts the MVP auditor process. The process will change after the auditor
-        pilot starts.
+        pilot starts. The steps are in the
+        [auditor section of the onboarding guide](https://github.com/TriplEight/AuPM/blob/master/docs/ONBOARDING.md#5-auditor).
 
         Your GitHub login is the login of the account that opens this issue. AuPM maps that
         login to the account address below.
