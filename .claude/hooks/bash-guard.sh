@@ -3,7 +3,9 @@
 # Blocks: a command that prints a *_MNEMONIC value, and a git push to master.
 set -euo pipefail
 
-cmd=$(jq -r '.tool_input.command // empty')
+
+input=$(cat)
+cmd=$(jq -r '.tool_input.command // empty' <<<"$input")
 [[ -n "$cmd" ]] || exit 0
 
 block() {
@@ -25,7 +27,14 @@ if [[ "$cmd" =~ $git_push ]]; then
   if [[ "$cmd" =~ $push_to_master ]]; then
     block 'git push to master. Push a feature branch and open a PR.'
   fi
-  current=$(git -C "$CLAUDE_PROJECT_DIR" branch --show-current 2>/dev/null || true)
+  # The repo that pushes: `git -C <dir>` in the command, else the cwd of the tool call.
+  push_dir=$(jq -r '.cwd // empty' <<<"$input")
+  git_dir_flag='\bgit[[:space:]]+-C[[:space:]]+("([^"]+)"|([^[:space:]]+))'
+  if [[ "$cmd" =~ $git_dir_flag ]]; then
+    push_dir="${BASH_REMATCH[2]:-${BASH_REMATCH[3]}}"
+    push_dir="${push_dir/#\~/$HOME}"
+  fi
+  current=$(git -C "${push_dir:-$CLAUDE_PROJECT_DIR}" branch --show-current 2>/dev/null || true)
   if [[ "$current" == master || "$current" == main ]]; then
     block "git push while on $current. Push a feature branch and open a PR."
   fi
