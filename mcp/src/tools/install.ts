@@ -4,6 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { DONATION_SETTING_TEXT, resolveDonate } from '../config.js'
 import {
+  DonationFailure,
+  type DonationFailureReport,
+  type DonationFetchResult,
   EXPLORER_NETWORK,
   fetchWithDonation,
   IS_TESTNET,
@@ -21,6 +24,8 @@ export type InstallOutcome =
       tarballPath: string
       txid: string | null
       loraUrl: string | null
+      /** Set when a donation was asked for and failed. The tarball is then the free one. */
+      donationFailure?: DonationFailureReport
     }
   | {
       status: 'donation_required'
@@ -29,6 +34,8 @@ export type InstallOutcome =
       priceMicro: number
       resourceUrl: string
       asset: string
+      /** Set when a donation was asked for and failed. */
+      donationFailure?: DonationFailureReport
     }
 
 export type InstallResult = InstallOutcome
@@ -42,6 +49,8 @@ export const installTool = {
     'plain asset transfer to the merchant payTo address. Without a donation opt-in, a 402 is reported ' +
     "back as status: 'donation_required' with the price and resource URL, and nothing is " +
     'signed. Returns tarball path and settlement txid on a paid or free install. ' +
+    'When a donation was asked for and failed, the tarball is the free one and the result ' +
+    'carries donationFailure: { code, reason }. Nothing was paid. ' +
     DONATION_SETTING_TEXT,
 
   async handler({
@@ -58,16 +67,29 @@ export const installTool = {
     const pkgPath = pkg.startsWith('@') ? pkg.replace('@', '%40').replace('/', '%2F') : pkg
     const url = `${proxyUrl()}/${pkgPath}/-/${tarballName}`
 
-    const result = await fetchWithDonation(url, undefined, resolveDonate(allowDonation).value)
+    const donate = resolveDonate(allowDonation).value
+    let failure: DonationFailureReport | undefined
+    let result: DonationFetchResult
+    try {
+      result = await fetchWithDonation(url, undefined, donate)
+    } catch (error) {
+      if (!donate || !(error instanceof DonationFailure)) throw error
+      // The paid attempt failed. The free request below sends X-AuPM-Donate: 0 and cannot pay.
+      failure = error.report()
+      result = await fetchWithDonation(url, undefined, false)
+    }
+    const withFailure = <T extends InstallOutcome>(outcome: T): T =>
+      failure ? { ...outcome, donationFailure: failure } : outcome
+
     if (result.kind === 'donation_required') {
-      return {
+      return withFailure({
         status: 'donation_required',
         pkg,
         version,
         priceMicro: result.requirement.priceMicro,
         resourceUrl: result.requirement.resourceUrl,
         asset: result.requirement.asset,
-      }
+      })
     }
 
     const res = result.response
@@ -81,13 +103,13 @@ export const installTool = {
     const tarballPath = path.join(tmpDir, tarballName)
     fs.writeFileSync(tarballPath, Buffer.from(await res.arrayBuffer()))
 
-    return {
+    return withFailure({
       pkg,
       version,
       status: txid ? 'paid' : 'free',
       tarballPath,
       txid,
       loraUrl: txid ? `https://lora.algokit.io/${EXPLORER_NETWORK}/transaction/${txid}` : null,
-    }
+    })
   },
 }
