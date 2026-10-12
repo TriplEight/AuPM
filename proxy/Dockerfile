@@ -58,7 +58,7 @@ COPY mcp/src mcp/src
 # ./router-boxes.mjs by relative path, and dynamically imports
 # ../proxy/src/status.js, so scripts/ must sit next to proxy/ in the image
 # with this same relative layout. Only these four files: not their
-# *.test.mjs, and not scripts/anchor-review.mjs (the auditor's own machine,
+# *.test.mjs, and not the auditor's tooling (the auditor's own machine,
 # never the server). scripts/dockerfile-scripts.test.mjs checks the list.
 COPY scripts/record-review.mjs scripts/record-review.mjs
 COPY scripts/router-boxes.mjs scripts/router-boxes.mjs
