@@ -152,6 +152,8 @@ describe('aupm install with a payment failure', () => {
     expect(printed[0]).toBe(FREE_SUMMARY)
     expect(printed.at(-1)).toMatch(reasonPattern)
     expect(printed.filter((line) => line.includes('No donation was paid'))).toHaveLength(1)
+    expect(printed).toHaveLength(2)
+    expect(printed.join('\n')).not.toMatch(/You can donate|all reviewed packages in the lockfile/)
     expect(printed.join('\n')).not.toMatch(/AuPM could not get the review summary/)
     const free = seen.filter((request) => request.donateHeader === '0')
     expect(free).toHaveLength(1)
@@ -247,5 +249,18 @@ describe('aupm install with a payment failure', () => {
 
     expect(await exit).toBe(1)
     expect(server.mock).not.toHaveBeenCalled()
+  })
+
+  it('without a donation, the offer lines still print', async () => {
+    const server = serverMock('mainnet', () => {
+      throw new Error('must never pay')
+    })
+    vi.stubGlobal('fetch', server.mock)
+
+    const exit = await install([])
+
+    expect(exit).toBe(0)
+    expect(lines().join('\n')).toMatch(/You can donate 0\.001 USDC for 1 reviewed package/)
+    expect(lines().join('\n')).toMatch(/all reviewed packages in the lockfile/)
   })
 })
