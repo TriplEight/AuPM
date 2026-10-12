@@ -25,7 +25,7 @@ interface NetworkEndpoints {
 // scripts/ is a plain ESM directory with no package.json of its own (see the
 // banner comment in scripts/network.mjs); contracts/ compiles under
 // "module": "CommonJS" (tsconfig.json). A dynamic import() of a .mjs path
-// works at runtime under tsx (deploy:ci), ts-node-dev (deploy) and vitest —
+// works at runtime under tsx (deploy and deploy:ci) and vitest —
 // the Node loader treats .mjs as ESM regardless of the importer's module
 // system — but only when the specifier is not a string literal TypeScript
 // can resolve at compile time: allowJs is false here, so a literal import()

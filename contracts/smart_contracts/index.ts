@@ -82,7 +82,7 @@ export async function runDeployers(deployers: Deployer[], contractName?: string)
 
 /**
  * True when this file is the process's own entry point (`tsx
- * smart_contracts/index.ts`, `ts-node-dev … smart_contracts/index.ts`), not
+ * smart_contracts/index.ts`), not
  * merely imported — e.g. by index.spec.ts, to unit-test runDeployers()
  * without running the real deployers as an import side effect. `require` is
  * undefined under vitest's ESM-based module runner, so this checks `typeof`
