@@ -9,7 +9,7 @@ import fs from 'node:fs'
 import { ConfigError, resolveDonate } from 'aupm-mcp/config'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { attestLockfileTool } from 'aupm-mcp/tools/attest'
-import { countsFromSummary, summaryLines } from './summary.js'
+import { countsFromSummary, donorKeyExists, summaryLines } from './summary.js'
 
 const DEFAULT_OUT_PATH = 'aupm-attestation.json'
 const USAGE = 'Usage: aupm attest <lockfile> [--donate|--no-donate] [--out <path>]'
@@ -95,7 +95,8 @@ export async function runAttest(argv: string[]): Promise<number> {
       fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
       console.log(`attestation written to ${args.outPath}`)
       const counts = countsFromSummary(result.summary)
-      for (const line of summaryLines({ counts, donate, settlement: null })) console.log(line)
+      const input = { counts, donate, settlement: null, hasDonorKey: donorKeyExists() }
+      for (const line of summaryLines(input)) console.log(line)
       console.log(
         JSON.stringify(
           { ...(result.summary as Record<string, unknown>), withheld: result.withheld },
@@ -115,7 +116,9 @@ export async function runAttest(argv: string[]): Promise<number> {
   console.log(`attestation written to ${args.outPath}`)
   const { settlement } = result
   const counts = countsFromSummary(result.summary)
-  for (const line of summaryLines({ counts, donate, settlement })) console.log(line)
+  for (const line of summaryLines({ counts, donate, settlement, hasDonorKey: donorKeyExists() })) {
+    console.log(line)
+  }
   const extra = settlement
     ? { donatedMicro: settlement.amountMicro, settlementTxid: settlement.txid }
     : {}
