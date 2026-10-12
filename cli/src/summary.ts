@@ -24,6 +24,8 @@ export interface SummaryInput {
   settlement: { txid: string; amountMicro: number } | null
   /** True when a donor key exists. The offer then skips the `aupm donor init` step. */
   hasDonorKey: boolean
+  /** True when a donation was asked for and failed. The caller prints the reason; no offer. */
+  donationFailed?: boolean
 }
 
 /** True when the donor key comes from the environment or a key file exists. Reads no key. */
@@ -71,7 +73,13 @@ function offerLines(reviewed: number, hasDonorKey: boolean): string[] {
 }
 
 /** Returns the summary lines. The caller adds its own prefix. */
-export function summaryLines({ counts, donate, settlement, hasDonorKey }: SummaryInput): string[] {
+export function summaryLines({
+  counts,
+  donate,
+  settlement,
+  hasDonorKey,
+  donationFailed = false,
+}: SummaryInput): string[] {
   const lines = [
     `Reviewed: ${counts.reviewed}. Not reviewed: ${counts.unreviewed}. ` +
       `Integrity mismatch: ${counts.integrityMismatch}. Unresolvable: ${counts.unresolvable}.`,
@@ -89,7 +97,7 @@ export function summaryLines({ counts, donate, settlement, hasDonorKey }: Summar
     )
   }
   const { reviewed } = counts
-  if (reviewed === 'unknown' || reviewed === 0) return lines
+  if (reviewed === 'unknown' || reviewed === 0 || donationFailed) return lines
   if (donate && settlement) {
     const amount = formatMicro(BigInt(settlement.amountMicro))
     lines.push(`Donated ${amount} USDC for ${packages(reviewed)}.`)

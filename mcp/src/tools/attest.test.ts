@@ -252,9 +252,10 @@ describe('attest_lockfile', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(attestLockfileTool.handler({ lockfilePath, allowDonation: true })).rejects.toThrow(
-      /refusing to donate/,
-    )
+    const result = await attestLockfileTool.handler({ lockfilePath, allowDonation: true })
+
+    expect(result.donationFailure?.code).toBe('cap_refused')
+    expect(result.donationFailure?.reason).toMatch(/refusing to donate/)
   })
 
   it('a 402 for a non-USDC asset is refused and nothing is signed', async () => {
@@ -289,9 +290,10 @@ describe('attest_lockfile', () => {
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(attestLockfileTool.handler({ lockfilePath, allowDonation: true })).rejects.toThrow(
-      /refusing to donate/,
-    )
+    const result = await attestLockfileTool.handler({ lockfilePath, allowDonation: true })
+
+    expect(result.donationFailure?.code).toBe('cap_refused')
+    expect(result.donationFailure?.reason).toMatch(/refusing to donate/)
   })
 
   it('without allowDonation, a partial 200 with withheld packages reports donation_required with the attestation', async () => {
@@ -493,9 +495,11 @@ packages:
     })
     vi.stubGlobal('fetch', mockFetch)
 
-    await expect(
-      attestLockfileTool.handler({ lockfilePath: pnpmLockfilePath, allowDonation: true }),
-    ).rejects.toThrow()
+    const result = await attestLockfileTool.handler({
+      lockfilePath: pnpmLockfilePath,
+      allowDonation: true,
+    })
+    expect(result.donationFailure?.code).toBe('cap_refused')
     expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
