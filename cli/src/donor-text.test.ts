@@ -10,6 +10,7 @@ import {
   CI_CONFIG_HOME,
   ciStep,
   donateStep,
+  envNoticeLines,
   formatMicro,
   networkFor,
   optInRequiredMicro,
@@ -59,7 +60,7 @@ describe('network text', () => {
       ...usdcStep('3.', ADDRESS, mainnet),
     ].join('\n')
     expect(text).toContain('Pera Wallet')
-    expect(text).toContain('ASA 31566704')
+    expect(text).toContain('asset id 31566704')
     expect(text).not.toContain('faucet')
     expect(text).not.toContain('dispenser')
   })
@@ -68,7 +69,7 @@ describe('network text', () => {
     const algo = algoStep('1.', ADDRESS, testnet, 300_000n).join('\n')
     const usdc = usdcStep('3.', ADDRESS, testnet).join('\n')
     expect(`${algo}\n${usdc}`).not.toMatch(/https?:|dispenser|faucet|Pera/i)
-    expect(usdc).toContain('ASA 10458941')
+    expect(usdc).toContain('asset id 10458941')
     expect(usdc).toContain(`algorand://${ADDRESS}?amount=1000000&asset=10458941`)
   })
 
@@ -124,8 +125,9 @@ describe('network text', () => {
     expect(usdcStep('3.', ADDRESS, mainnet).join('\n')).toContain(uri)
     const short = usdcStep('3.', ADDRESS, mainnet, { withQr: false }).join('\n')
     expect(short).not.toContain('asset=')
-    expect(short).toContain('Only USDC on Algorand (ASA 31566704)')
-    expect(short).toContain('USDC from other chains is lost')
+    expect(short).toContain('(asset id 31566704)')
+    expect(short).toContain('Send only USDC on the Algorand network')
+    expect(short).toContain('USDC sent on other networks is lost')
   })
 
   it('names Pera Wallet in full on the first mention only', () => {
@@ -169,5 +171,14 @@ describe('interactive screens', () => {
     expect(lines.join('\n')).toContain(KEY)
     expect(lines.length).toBeLessThanOrEqual(8)
     for (const line of lines) if (line !== `  ${KEY}`) expect(line.length).toBeLessThanOrEqual(80)
+  })
+})
+
+describe('envNoticeLines', () => {
+  it('tells the user to unset an invalid variable', () => {
+    expect(envNoticeLines(null)).toEqual([
+      'AUPM_DONOR_MNEMONIC is set. AuPM uses it and ignores the key file.',
+      'The value is not a valid phrase. Remove it: `unset AUPM_DONOR_MNEMONIC`.',
+    ])
   })
 })

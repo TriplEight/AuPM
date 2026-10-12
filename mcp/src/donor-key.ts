@@ -65,7 +65,7 @@ export function loadDonorMnemonic(): string {
   const fromFile = readDonorKeyFile()
   if (fromFile) return fromFile
   throw new Error(
-    `${AUPM_DONOR_MNEMONIC_ENV} env var not set and no key file at ${donorKeyFilePath()}. ` +
-      'Run: aupm donor init',
+    'No donor key found. Run `aupm donor init` to make one.\n' +
+      `Experts: set ${AUPM_DONOR_MNEMONIC_ENV}, or put the key in ${donorKeyFilePath()}.`,
   )
 }

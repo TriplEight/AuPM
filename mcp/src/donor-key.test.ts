@@ -97,7 +97,9 @@ describe('donor key file', () => {
   })
 
   it('fails with a pointer to init when neither source exists', () => {
-    expect(() => loadDonorMnemonic()).toThrow('aupm donor init')
+    expect(() => loadDonorMnemonic()).toThrow(
+      'No donor key found. Run `aupm donor init` to make one.',
+    )
   })
 
   it.each([

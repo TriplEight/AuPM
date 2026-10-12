@@ -17,7 +17,7 @@ import { ConfigError, resolveDonate } from 'aupm-mcp/config'
 import { YARN_BERRY_MESSAGE } from 'aupm-mcp/lockfile-entries'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
-import { countsFromSummary, type LockfileCounts, summaryLines } from './summary.js'
+import { countsFromSummary, donorKeyExists, type LockfileCounts, summaryLines } from './summary.js'
 
 export type Tool = 'npm' | 'pnpm' | 'npx' | 'yarn'
 
@@ -194,7 +194,10 @@ export async function printPostInstallSummary(
 ): Promise<void> {
   const lockfilePath = path.resolve(lockfileName)
   if (!fs.existsSync(lockfilePath)) {
-    console.log(`aupm: no ${lockfileName} found; skipping the donation summary.`)
+    console.log(
+      `aupm: no ${lockfileName} in this folder. AuPM prints no review summary. ` +
+        'Run the install in the project folder.',
+    )
     return
   }
 
@@ -202,15 +205,19 @@ export async function printPostInstallSummary(
   try {
     outcome = await attestLockfileTool.handler({ lockfilePath, allowDonation })
   } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    const paid = allowDonation ? ' No donation was confirmed.' : ''
     console.log(
-      `aupm: donation summary failed: ${error instanceof Error ? error.message : String(error)}`,
+      `aupm: the install worked. AuPM could not get the review summary: ${reason}.${paid} ` +
+        'Try again later.',
     )
     return
   }
 
   const settlement = outcome.status === 'attested' ? outcome.settlement : null
   const counts = outcomeCounts(outcome)
-  for (const line of summaryLines({ counts, donate: allowDonation, settlement })) {
+  const input = { counts, donate: allowDonation, settlement, hasDonorKey: donorKeyExists() }
+  for (const line of summaryLines(input)) {
     console.log(`aupm: ${line}`)
   }
 
@@ -233,7 +240,7 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
   if (tool === 'npx' && npmArgs.length !== argv.length) {
     console.error(
       'aupm: npx has no lockfile, so --donate, --no-donate and --attest-out do not apply. ' +
-        'Put a program flag of the same name after `--`.',
+        'To pass a flag to the program, put it after `--`.',
     )
     return 2
   }
@@ -243,7 +250,7 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
       allowDonation = resolveDonate(donateFlag).value
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error
-      console.error(`aupm: ${error.message}`)
+      console.error(`aupm: ${error.message} The command did not run.`)
       return 2
     }
   }

@@ -55,8 +55,8 @@ export function assertNoteFits(note: Uint8Array): void {
 export function assertReadAllowed(coverage: string, scope: string, testnet: boolean): void {
   if (!testnet && (UNREAD_SCOPE.test(coverage) || UNREAD_SCOPE.test(scope))) {
     throw new Error(
-      'Refused. An unread review is allowed on TestNet only (ADR 0012). ' +
-        'Read the package, then describe what you read.',
+      'Refused. A review that says "unread" works on TestNet only. ' +
+        'Read the package. Then describe what you read.',
     )
   }
 }

@@ -61,8 +61,9 @@ Donation is off by default. Add `--donate` to donate. To donate on every run, se
 `~/.config/aupm/config.toml`. Precedence: `--donate` or `--no-donate`, then `AUPM_DONATE`,
 then the file, then off. Any other `AUPM_DONATE` value, or a malformed config line, is an
 error. Only the `aupm` command reads this setting. Plain `npm install` stays free.
-After an install, `aupm` prints how many packages are audited, not audited, integrity
-mismatch and unresolvable. `--donate` pays for every audited package in the whole lockfile. The donor key is the environment variable
+After an install, `aupm` prints how many packages are reviewed, not reviewed, integrity
+mismatch and unresolvable. `--donate` pays for all reviewed packages in the lockfile, not only the
+package you named. The donor key is the environment variable
 `AUPM_DONOR_MNEMONIC`, or the file that `aupm donor init` writes to
 `~/.config/aupm/donor.key` (mode 0600; the words and a newline). The key is 25 words (Algorand mnemonic) or 24 words
 (Pera Universal Wallet phrase, derivation 1). `aupm donor init` makes a 25-word key. A donation costs 1,000 microUSDC per reviewed package. A
@@ -91,15 +92,15 @@ The commands need a terminal.
 
 ```sh
 aupm auditor review <name>@<version> [--login <github-login>]   # four questions, then a 0-ALGO anchor
-aupm auditor balance <github-login>                             # credited balance, MIN_CLAIM, opt-in
+aupm auditor balance <github-login>                             # credited balance, minimum claim, next step
 aupm auditor claim [--login <github-login>]                     # one claim() call
 aupm auditor status <github-login>                              # your reviews on the server
 ```
 
 `review` shows every field and sends the anchor only after you type `yes`. An unread review
 is allowed on TestNet only. The app id and the `payTo` address come from the server
-(`GET /api/v1/contract`). `claim` refuses below `MIN_CLAIM`, without the USDC opt-in, and when
-the key address is not the address mapped to `github:<login>`.
+(`GET /api/v1/contract`). `claim` refuses below the minimum claim (100,000 microUSDC), without the USDC opt-in,
+and when the key address is not the address that the ops linked to `github:<login>`.
 
 A 24-word phrase derives its account with ARC-52 at `m/44'/283'/n'/0/0`. The default is
 `n = 1`, the first named account in Pera. `n = 0` is the wallet root. `review` and `claim`
