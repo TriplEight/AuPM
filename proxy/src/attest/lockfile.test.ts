@@ -644,6 +644,27 @@ describe('analyzeLockfile — npm workspace lockfile', () => {
     expect(result.analysis.packages.filter((p) => p.tier === 'COMMUNITY_REVIEWED')).toHaveLength(4)
   })
 
+  test('an inBundle entry with no resolved and no integrity is UNRESOLVABLE, never charged', () => {
+    review()
+    setStatus(
+      'vendored-dep',
+      '3.0.0',
+      'COMMUNITY_REVIEWED',
+      null,
+      null,
+      'sha512-dmVuZG9yZWQ=',
+      'alice',
+    )
+    const result = analyzeLockfile(new Uint8Array(fixtureBytes))
+    if (!result.ok) throw new Error('unreachable')
+    const { summary, packages, reviewedPackageRefs } = result.analysis
+    const entry = packages.find((p) => p.name === 'vendored-dep')
+    expect(entry?.tier).toBe('UNRESOLVABLE')
+    expect(reviewedPackageRefs.some((r) => r.pkg === 'vendored-dep')).toBe(false)
+    expect(summary.reviewed).toBe(4)
+    expect(reviewedPackageRefs.length * 1000).toBe(4000)
+  })
+
   test('an entry without resolved keeps the digest check: a wrong digest is INTEGRITY_MISMATCH', () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-b3RoZXJEaWdlc3Q=', 'alice')
     const result = analyzeLockfile(new Uint8Array(fixtureBytes))

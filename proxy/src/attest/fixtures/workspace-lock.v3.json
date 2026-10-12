@@ -41,6 +41,10 @@
       "integrity": "sha512-YnVuZGxlZERpZ2VzdA==",
       "inBundle": true
     },
+    "packages/b/node_modules/vendored-dep": {
+      "version": "3.0.0",
+      "inBundle": true
+    },
     "node_modules/string-width-cjs": {
       "name": "string-width",
       "version": "4.2.3",
