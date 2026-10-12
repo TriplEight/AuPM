@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest'
 import {
   afterOptInStep,
   algoStep,
+  allSetLines,
   arc26Uri,
-  backupLines,
+  backupIntroLines,
+  backupOutroLines,
   CI_CONFIG_HOME,
   ciStep,
   donateStep,
@@ -15,8 +17,10 @@ import {
   networkFor,
   optInRequiredMicro,
   packagesCovered,
+  savedLines,
   shortfallLines,
   usdcStep,
+  wordRows,
 } from './donor-text.js'
 
 const KEY = '/home/u/.config/aupm/donor.key'
@@ -166,11 +170,38 @@ describe('interactive screens', () => {
     expect(afterOptInStep({ ...opted, usdc: 5_000n }, mainnet).join('\n')).toContain('Donate.')
   })
 
-  it('names the key file in the backup screen and keeps it short', () => {
-    const lines = backupLines(KEY)
-    expect(lines.join('\n')).toContain(KEY)
-    expect(lines.length).toBeLessThanOrEqual(8)
-    for (const line of lines) if (line !== `  ${KEY}`) expect(line.length).toBeLessThanOrEqual(80)
+  it('keeps the backup screen text short and free of the words', () => {
+    const lines = [...backupIntroLines(), ...backupOutroLines()]
+    expect(lines.join('\n')).toContain('shown once')
+    expect(lines.length).toBeLessThanOrEqual(10)
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(90)
+  })
+
+  it('numbers the 25 words in rows of five', () => {
+    const words = Array.from({ length: 25 }, (_, index) => `w${index + 1}`).join(' ')
+    const rows = wordRows(words)
+    expect(rows).toHaveLength(5)
+    expect(rows[0]).toContain(' 1. w1')
+    expect(rows[4]).toContain('25. w25')
+  })
+
+  it('gives the Pera import path after the save', () => {
+    const text = savedLines(KEY).join('\n')
+    expect(text).toContain(KEY)
+    expect(text).toContain('Add account')
+    expect(text).toContain('Import an account')
+  })
+
+  it('shows the all-set block with the packages the USDC pays for and the donate source', () => {
+    const funded = { ...snapshot, optedIn: true, algo: 250_000n, usdc: 2_500_000n }
+    const text = allSetLines(funded, mainnet, 'donate = true (source: file /x)').join('\n')
+    expect(text).toContain('All set.')
+    expect(text).toContain('ALGO balance: 0.25 ALGO')
+    expect(text).toContain('USDC balance: 2.5 USDC (pays for 2500 reviewed packages)')
+    expect(text).toContain('Setting: donate = true (source: file /x)')
+    expect(text).toContain('--no-donate')
+    const off = allSetLines(funded, mainnet, 'donate = false (source: default)').join('\n')
+    expect(off).toContain('aupm config set donate true')
   })
 })
 

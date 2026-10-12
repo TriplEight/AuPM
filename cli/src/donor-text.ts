@@ -339,21 +339,83 @@ export function optedInLines(txid: string, address: string, network: Network): s
 }
 
 export const PROMPT_ENTER_ALGO = 'Press Enter when you have sent the ALGO.'
+export const PROMPT_ENTER_USDC = 'Press Enter when you have sent the USDC.'
 export const PROMPT_YES = 'Type yes when the 25 words are on paper:'
 export const PROMPT_RETRY_YES = 'Type yes to continue, or press Ctrl-C to stop.'
 export const STOPPED_LINE = 'Stopped. Run `aupm donor init` again to continue where you stopped.'
+export const STOPPED_UNSAVED_LINE =
+  'Stopped. Nothing was saved. Run `aupm donor init` again to make a new wallet.'
 export const ALGO_PENDING_LINE =
   'The ALGO has not arrived yet. Wait for the transfer, then press Enter.'
+export const USDC_PENDING_LINE =
+  'The USDC has not arrived yet. Wait for the transfer, then press Enter.'
 
-/** The screen that asks the donor to write the 25 words on paper. */
-export function backupLines(file: string): string[] {
+/** The words per row on the backup screen. */
+const WORDS_PER_ROW = 5
+
+/** The numbered rows of the 25 words. Only the backup screen prints these rows. */
+export function wordRows(mnemonic: string): string[] {
+  const words = mnemonic.split(' ')
+  const rows: string[] = []
+  for (let start = 0; start < words.length; start += WORDS_PER_ROW) {
+    const row = words
+      .slice(start, start + WORDS_PER_ROW)
+      .map((word, offset) => `${String(start + offset + 1).padStart(2)}. ${word.padEnd(10)}`)
+    rows.push(`  ${row.join(' ').trimEnd()}`)
+  }
+  return rows
+}
+
+/** The text above the 25 words on the backup screen. */
+export function backupIntroLines(): string[] {
   return [
     paint('bold', 'Back up the 25 words.'),
-    '   They are in this file. This command never prints them:',
-    `  ${file}`,
-    '   Write them on paper. Keep the paper offline.',
-    '   The file is the only copy.',
+    '   They are shown once. They leave the screen after you type yes.',
+    '   Nothing is saved yet.',
+    '',
   ]
+}
+
+/** The text below the 25 words on the backup screen. */
+export function backupOutroLines(): string[] {
+  return [
+    '',
+    '   Write the words on paper, in this order. Keep the paper offline.',
+    '   The key file is saved only after you type yes. The paper is the only other copy.',
+  ]
+}
+
+/** The lines after the donor typed yes and the key file is saved. */
+export function savedLines(file: string): string[] {
+  return [
+    `Saved the key file: ${file} (mode 0600).`,
+    'Optional: import the wallet into Pera Wallet. Select Add account, then',
+    'Import an account, and type the 25 words from your paper.',
+  ]
+}
+
+/** The block for a rerun of `init` when the wallet can donate already. */
+export function allSetLines(snapshot: Snapshot, network: Network, donate: string): string[] {
+  const { address, algo, usdc } = snapshot
+  const covered = packagesCovered(usdc)
+  return [
+    paint(['bold', 'green'], 'All set. The donor wallet is ready to donate.'),
+    ...testnetNote(network),
+    ...addressLines(address, network),
+    `ALGO balance: ${formatMicro(algo)} ALGO`,
+    `USDC balance: ${formatMicro(usdc)} USDC (pays for ${covered} reviewed packages)`,
+    `Setting: ${donate}`,
+    donate.startsWith('donate = true')
+      ? 'Every install donates. Add --no-donate to skip one donation.'
+      : 'To donate, add --donate to `aupm install`, or run `aupm config set donate true`.',
+  ]
+}
+
+/** The line when the USDC has arrived during `init`. */
+export function usdcArrivedLines(snapshot: Snapshot): string[] {
+  const covered = packagesCovered(snapshot.usdc)
+  const held = formatMicro(snapshot.usdc)
+  return [`The wallet holds ${held} USDC (pays for ${covered} reviewed packages).`]
 }
 
 /** The first lines when `init` runs again and a key file exists. */
