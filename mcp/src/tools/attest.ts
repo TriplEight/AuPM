@@ -3,6 +3,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { DONATION_SETTING_TEXT, resolveDonate } from '../config.js'
 import {
+  DonationFailure,
+  type DonationFailureReport,
+  type DonationFetchResult,
   fetchWithDonation,
   PRICE_PER_ENTRY_MICRO,
   type Settlement,
@@ -27,6 +30,8 @@ export type AttestLockfileOutcome =
       attestation: unknown
       /** The donation that paid for this attestation, or null when it was free. */
       settlement: Settlement | null
+      /** Set when a donation was asked for and failed. The result is then the free one. */
+      donationFailure?: DonationFailureReport
     }
   | {
       status: 'donation_required'
@@ -37,6 +42,8 @@ export type AttestLockfileOutcome =
       withheld?: number
       summary?: unknown
       attestation?: unknown
+      /** Set when a donation was asked for and failed. The result is then the free one. */
+      donationFailure?: DonationFailureReport
     }
 
 export type AttestLockfileResult = AttestLockfileOutcome
@@ -109,6 +116,89 @@ function decodeWithheld(attestation: unknown): number {
   return typeof withheld === 'number' && Number.isFinite(withheld) && withheld >= 0 ? withheld : 0
 }
 
+type AttestRequest = {
+  url: string
+  kind: LockfileKind
+  lockfileBytes: Buffer
+  entryCount: number
+}
+
+async function postWithRetry(
+  request: AttestRequest,
+  donate: boolean,
+): Promise<DonationFetchResult> {
+  const post = () =>
+    fetchWithDonation(
+      request.url,
+      {
+        method: 'POST',
+        headers: { 'content-type': CONTENT_TYPES[request.kind] },
+        body: request.lockfileBytes,
+      },
+      donate,
+      request.entryCount,
+    )
+  const result = await post()
+  // 503 means another YAML parse runs; the server sends it before any 402,
+  // so no donation settled. Wait as told, once, then fail.
+  if (result.kind === 'response' && result.response.status === 503) {
+    await new Promise((resolve) => setTimeout(resolve, retryDelayMs(result.response)))
+    return post()
+  }
+  return result
+}
+
+async function outcomeFromResult(
+  result: DonationFetchResult,
+  donate: boolean,
+  kind: LockfileKind,
+): Promise<AttestLockfileOutcome> {
+  if (result.kind === 'donation_required') {
+    return {
+      status: 'donation_required',
+      priceMicro: result.requirement.priceMicro,
+      resourceUrl: result.requirement.resourceUrl,
+      asset: result.requirement.asset,
+    }
+  }
+  const res = result.response
+  if (!res.ok) {
+    throw new Error(failureMessage(res.status, kind))
+  }
+
+  const body: unknown = await res.json()
+  if (!isLockfileAttestResponseBody(body)) {
+    throw new Error('Lockfile attest failed: malformed response body')
+  }
+
+  // Without the opt-in, the server already answered free (SPEC.md
+  // §11.4, §12.3): X-AuPM-Donate: 0 gets a 200 with a partial attestation
+  // whenever any reviewed entry was withheld. `withheld: 0` still means
+  // a genuinely full attestation (e.g. zero-coverage lockfiles), so only
+  // a positive count is reported back as donation_required.
+  if (!donate) {
+    const withheld = decodeWithheld(body.attestation)
+    if (withheld > 0) {
+      return {
+        status: 'donation_required',
+        priceMicro: withheld * PRICE_PER_ENTRY_MICRO,
+        resourceUrl: lockfileAttestUrl(),
+        asset: USDC_ASSET_ID,
+        withheld,
+        summary: body.summary,
+        attestation: body.attestation,
+      }
+    }
+  }
+
+  return {
+    status: 'attested',
+    summary: body.summary,
+    attestation: body.attestation,
+    settlement: result.settlement,
+  }
+}
+
 export const attestLockfileTool = {
   name: 'attest_lockfile',
   description:
@@ -119,6 +209,8 @@ export const attestLockfileTool = {
     "withheld and the result reports status: 'donation_required' with the partial " +
     'attestation, the withheld count, the price, and the resource URL — never a 402. ' +
     'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid. ' +
+    'When a donation was asked for and failed, the result is the free one and carries ' +
+    'donationFailure: { code, reason }. Nothing was paid. ' +
     DONATION_SETTING_TEXT,
 
   async handler({
@@ -139,70 +231,18 @@ export const attestLockfileTool = {
     }
     const entryCount = countEntriesForFile(lockfilePath, lockfileBytes)
 
-    const post = () =>
-      fetchWithDonation(
-        lockfileAttestUrl(),
-        {
-          method: 'POST',
-          headers: { 'content-type': CONTENT_TYPES[kind] },
-          body: lockfileBytes,
-        },
-        donate,
-        entryCount,
-      )
-    let result = await post()
-    // 503 means another YAML parse runs; the server sends it before any 402,
-    // so no donation settled. Wait as told, once, then fail.
-    if (result.kind === 'response' && result.response.status === 503) {
-      const delayMs = retryDelayMs(result.response)
-      await new Promise((resolve) => setTimeout(resolve, delayMs))
-      result = await post()
+    const request = { url: lockfileAttestUrl(), kind, lockfileBytes, entryCount }
+    let failure: DonationFailureReport | undefined
+    let result: DonationFetchResult
+    try {
+      result = await postWithRetry(request, donate)
+    } catch (error) {
+      if (!donate || !(error instanceof DonationFailure)) throw error
+      // The paid attempt failed. The free request below sends X-AuPM-Donate: 0 and cannot pay.
+      failure = error.report()
+      result = await postWithRetry(request, false)
     }
-
-    if (result.kind === 'donation_required') {
-      return {
-        status: 'donation_required',
-        priceMicro: result.requirement.priceMicro,
-        resourceUrl: result.requirement.resourceUrl,
-        asset: result.requirement.asset,
-      }
-    }
-
-    const res = result.response
-    if (!res.ok) {
-      throw new Error(failureMessage(res.status, kind))
-    }
-
-    const body: unknown = await res.json()
-    if (!isLockfileAttestResponseBody(body)) {
-      throw new Error('Lockfile attest failed: malformed response body')
-    }
-
-    // Without the opt-in, the server already answered free (SPEC.md
-    // §11.4, §12.3): X-AuPM-Donate: 0 gets a 200 with a partial attestation
-    // whenever any reviewed entry was withheld. `withheld: 0` still means
-    // a genuinely full attestation (e.g. zero-coverage lockfiles), so only
-    // a positive count is reported back as donation_required.
-    if (!donate) {
-      const withheld = decodeWithheld(body.attestation)
-      if (withheld > 0) {
-        return {
-          status: 'donation_required',
-          priceMicro: withheld * PRICE_PER_ENTRY_MICRO,
-          resourceUrl: lockfileAttestUrl(),
-          asset: USDC_ASSET_ID,
-          withheld,
-          summary: body.summary,
-          attestation: body.attestation,
-        }
-      }
-    }
-
-    return {
-      status: 'attested',
-      summary: body.summary,
-      attestation: body.attestation,
-      settlement: result.settlement,
-    }
+    const outcome = await outcomeFromResult(result, donate && !failure, kind)
+    return failure ? { ...outcome, donationFailure: failure } : outcome
   },
 }

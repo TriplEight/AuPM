@@ -20,7 +20,7 @@ import { x402Client } from '@x402-avm/core/client'
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from '@x402-avm/core/http'
 import type { PaymentRequirements } from '@x402-avm/core/types'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
-import { loadDonorMnemonic } from './donor-key.js'
+import { AUPM_DONOR_MNEMONIC_ENV, loadDonorMnemonic } from './donor-key.js'
 import { signerFromMnemonic } from './signer.js'
 
 // NETWORK selects Algorand MainNet (default) or TestNet rehearsal.
@@ -73,6 +73,115 @@ export type DonationRequirement = {
 /** Thrown when every 402 requirement fails the spend cap or the asset check. Never signs. */
 export class DonationRefusedError extends Error {}
 
+/** Why a donation did not happen. Each code has its own reason text. */
+export type DonationFailureCode =
+  | 'network_mismatch'
+  | 'no_donor_key'
+  | 'donor_key_invalid'
+  | 'cap_refused'
+  | 'insufficient_usdc'
+  | 'payment_rejected'
+  | 'facilitator_error'
+  | 'network_error'
+  | 'other'
+
+/** One line that tells the user why no donation was paid. `reason` is the full text. */
+export type DonationFailureReport = { code: DonationFailureCode; reason: string }
+
+/** A donation attempt that failed. `message` is the one-line reason for the user. */
+export class DonationFailure extends DonationRefusedError {
+  constructor(
+    readonly code: DonationFailureCode,
+    message: string,
+  ) {
+    super(message)
+  }
+
+  report(): DonationFailureReport {
+    return { code: this.code, reason: this.message }
+  }
+}
+
+const NOT_PAID = 'No donation was paid:'
+const MAX_DETAIL_CHARS = 200
+
+function detail(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim()
+  return flat.length > MAX_DETAIL_CHARS ? `${flat.slice(0, MAX_DETAIL_CHARS)}...` : flat
+}
+
+function networkName(caip2: string): string {
+  if (caip2 === ALGORAND_MAINNET_CAIP2) return 'MainNet'
+  if (caip2 === ALGORAND_TESTNET_CAIP2) return 'TestNet'
+  return caip2
+}
+
+function networkMismatchFailure(serverNetwork: string, origin: string): DonationFailure {
+  const server = networkName(serverNetwork)
+  const client = networkName(CAIP2_NETWORK)
+  const knownServer =
+    serverNetwork === ALGORAND_MAINNET_CAIP2 || serverNetwork === ALGORAND_TESTNET_CAIP2
+  const setNetwork = knownServer ? `set NETWORK=${server.toLowerCase()}` : 'change NETWORK'
+  return new DonationFailure(
+    'network_mismatch',
+    `${NOT_PAID} the server ${origin} takes payment on ${server}, but this client uses ${client}. ` +
+      `AuPM signed nothing. Fix: set AUPM_PROXY_URL to a ${client} server, or ${setNetwork}.`,
+  )
+}
+
+function failureFromPaymentError(status: number, error: string | undefined): DonationFailure {
+  if (status >= 500) {
+    return new DonationFailure(
+      'facilitator_error',
+      `${NOT_PAID} the payment service answered ${status}. This can pass. Try again later.`,
+    )
+  }
+  if (error && /insufficient|balance|underflow|overspend/i.test(error)) {
+    return new DonationFailure(
+      'insufficient_usdc',
+      `${NOT_PAID} the donor account has too little USDC. ` +
+        'Add USDC, then run the command again. Run `aupm donor status` to check the account.',
+    )
+  }
+  const why = error ? ` (${detail(error)})` : ''
+  return new DonationFailure(
+    'payment_rejected',
+    `${NOT_PAID} the server rejected the payment${why}. ` +
+      'Run `aupm donor status` to check the donor account.',
+  )
+}
+
+function failureFromThrown(error: unknown): DonationFailure {
+  if (error instanceof DonationFailure) return error
+  const message = error instanceof Error ? error.message : String(error)
+  if (error instanceof TypeError || /fetch failed|ECONN|ETIMEDOUT|ENOTFOUND/.test(message)) {
+    return new DonationFailure(
+      'network_error',
+      `${NOT_PAID} AuPM could not reach the server or the payment service. Try again later.`,
+    )
+  }
+  return new DonationFailure('other', `${NOT_PAID} ${detail(message)}.`)
+}
+
+function failureFromKeyError(error: unknown): DonationFailure {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.startsWith('No donor key found')) {
+    return new DonationFailure(
+      'no_donor_key',
+      `${NOT_PAID} no donor key found. Run \`aupm donor init\` once, or set ${AUPM_DONOR_MNEMONIC_ENV}, then run the command again.`,
+    )
+  }
+  return new DonationFailure('donor_key_invalid', `${NOT_PAID} ${detail(message)}`)
+}
+
+/** Remembers the first typed failure, because the x402 client can wrap the error it gets. */
+type FailureTrace = { failure?: DonationFailure }
+
+function recorded(trace: FailureTrace, failure: DonationFailure): DonationFailure {
+  trace.failure ??= failure
+  return trace.failure
+}
+
 function requirementAsset(requirement: PaymentRequirements): unknown {
   const extra = requirement.extra
   return extra && typeof extra === 'object' ? (extra as { asset?: unknown }).asset : undefined
@@ -93,7 +202,11 @@ function isDonationCompliant(requirement: PaymentRequirements, capMicro: bigint)
 // wrapFetchWithPayment flow and enforces before a signature is ever created.
 // It passes on only the first compliant requirement, so the requirement it
 // reports through onApproved is the one the client signs.
-function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) => void) {
+function donationCapPolicy(
+  capMicro: bigint,
+  onApproved: (amountMicro: number) => void,
+  trace: FailureTrace,
+) {
   return (_version: number, requirements: PaymentRequirements[]): PaymentRequirements[] => {
     const compliant = requirements.filter((requirement) =>
       isDonationCompliant(requirement, capMicro),
@@ -103,9 +216,14 @@ function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) =
       const amount = first ? first.amount : 'unknown'
       const asset = first ? first.asset : 'unknown'
       const network = IS_TESTNET ? 'TestNet' : 'MainNet'
-      throw new DonationRefusedError(
-        `refusing to donate ${amount} microUSDC of asset ${asset}: exceeds the ` +
-          `${capMicro} microUSDC cap, or is not the ${network} USDC asset ${USDC_ASSET_ID}`,
+      throw recorded(
+        trace,
+        new DonationFailure(
+          'cap_refused',
+          `${NOT_PAID} refusing to donate ${amount} microUSDC of asset ${asset}: exceeds the ` +
+            `${capMicro} microUSDC cap, or is not the ${network} USDC asset ${USDC_ASSET_ID}. ` +
+            'AuPM signed nothing.',
+        ),
       )
     }
     const [approved] = compliant as [PaymentRequirements]
@@ -118,7 +236,10 @@ function donationCapPolicy(capMicro: bigint, onApproved: (amountMicro: number) =
 // a real 402 passed the cap policy. A free (200) response never touches AUPM_DONOR_MNEMONIC.
 // The key derivation is async, so the before-creation hook loads the signer before the scheme
 // reads `address`.
-function lazyDonorSigner(): { signer: ClientAvmSigner; load: () => Promise<void> } {
+function lazyDonorSigner(trace: FailureTrace): {
+  signer: ClientAvmSigner
+  load: () => Promise<void>
+} {
   let cached: ClientAvmSigner | undefined
   function loaded(): ClientAvmSigner {
     if (!cached) throw new Error('donor signer used before it was loaded')
@@ -126,7 +247,12 @@ function lazyDonorSigner(): { signer: ClientAvmSigner; load: () => Promise<void>
   }
   return {
     load: async () => {
-      if (!cached) cached = await signerFromMnemonic(loadDonorMnemonic())
+      if (cached) return
+      try {
+        cached = await signerFromMnemonic(loadDonorMnemonic())
+      } catch (error) {
+        throw recorded(trace, failureFromKeyError(error))
+      }
     },
     signer: {
       get address() {
@@ -140,14 +266,15 @@ function lazyDonorSigner(): { signer: ClientAvmSigner; load: () => Promise<void>
 function buildDonationClient(
   capMicro: bigint,
   onApproved: (amountMicro: number) => void,
+  trace: FailureTrace,
 ): x402Client {
   const client = new x402Client()
-  const { signer, load } = lazyDonorSigner()
+  const { signer, load } = lazyDonorSigner(trace)
   registerExactAvmScheme(client, {
     signer,
     algodConfig: { algodUrl: DONOR_ALGOD_URL },
     networks: [CAIP2_NETWORK],
-    policies: [donationCapPolicy(capMicro, onApproved)],
+    policies: [donationCapPolicy(capMicro, onApproved, trace)],
   })
   client.onBeforePaymentCreation(load)
   return client
@@ -225,6 +352,40 @@ function decodeDonationRequirement(res: Response): DonationRequirement {
   }
 }
 
+// Compares the network in a 402 with CAIP2_NETWORK before any payload is built. A mismatch
+// throws, so the x402 client never runs and nothing is signed.
+function networkGuardedFetch(url: string, trace: FailureTrace): typeof fetch {
+  return async (input, init) => {
+    const res = await fetch(input, init)
+    if (res.status !== 402) return res
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    if (!header) return res
+    let accepts: PaymentRequirements[]
+    try {
+      accepts = decodePaymentRequiredHeader(header).accepts
+    } catch {
+      return res
+    }
+    const [first] = accepts
+    if (!first || accepts.some((accepted) => accepted.network === CAIP2_NETWORK)) return res
+    throw recorded(trace, networkMismatchFailure(first.network, new URL(url).origin))
+  }
+}
+
+// The reason text of a failed paid retry: the PAYMENT-REQUIRED `error` field, else a JSON body.
+async function paymentErrorText(res: Response): Promise<string | undefined> {
+  try {
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    const fromHeader = header ? decodePaymentRequiredHeader(header).error : undefined
+    if (fromHeader) return fromHeader
+    const body: unknown = await res.clone().json()
+    const error = (body as { error?: unknown } | null)?.error
+    return typeof error === 'string' ? error : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export type DonationFetchResult =
   | { kind: 'response'; response: Response; settlement: Settlement | null }
   | { kind: 'donation_required'; requirement: DonationRequirement }
@@ -259,18 +420,28 @@ export async function fetchWithDonation(
   }
 
   const approved: { micro: number | null } = { micro: null }
-  const client = buildDonationClient(donationCapMicro(entryCount), (amountMicro) => {
-    approved.micro = amountMicro
-  })
-  const payFetch = wrapFetchWithPayment(fetch, client)
+  const trace: FailureTrace = {}
+  const client = buildDonationClient(
+    donationCapMicro(entryCount),
+    (amountMicro) => {
+      approved.micro = amountMicro
+    },
+    trace,
+  )
+  const payFetch = wrapFetchWithPayment(networkGuardedFetch(url, trace), client)
   let res: Response
   try {
     res = await payFetch(url, requestInit)
   } catch (error) {
-    throw new DonationRefusedError(error instanceof Error ? error.message : String(error))
+    throw trace.failure ?? failureFromThrown(error)
   }
   const txid = readSettlementTxid(res)
-  if (txid === null) return { kind: 'response', response: res, settlement: null }
+  if (txid === null) {
+    if (approved.micro !== null && (res.status === 402 || res.status >= 500)) {
+      throw failureFromPaymentError(res.status, await paymentErrorText(res))
+    }
+    return { kind: 'response', response: res, settlement: null }
+  }
   if (approved.micro === null) {
     throw new Error(`settlement ${txid} arrived for a request no donation requirement approved`)
   }
