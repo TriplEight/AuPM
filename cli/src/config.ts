@@ -20,8 +20,7 @@ export function runConfig(argv: string[]): number {
   }
   try {
     if (action === 'get') {
-      const setting = resolveDonate(undefined)
-      console.log(`donate = ${setting.value} (source: ${describeSource(setting.source)})`)
+      console.log(donateSettingLine())
       return 0
     }
     if (value !== 'true' && value !== 'false') {
@@ -44,4 +43,10 @@ function describeSource(source: DonateSource): string {
   if (source === 'env') return `env ${DONATE_ENV}`
   if (source === 'file') return `file ${configFilePath()}`
   return source
+}
+
+/** `donate = true (source: file <path>)`. Throws ConfigError when the setting is malformed. */
+export function donateSettingLine(): string {
+  const setting = resolveDonate(undefined)
+  return `donate = ${setting.value} (source: ${describeSource(setting.source)})`
 }

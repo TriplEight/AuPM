@@ -70,12 +70,14 @@ package you named. The donor key is the environment variable
 lockfile costs 1,000 microUSDC times the number of reviewed entries. A lockfile with no reviewed
 entry is free.
 
-On a terminal, `aupm donor init` guides you one step at a time. It asks you to type `yes` when
-the 25 words are on paper. It waits for Enter after you send the ALGO. Then it checks the balance
-once and opts in to USDC. It uses no timer. Press Ctrl-C to stop. Run `init` again to continue
-from the state of the wallet. It never prints the 25 words and never overwrites the key file.
-Without a terminal, or with `--yes`, `init` prints the steps and exits. With an existing key file
-it prints the address and the next step.
+On a terminal, `aupm donor init` guides you one step at a time. It shows the 25 words one time
+and asks you to type `yes` when they are on paper. It saves the key file only after `yes`, and
+never overwrites it. Ctrl-C or another answer saves nothing: the next `init` makes a new key. It
+waits for Enter after you send the ALGO and after you send the USDC. It checks the balance once
+for each Enter and opts in to USDC. It uses no timer. Run `init` again to continue from the
+state of the wallet. When the wallet can donate, `init` prints a short summary.
+Without a terminal, or with `--yes`, `init` saves the key file, never prints the words, prints
+the steps and exits. With an existing key file it prints the address and the next step.
 
 For CI, `aupm donor init --yes` prints the commands. You may use a separate wallet: put
 `XDG_CONFIG_HOME="$HOME/.config/aupm-ci"` before the onboarding commands. Then
