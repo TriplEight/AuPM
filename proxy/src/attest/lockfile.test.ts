@@ -599,6 +599,62 @@ describe('analyzeLockfile — multi-hash SSRI integrity', () => {
   })
 })
 
+describe('analyzeLockfile — npm workspace lockfile', () => {
+  const fixtureBytes = readFileSync(
+    path.join(import.meta.dirname, 'fixtures', 'workspace-lock.v3.json'),
+  )
+  const reviewed: Array<[string, string, string]> = [
+    ['ms', '2.1.3', 'sha512-bXNEaWdlc3Q='],
+    ['lodash', '4.17.21', 'sha512-bG9kYXNoRGlnZXN0'],
+    ['bundled-dep', '1.0.0', 'sha512-YnVuZGxlZERpZ2VzdA=='],
+    ['string-width', '4.2.3', 'sha512-d2lkdGhEaWdlc3Q='],
+  ]
+
+  function review(): void {
+    for (const [pkg, version, integrity] of reviewed) {
+      setStatus(pkg, version, 'COMMUNITY_REVIEWED', null, null, integrity, 'alice')
+    }
+  }
+
+  test('counts every registry tarball at any depth and lists the same entries', () => {
+    review()
+    const result = analyzeLockfile(new Uint8Array(fixtureBytes))
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error('unreachable')
+    const { summary, packages, reviewedPackageRefs } = result.analysis
+    expect(summary.reviewed).toBe(4)
+    expect(summary.integrityMismatch).toBe(0)
+    const listed = packages.filter((p) => p.tier === 'COMMUNITY_REVIEWED')
+    expect(listed.map((p) => `${p.name}@${p.version}`).sort()).toEqual([
+      'bundled-dep@1.0.0',
+      'lodash@4.17.21',
+      'ms@2.1.3',
+      'string-width@4.2.3',
+    ])
+    expect(reviewedPackageRefs).toHaveLength(summary.reviewed)
+  })
+
+  test('a workspace link and a workspace package are never reviewed', () => {
+    review()
+    const result = analyzeLockfile(new Uint8Array(fixtureBytes))
+    if (!result.ok) throw new Error('unreachable')
+    const names = result.analysis.packages.map((p) => p.name)
+    expect(names).not.toContain('pkg-a')
+    expect(names).not.toContain('pkg-b')
+    expect(result.analysis.packages.filter((p) => p.tier === 'COMMUNITY_REVIEWED')).toHaveLength(4)
+  })
+
+  test('an entry without resolved keeps the digest check: a wrong digest is INTEGRITY_MISMATCH', () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, 'sha512-b3RoZXJEaWdlc3Q=', 'alice')
+    const result = analyzeLockfile(new Uint8Array(fixtureBytes))
+    if (!result.ok) throw new Error('unreachable')
+    expect(result.analysis.summary.reviewed).toBe(0)
+    expect(result.analysis.summary.integrityMismatch).toBe(1)
+    const mismatch = result.analysis.packages.filter((p) => p.tier === 'INTEGRITY_MISMATCH')
+    expect(mismatch.map((p) => p.name)).toEqual(['ms'])
+  })
+})
+
 describe('analyzeLockfile — digest', () => {
   test('sha256 is computed over the exact raw body bytes, not a re-serialisation', () => {
     const doc = { lockfileVersion: 3, packages: { 'node_modules/ms': npmEntry('2.1.3') } }
