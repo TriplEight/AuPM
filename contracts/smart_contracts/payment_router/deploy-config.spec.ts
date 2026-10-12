@@ -28,7 +28,6 @@ import {
   identityBoxName,
   parseAdminMultisigAddrs,
   parseAppId,
-  parseAuditorMap,
   parseNetwork,
   resolveClientConfig,
   resolveExecuteReleaseFee,
@@ -134,34 +133,6 @@ describe('assertCrediterDistinct', () => {
     expect(() =>
       assertCrediterDistinct(ADDR_CREDITER, { deployer: undefined, payTo: ADDR_PAYTO }),
     ).not.toThrow()
-  })
-})
-
-describe('parseAuditorMap', () => {
-  test('returns an empty map for an unset value', () => {
-    expect(parseAuditorMap(undefined)).toEqual(new Map())
-  })
-
-  test('parses one or more github:<login>=<address> pairs', () => {
-    const map = parseAuditorMap('github:alice=ADDR1,github:bob=ADDR2')
-    expect(map).toEqual(
-      new Map([
-        ['github:alice', 'ADDR1'],
-        ['github:bob', 'ADDR2'],
-      ]),
-    )
-  })
-
-  test('rejects an entry with no "="', () => {
-    expect(() => parseAuditorMap('github:alice-ADDR1')).toThrow(/malformed AUDITORS/)
-  })
-
-  test('rejects an entry whose login is not "github:<login>"', () => {
-    expect(() => parseAuditorMap('alice=ADDR1')).toThrow(/malformed AUDITORS/)
-  })
-
-  test('rejects an entry with an empty address', () => {
-    expect(() => parseAuditorMap('github:alice=')).toThrow(/malformed AUDITORS/)
   })
 })
 
@@ -678,7 +649,7 @@ describe('assertSingleKeyDeployNotMainnet', () => {
 })
 
 describe('deploy() refuses MainNet before building any client or reading any mnemonic', () => {
-  const ENV_KEYS = ['NETWORK', 'CONFIRM_MAINNET', 'PAY_TO_ADDRESS', 'OPS_ADDRESS', 'AUDITORS']
+  const ENV_KEYS = ['NETWORK', 'CONFIRM_MAINNET', 'PAY_TO_ADDRESS', 'OPS_ADDRESS']
   let savedEnv: Record<string, string | undefined>
 
   beforeEach(() => {

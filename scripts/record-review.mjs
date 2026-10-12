@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Records one human review from its on-chain anchor (SPEC §14, ADR 0007).
 // Run by the operator, on the server. Reads the anchor transaction from the
-// indexer, checks its sender against AUDITORS, checks its integrity against
+// indexer, checks its sender against the PaymentRouter
+// identity box of the note's reviewer, checks its integrity against
 // npm for that exact version, resolves the repo key (SPEC §13.1), prints
 // every field, requires an interactive "yes", and only then writes the row
 // through the proxy's own SQLite schema (proxy/src/status.ts's setStatus —
@@ -21,7 +22,7 @@
 // with no TTY on stdin, it refuses before any network or database access.
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline/promises'
-import { indexerEndpoint, parseNetworkFlag } from './network.mjs'
+import { algodEndpoint, indexerEndpoint, parseNetworkFlag } from './network.mjs'
 import {
   checkIntegrityMatchesNpm,
   checkIsSelfZeroPayment,
@@ -30,10 +31,11 @@ import {
   decodeReviewNote,
   distIntegrityForVersion,
   fetchNpmPackument,
-  parseAuditors,
+  githubIdentity,
   repositoryForVersion,
   resolveRepoKey,
 } from './review-anchor.mjs'
+import { readMappedAddress } from './router-boxes.mjs'
 
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 
@@ -55,7 +57,9 @@ function printUsage() {
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {(question: string) => Promise<string>} deps.prompt
  * @param {{setStatus: Function, getStatusOrUnreviewed: Function}} deps.statusStore
- * @param {string|undefined} deps.auditorsEnv - the raw AUDITORS env value.
+ * @param {string|undefined} deps.paymentRouterAppId - PAYMENT_ROUTER_APP_ID.
+ * @param {(appId: number, identity: string) => Promise<string|null>} deps.readMappedAddress -
+ *   the address in the PaymentRouter identity box of `identity`, or null when unmapped.
  * @param {string} deps.network - the network the review is recorded for (ADR 0012).
  * @param {(line: string) => void} [deps.log]
  * @returns {Promise<{recorded: boolean, pkg?: string, version?: string, repo?: string, reviewer?: string}>}
@@ -66,17 +70,23 @@ export async function runRecordReview({
   fetchImpl = fetch,
   prompt,
   statusStore,
-  auditorsEnv,
+  paymentRouterAppId,
+  readMappedAddress: readMapped,
   network,
   log = console.log,
 }) {
-  const auditors = parseAuditors(auditorsEnv)
+  if (!paymentRouterAppId) {
+    throw new Error('PAYMENT_ROUTER_APP_ID is not set: cannot read the auditor registry')
+  }
 
   const { transaction: tx } = await indexerClient.lookupTransactionByID(anchorTxid).do()
   checkIsSelfZeroPayment(tx)
   const note = decodeReviewNote(tx.note)
   checkScopeAllowedOnNetwork(note.scope, network)
-  const login = checkSenderIsMappedAuditor({ sender: tx.sender, note, auditors })
+  const identity = githubIdentity(note.reviewer)
+  const mappedAddress = await readMapped(Number(paymentRouterAppId), identity)
+  checkSenderIsMappedAuditor({ sender: tx.sender, identity, mappedAddress })
+  const login = identity.slice('github:'.length)
 
   const packument = await fetchNpmPackument(note.name, fetchImpl)
   const npmIntegrity = distIntegrityForVersion(packument, note.name, note.version)
@@ -133,6 +143,8 @@ async function main() {
   const algosdk = require('algosdk')
   const { server, port, token } = indexerEndpoint(network)
   const indexerClient = new algosdk.Indexer(token, server, port)
+  const algodConfig = algodEndpoint(network)
+  const algod = new algosdk.Algodv2(algodConfig.token, algodConfig.server, algodConfig.port)
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const prompt = (question) => rl.question(question)
@@ -148,7 +160,8 @@ async function main() {
       indexerClient,
       prompt,
       statusStore,
-      auditorsEnv: process.env.AUDITORS,
+      paymentRouterAppId: process.env.PAYMENT_ROUTER_APP_ID,
+      readMappedAddress: (appId, identity) => readMappedAddress(algod, appId, identity),
       network,
     })
     process.exit(result.recorded ? 0 : 1)

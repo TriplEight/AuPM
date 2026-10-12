@@ -42,7 +42,8 @@ having compared nothing.
    the ARC-2 note `aupm:j{"v":1,"name",…,"version",…,"integrity",…,"reviewer",…,"scope",…}`.
    The auditor key never touches the server.
 4. The operator runs `record-review <anchorTxid>`. It reads the anchor from the indexer,
-   checks the sender against the auditor map (`AUDITORS`), checks the note integrity against
+   checks the sender against the PaymentRouter identity box of the note's reviewer
+   (`id:github:<login>`, lower case), checks the note integrity against
    npm `dist.integrity` for that exact version, resolves the repo key, prints all fields,
    asks for an interactive `yes`, and writes the row.
    WARNING: only this tool writes a review row. Never in code, a fixture, or a seed

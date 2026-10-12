@@ -70,6 +70,8 @@ a package's review status to `UNREVIEWED`.
 | tarball download | reviewed version | $0.001 |
 | tarball download | unreviewed version | free |
 | `GET /api/v1/status/...` | — | free |
+| `GET /api/v1/contract` | — | free |
+| `GET /api/v1/reviews?reviewer=<login>` | — | free |
 | `GET /api/v1/earnings/github/:login` | — | free |
 
 Every price is a multiple of 1,000 microUSDC. The lockfile price has no cap and no discount: it
@@ -159,7 +161,7 @@ The facilitator pays the payment transaction fee, so the ALGO only covers the mi
 and the opt-in. A wallet with an in-app USDC purchase, for example Pera, avoids an exchange
 withdrawal to a fresh address.
 
-Set the account's 25-word mnemonic in `AUPM_DONOR_MNEMONIC`. Never commit it and never log it.
+Set the account's 25-word mnemonic (or 24-word Universal Wallet phrase) in `AUPM_DONOR_MNEMONIC`. Never commit it and never log it.
 
 `aupm donor init` guides you through these steps. It creates the account, writes the key to
 `~/.config/aupm/donor.key` (`$XDG_CONFIG_HOME/aupm/donor.key`) with mode 0600, and prints a

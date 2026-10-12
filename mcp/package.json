@@ -1,6 +1,6 @@
 {
   "name": "aupm-mcp",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "license": "AGPL-3.0-only",
   "description": "MCP server for AuPM: check and install npm packages with human review status",
   "repository": {
@@ -23,9 +23,11 @@
     "aupm-mcp": "dist/index.js"
   },
   "exports": {
+    "./config": "./src/config.ts",
     "./money": "./src/money.ts",
     "./donor": "./src/donor.ts",
     "./donor-key": "./src/donor-key.ts",
+    "./key-phrase": "./src/key-phrase.ts",
     "./lockfile-entries": "./src/lockfile-entries.ts",
     "./proxy-url": "./src/proxy-url.ts",
     "./tools/attest": "./src/tools/attest.ts"
@@ -41,6 +43,7 @@
   "dependencies": {
     "@algorandfoundation/algokit-utils": "10.0.0-alpha.39",
     "@modelcontextprotocol/sdk": "1.30.1",
+    "@scure/bip39": "1.6.0",
     "@x402-avm/avm": "2.6.1",
     "@x402-avm/core": "2.6.1",
     "@x402-avm/fetch": "2.6.1",
@@ -56,6 +59,10 @@
   "publishConfig": {
     "access": "public",
     "exports": {
+      "./config": {
+        "types": "./dist/config.d.ts",
+        "default": "./dist/config.js"
+      },
       "./money": {
         "types": "./dist/money.d.ts",
         "default": "./dist/money.js"
@@ -67,6 +74,10 @@
       "./donor-key": {
         "types": "./dist/donor-key.d.ts",
         "default": "./dist/donor-key.js"
+      },
+      "./key-phrase": {
+        "types": "./dist/key-phrase.d.ts",
+        "default": "./dist/key-phrase.js"
       },
       "./lockfile-entries": {
         "types": "./dist/lockfile-entries.d.ts",

@@ -46,6 +46,20 @@ const GOOD_PACKUMENT = {
   versions: { '2.1.3': { dist: { integrity: 'sha512-known-good' } } },
 }
 
+/** Fake PaymentRouter identity boxes: identity -> address. Records the lookups. */
+function stubRegistry(boxes) {
+  const lookups = []
+  return {
+    lookups,
+    readMappedAddress: async (appId, identity) => {
+      lookups.push([appId, identity])
+      return boxes[identity] ?? null
+    },
+  }
+}
+
+const REGISTRY_ARGS = { paymentRouterAppId: '123', ...stubRegistry({ 'github:alice': 'ADDR1' }) }
+
 function recordedRows(store) {
   const rows = []
   return {
@@ -67,7 +81,7 @@ test('a successful run prints the fields, prompts, and writes the row on "yes"',
     fetchImpl: stubFetch(GOOD_PACKUMENT),
     prompt: async () => 'yes',
     statusStore: store,
-    auditorsEnv: 'github:alice=ADDR1',
+    ...REGISTRY_ARGS,
     log: () => {},
   })
   assert.equal(result.recorded, true)
@@ -96,50 +110,116 @@ test('declining the prompt writes nothing', async () => {
     fetchImpl: stubFetch(GOOD_PACKUMENT),
     prompt: async () => 'no',
     statusStore: store,
-    auditorsEnv: 'github:alice=ADDR1',
+    ...REGISTRY_ARGS,
     log: () => {},
   })
   assert.equal(result.recorded, false)
   assert.equal(rows.length, 0)
 })
 
-test('a sender not in AUDITORS throws and writes nothing', async () => {
+test('an unmapped reviewer login throws and writes nothing', async () => {
   const { store, rows } = recordedRows()
   await assert.rejects(
     runRecordReview({
       anchorTxid: 'TXID1',
-      indexerClient: stubIndexer(
-        goodTx({ sender: 'UNKNOWN', paymentTransaction: { amount: 0n, receiver: 'UNKNOWN' } }),
-      ),
+      indexerClient: stubIndexer(goodTx()),
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      auditorsEnv: 'github:alice=ADDR1',
+      paymentRouterAppId: '123',
+      ...stubRegistry({}),
       log: () => {},
     }),
-    /is not a mapped auditor address/,
+    /github:alice is not mapped in PaymentRouter/,
   )
   assert.equal(rows.length, 0)
 })
 
-test('a sender whose mapped login differs from the note reviewer throws and writes nothing', async () => {
+test('a sender that differs from the mapped address throws and writes nothing', async () => {
   const { store, rows } = recordedRows()
   await assert.rejects(
     runRecordReview({
       anchorTxid: 'TXID1',
-      // ADDR2 maps to "bob", but the note claims "github:alice".
       indexerClient: stubIndexer(
         goodTx({ sender: 'ADDR2', paymentTransaction: { amount: 0n, receiver: 'ADDR2' } }),
       ),
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      auditorsEnv: 'github:alice=ADDR1,github:bob=ADDR2',
+      ...REGISTRY_ARGS,
       log: () => {},
     }),
-    /does not match the login mapped to sender/,
+    /is not the address mapped to github:alice/,
   )
   assert.equal(rows.length, 0)
+})
+
+test('a missing app id throws before any lookup and writes nothing', async () => {
+  const { store, rows } = recordedRows()
+  const registry = stubRegistry({ 'github:alice': 'ADDR1' })
+  await assert.rejects(
+    runRecordReview({
+      anchorTxid: 'TXID1',
+      indexerClient: stubIndexer(goodTx()),
+      fetchImpl: stubFetch(GOOD_PACKUMENT),
+      prompt: async () => 'yes',
+      statusStore: store,
+      paymentRouterAppId: undefined,
+      ...registry,
+      log: () => {},
+    }),
+    /PAYMENT_ROUTER_APP_ID is not set/,
+  )
+  assert.equal(registry.lookups.length, 0)
+  assert.equal(rows.length, 0)
+})
+
+test('a mixed-case reviewer login matches a lower-case box', async () => {
+  const { store, rows } = recordedRows()
+  const registry = stubRegistry({ 'github:alice': 'ADDR1' })
+  const result = await runRecordReview({
+    anchorTxid: 'TXID1',
+    indexerClient: stubIndexer(
+      goodTx({ note: encodeReviewNote({ ...GOOD_NOTE_FIELDS, reviewer: 'github:Alice' }) }),
+    ),
+    fetchImpl: stubFetch(GOOD_PACKUMENT),
+    prompt: async () => 'yes',
+    statusStore: store,
+    paymentRouterAppId: '123',
+    ...registry,
+    log: () => {},
+  })
+  assert.deepEqual(registry.lookups, [[123, 'github:alice']])
+  assert.equal(result.reviewer, 'alice')
+  assert.equal(rows[0][6], 'alice')
+})
+
+test('two different auditors both record from one registry', async () => {
+  const registry = stubRegistry({ 'github:alice': 'ADDR1', 'github:bob': 'ADDR2' })
+  for (const [login, address] of [
+    ['alice', 'ADDR1'],
+    ['bob', 'ADDR2'],
+  ]) {
+    const { store, rows } = recordedRows()
+    const result = await runRecordReview({
+      anchorTxid: `TXID-${login}`,
+      indexerClient: stubIndexer(
+        goodTx({
+          sender: address,
+          paymentTransaction: { amount: 0n, receiver: address },
+          note: encodeReviewNote({ ...GOOD_NOTE_FIELDS, reviewer: `github:${login}` }),
+        }),
+      ),
+      fetchImpl: stubFetch(GOOD_PACKUMENT),
+      prompt: async () => 'yes',
+      statusStore: store,
+      paymentRouterAppId: '123',
+      ...registry,
+      log: () => {},
+    })
+    assert.equal(result.recorded, true)
+    assert.equal(rows[0][6], login)
+  }
 })
 
 test('an integrity mismatch against npm throws and writes nothing', async () => {
@@ -155,7 +235,7 @@ test('an integrity mismatch against npm throws and writes nothing', async () => 
       fetchImpl: stubFetch(mismatched),
       prompt: async () => 'yes',
       statusStore: store,
-      auditorsEnv: 'github:alice=ADDR1',
+      ...REGISTRY_ARGS,
       log: () => {},
     }),
     /does not match npm dist\.integrity/,
@@ -174,7 +254,7 @@ test('an anchor that is not a confirmed 0-ALGO self-payment throws and writes no
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      auditorsEnv: 'github:alice=ADDR1',
+      ...REGISTRY_ARGS,
       log: () => {},
     }),
     /not a 0-ALGO payment/,
@@ -191,7 +271,7 @@ test('a malformed note throws and writes nothing', async () => {
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      auditorsEnv: 'github:alice=ADDR1',
+      ...REGISTRY_ARGS,
       log: () => {},
     }),
     /ARC-2 prefix/,
@@ -200,7 +280,7 @@ test('a malformed note throws and writes nothing', async () => {
 })
 
 // -- no TTY: the real script must refuse before any network or database
-// access. Spawned with stdio piped (never a TTY) and no AUDITORS/network
+// access. Spawned with stdio piped (never a TTY) and no network
 // reachable — a hang or a network/database attempt would fail this test.
 test('record-review.mjs refuses immediately with no TTY on stdin', () => {
   const result = spawnSync(process.execPath, [SCRIPT, 'SOME_TXID'], {

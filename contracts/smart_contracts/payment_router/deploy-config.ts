@@ -99,7 +99,7 @@ const OPS_IDENTITY = 'ops'
 // balances/identityAddress box (contract.algo.ts) needs MBR on the app's own
 // account, not on payTo — see the comment on the identity BoxMap: "R2's
 // deploy step must fund the app account before the first credit()". 1 ALGO
-// covers the auditor-identity boxes set below plus headroom for the first
+// covers the identity boxes set below plus headroom for the first
 // several credit() batches at MVP scale.
 const APP_ACCOUNT_FUNDING = microAlgos(1_000_000)
 
@@ -197,35 +197,6 @@ export function assertOptedIntoUsdc(identity: string, address: string, holdsAsse
       `refusing to map ${identity} to ${address}: that address is not opted into USDC (SPEC §13.3)`,
     )
   }
-}
-
-/**
- * Parses AUDITORS ("github:<login>=<address>,...") into an identity ->
- * address map, mirroring scripts/review-anchor.mjs's parseAuditors so the
- * admin sets the identical map in PaymentRouter at deploy time (SPEC §14
- * step 3). Returns an empty map for an unset or blank value.
- * Pure: covered directly by deploy-config.spec.ts.
- *
- * @param auditorsEnv - the raw AUDITORS environment value.
- */
-export function parseAuditorMap(auditorsEnv: string | undefined): Map<string, string> {
-  const map = new Map<string, string>()
-  const raw = (auditorsEnv ?? '').trim()
-  if (!raw) return map
-  for (const pair of raw.split(',')) {
-    const entry = pair.trim()
-    if (!entry) continue
-    const eq = entry.indexOf('=')
-    if (eq === -1) throw new Error(`malformed AUDITORS entry (no "="): ${JSON.stringify(entry)}`)
-    const identity = entry.slice(0, eq).trim()
-    const address = entry.slice(eq + 1).trim()
-    if (!identity.startsWith('github:')) {
-      throw new Error(`malformed AUDITORS entry (login must be "github:<login>"): ${entry}`)
-    }
-    if (!address) throw new Error(`malformed AUDITORS entry (empty address): ${entry}`)
-    map.set(identity, address)
-  }
-  return map
 }
 
 export interface DeployPaymentRouterParams {
@@ -1039,8 +1010,7 @@ export async function deploy(): Promise<void> {
   const opsAddress = process.env.OPS_ADDRESS
   if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
 
-  const identityMap = parseAuditorMap(process.env.AUDITORS)
-  identityMap.set(OPS_IDENTITY, opsAddress)
+  const identityMap = new Map([[OPS_IDENTITY, opsAddress]])
 
   await deployPaymentRouter({
     algorand,

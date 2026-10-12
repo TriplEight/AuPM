@@ -72,7 +72,8 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      auditorsEnv: 'github:alice=ADDR1',
+      paymentRouterAppId: '123',
+      readMappedAddress: async () => 'ADDR1',
       network: 'mainnet',
       log: () => {},
     })
@@ -96,7 +97,8 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'no',
       statusStore,
-      auditorsEnv: 'github:alice=ADDR1',
+      paymentRouterAppId: '123',
+      readMappedAddress: async () => 'ADDR1',
       network: 'testnet',
       log: () => {},
     })
@@ -121,7 +123,8 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
           return 'yes'
         },
         statusStore,
-        auditorsEnv: 'github:alice=ADDR1',
+        paymentRouterAppId: '123',
+        readMappedAddress: async () => 'ADDR1',
         network: 'mainnet',
         log: () => {},
       }),
@@ -138,7 +141,8 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      auditorsEnv: 'github:alice=ADDR1',
+      paymentRouterAppId: '123',
+      readMappedAddress: async () => 'ADDR1',
       network: 'testnet',
       log: () => {},
     })

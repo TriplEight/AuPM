@@ -61,50 +61,19 @@ export function decodeReviewNote(noteBytes) {
 }
 
 /**
- * Parses the `AUDITORS` env var (`github:<login>=<address>,...`) into a
- * Map keyed by the bare login (matches status.ts's `reviewer` column
- * convention — never "github:alice" as the map value's own identity, only
- * as its key's source string here).
+ * The PaymentRouter identity for a GitHub login: "github:<login>", lower
+ * case. GitHub logins are case-insensitive, so this is the only place that
+ * builds or normalises such an identity. Accepts a bare login or an
+ * identity that already has the "github:" prefix.
  *
- * @param {string|undefined} envValue
- * @returns {Map<string, string>} login (bare, e.g. "alice") -> address
+ * @param {string} loginOrIdentity
+ * @returns {string} e.g. "github:alice"
  */
-export function parseAuditors(envValue) {
-  const map = new Map()
-  if (!envValue || envValue.trim().length === 0) return map
-  for (const rawPair of envValue.split(',')) {
-    const pair = rawPair.trim()
-    if (pair.length === 0) continue
-    const eq = pair.indexOf('=')
-    if (eq === -1) throw new Error(`malformed AUDITORS entry (no "="): ${JSON.stringify(pair)}`)
-    const loginField = pair.slice(0, eq).trim()
-    const address = pair.slice(eq + 1).trim()
-    if (!loginField.startsWith('github:') || loginField.length <= 7) {
-      throw new Error(`malformed AUDITORS entry (login must be "github:<login>"): ${pair}`)
-    }
-    if (address.length === 0) {
-      throw new Error(`malformed AUDITORS entry (empty address): ${pair}`)
-    }
-    map.set(loginField.slice('github:'.length), address)
-  }
-  return map
-}
-
-/**
- * The bare GitHub login mapped to `address` in `auditors`, or null when no
- * entry maps to it. Never the reverse of address-hiding: this is how
- * record-review.mjs turns an anchor's sender address into an identity to
- * check against the note's own claimed reviewer.
- *
- * @param {Map<string, string>} auditors
- * @param {string} address
- * @returns {string|null}
- */
-export function loginForAddress(auditors, address) {
-  for (const [login, mapped] of auditors) {
-    if (mapped === address) return login
-  }
-  return null
+export function githubIdentity(loginOrIdentity) {
+  const login = loginOrIdentity.startsWith('github:')
+    ? loginOrIdentity.slice('github:'.length)
+    : loginOrIdentity
+  return `github:${login.toLowerCase()}`
 }
 
 /**
@@ -219,25 +188,23 @@ export function checkIsSelfZeroPayment(tx) {
 }
 
 /**
- * Throws unless `sender` is a mapped auditor address whose login equals the
- * note's own claimed `reviewer`. Returns the bare login on success (for
- * status.ts's `reviewer` column, which never carries the "github:" prefix).
+ * Throws unless `sender` equals the address that PaymentRouter maps to
+ * `identity` (its identity box). `mappedAddress` is null when the box does
+ * not exist.
  *
- * @param {{sender: string, note: {reviewer: string}, auditors: Map<string, string>}} args
- * @returns {string} bare GitHub login
+ * @param {{sender: string, identity: string, mappedAddress: string|null}} args
  */
-export function checkSenderIsMappedAuditor({ sender, note, auditors }) {
-  const login = loginForAddress(auditors, sender)
-  if (!login) {
-    throw new Error(`anchor sender ${sender} is not a mapped auditor address (AUDITORS)`)
-  }
-  const claimed = note.reviewer.slice('github:'.length)
-  if (claimed !== login) {
+export function checkSenderIsMappedAuditor({ sender, identity, mappedAddress }) {
+  if (mappedAddress === null) {
     throw new Error(
-      `note reviewer "github:${claimed}" does not match the login mapped to sender ${sender} ("github:${login}")`,
+      `${identity} is not mapped in PaymentRouter: the admin must run setIdentity for it first`,
     )
   }
-  return login
+  if (sender !== mappedAddress) {
+    throw new Error(
+      `anchor sender ${sender} is not the address mapped to ${identity} (${mappedAddress})`,
+    )
+  }
 }
 
 /**

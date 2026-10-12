@@ -633,6 +633,8 @@ explicitly (`/@scope/name/-/name-1.0.0.tgz`).
 | `GET /v1/attest?name=&version=` | $0.001, free unless reviewed |
 | `GET /<pkg>/-/<tarball>` | $0.001 only with `X-AuPM-Donate: 1` and a reviewed version; else free |
 | `GET /api/v1/status/...` | free |
+| `GET /api/v1/contract` | free (public PaymentRouter coordinates: `network`, `appId`, `payTo`, `usdcAssetId`, `minClaim`; 503 when `PAYMENT_ROUTER_APP_ID` is unset) |
+| `GET /api/v1/reviews?reviewer=<login>` | free (the review records stored for one GitHub login, sorted by name and version; 400 for a malformed login) |
 | `GET /api/v1/health` | free (nightly job state, plus the release `version` and `commit` of the running image; 503 when the last nightly success is older than 26 hours) |
 | `GET /api/v1/earnings/github/:login` | free (ledger read) |
 | `GET /.well-known/aupm-keys.json` | free (attestation pubkeys) |
@@ -1210,11 +1212,19 @@ fabricated record.
    `aupm:j{"v":1,"name":…,"version":…,"integrity":…,"reviewer":"github:<login>","scope":…}`.
    The auditor key never touches the server.
 2. The operator runs `record-review <anchorTxid>` on the server. The tool reads the anchor from
-   the indexer, checks that the sender is the auditor's address in the server's auditor map
-   (`AUDITORS`, `github:<login>=<address>`), checks that the note integrity equals npm
+   the indexer, takes the note's `reviewer` (`github:<login>`, lower case), reads the
+   PaymentRouter identity box `id:github:<login>`, checks that the sender equals the address in
+   that box, checks that the note integrity equals npm
    `dist.integrity` for that exact version, resolves the repo key (§13.1), prints all fields,
    and requires an interactive `yes`. Only then does it write the row.
-3. The admin sets the same auditor map in PaymentRouter when it is deployed (§13.3).
+3. The admin maps a new auditor with `setIdentity("github:<login>", address)`, at any time. No
+   redeploy and no server change. The identity box is the only auditor registry. An unmapped
+   login is refused. GitHub logins are case-insensitive, so every tool lower-cases the login.
+
+Remapping: `setIdentity("github:alice", newAddr)` moves the right to claim the whole balance of
+alice, credited and unclaimed too, to `newAddr` at once. Past reviews stay alice's, because a
+review record holds the login. New anchors must come from `newAddr`. Use it for key loss or
+rotation. Risk: the admin can redirect a balance (README "Trust model").
 
 No other code path writes a review row: not CI, not a fixture, not a seed script.
 - **Seed selection:** small, ubiquitous transitive dependencies that a human can genuinely review
@@ -1303,7 +1313,7 @@ withdrawal or bridge hop takes days; an in-app wallet purchase is faster. Chase 
 **R0. PaymentRouter (parallel track; done before the first claim).** PaymentRouter replaces
 SplitRouter; the nightly job gets its credit step. *Gate:* the full sequence passes on
 TestNet: `payTo` opt-in → pay through GoPlausible → rekey → nightly job credits batch 1 →
-`claim()`. Then on MainNet: deploy PaymentRouter, set the crediter key and the auditor map,
+`claim()`. Then on MainNet: deploy PaymentRouter, set the crediter key, map the ops identity and each auditor with `setIdentity`,
 rekey `payTo`, and let the nightly job credit the backlog. *Check:* credit and claim txids in
 `NOTES.md`.
 
