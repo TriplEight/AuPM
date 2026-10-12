@@ -301,8 +301,12 @@ donation for that version (the MVP split).
 ### What you need
 
 - A GitHub account. Your GitHub login is your auditor identity.
-- A cold Algorand account with a 25-word recovery phrase. This account signs your reviews and
-  receives your USDC.
+- A cold Algorand account. This account signs your reviews and receives your USDC. Two kinds
+  work:
+  - A Pera Universal Wallet account (24-word recovery phrase). `aupm` uses the first account that
+    Pera shows. For another account of the same wallet, add `--address <address>` to `review` and
+    `claim`.
+  - An Algo25 account (25-word recovery phrase).
 - About 0.5 ALGO (section 0): 0.1 for the account, 0.1 for the USDC opt-in, 0.001 for each
   review and at least 0.002 for each claim.
 - The `aupm` CLI (section 0).
