@@ -70,7 +70,8 @@ money.
 
    `aupm` runs the real npm against the AuPM registry. It passes npm's arguments, output and exit
    code through. After the install, it prints the number of packages in each group: audited, not
-   audited, integrity mismatch and unresolvable.
+   audited, integrity mismatch and unresolvable. It also prints the price of a donation. It does
+   not donate without `--donate`.
 2. Use pnpm, yarn classic or npx the same way:
 
    ```bash
@@ -78,6 +79,9 @@ money.
    aupm yarn add ms@2.1.3       # yarn classic (v1) only
    aupm npx cowsay hi
    ```
+
+   `aupm pnpm` and `aupm yarn` need pnpm or yarn classic on your computer. `aupm` does not
+   install them.
 
 3. Optional: use plain npm with the AuPM registry:
 
@@ -153,8 +157,8 @@ in it. Do not use an account that holds anything else.
    ```
 
    If the ALGO is not there yet, `optin` prints the shortfall and exits 1. Run it again later.
-5. Send 1 to 5 USDC (asset `31566704`) to the donor address. `aupm donor status` shows a QR code
-   for 1 USDC.
+5. Send 1 to 5 USDC (asset `31566704`) to the donor address. After the opt-in, `aupm donor optin`
+   and `aupm donor status` show a QR code for 1 USDC.
 6. Check the donor account:
 
    ```bash
@@ -298,6 +302,9 @@ An auditor reads the exact tarball of a package version and records the review o
 AuPM shows that version as `COMMUNITY_REVIEWED`. The live contract pays the auditor 30% of each
 donation for that version (the MVP split).
 
+NOTE: this audit process is the MVP version. It will change soon, after the auditor pilot
+(ADR 0027).
+
 ### What you need
 
 - A GitHub account. Your GitHub login is your auditor identity.
@@ -322,8 +329,8 @@ donation for that version (the MVP split).
 
 ### Procedure
 
-1. Apply. Open an issue in `TriplEight/AuPM` with the "Auditor application" form. Give the
-   address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
+1. Apply. [Open an issue with the "Auditor application" form](https://github.com/TriplEight/AuPM/issues/new?template=auditor-application.yml).
+   Give the address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
 2. Audit the files. Get the exact tarball that users install:
 
    ```bash
@@ -355,7 +362,7 @@ donation for that version (the MVP split).
 
 6. Wait for the ops to return to you. They reply in your issue.
 7. Check your balance. Each donation for a version that you reviewed adds 300 microUSDC. The
-   nightly job credits the balances. You can claim at 100,000 microUSDC (0.1 USDC) or more.
+   nightly job credits the balances. You can claim starting from 100,000 microUSDC (0.1 USDC).
 
    ```bash
    aupm auditor balance <your GitHub login>
