@@ -87,6 +87,7 @@ describe('aupm attest', () => {
     expect(printed).toContain('You can donate 0.002 USDC for 2 reviewed packages.')
     expect(printed).toContain('all reviewed packages in the lockfile')
     expect(printed).not.toContain('microUSDC')
+    expect(printed).not.toContain('Known advisories')
     logSpy.mockRestore()
   })
 
