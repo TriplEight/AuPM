@@ -5,7 +5,8 @@ this change, the donor made the account and the opt-in by hand and exported the 
 env var. `aupm donor init` creates the account with algosdk and writes
 the 25 words and a newline to `$XDG_CONFIG_HOME/aupm/donor.key` (default
 `~/.config/aupm/donor.key`), with no variable name in the file. The directory has mode 0700 and the file has mode 0600. The write is
-exclusive: `init` never overwrites or rewrites a key. It never prints the mnemonic.
+exclusive: `init` never overwrites or rewrites a key. It never prints the mnemonic. (Superseded in
+part by ADR 0029: on a terminal, `init` shows the words once before it saves the file.)
 
 Without a terminal, or with `--yes`, `init` prints a warning block about the key file, the address
 and the network, and five numbered next steps with ARC-26 `algorand://` URIs and terminal QR codes

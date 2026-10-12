@@ -1,19 +1,22 @@
 // cli/src/donor.ts
 //
-// `aupm donor init|optin|status` (SPEC.md §11.4, ADR 0016). `init` creates a donor account and
-// stores its key in the donor key file. On a terminal it then guides the donor one step at a
-// time: it waits for Enter, checks the balance once, and sends the opt-in. Without a terminal,
-// or with `--yes`, it prints the steps and exits. `optin` checks the balance once and sends one
+// `aupm donor init|optin|status` (SPEC.md §11.4, ADR 0016). `init` creates a donor account. On a
+// terminal it shows the 25 words once, saves the key file only after the donor types yes, then
+// guides the donor one step at a time: it waits for Enter, checks the balance once, sends the
+// opt-in, and waits for the USDC. Without a terminal, or with `--yes`, it saves the key file,
+// prints the steps and exits. `optin` checks the balance once and sends one
 // 0-amount USDC transfer to self straight to algod. `status` reads the state and names the
 // next step. No command uses a timer or polls. The opt-in is not an x402 payment.
 //
 // The key file and the env var hold a 25-word or a 24-word phrase (ADR 0028). `init` makes a
 // 25-word key.
 //
-// WARNING: never print or log the mnemonic or the secret key.
+// WARNING: never print or log the mnemonic or the secret key. The one exception is the backup
+// screen of a terminal `init`: it prints the words once through `io.secret`.
 import readline from 'node:readline'
 import type { Readable } from 'node:stream'
 import algosdk from 'algosdk'
+import { ConfigError } from 'aupm-mcp/config'
 import { donorAlgodUrl } from 'aupm-mcp/donor'
 import {
   AUPM_DONOR_MNEMONIC_ENV,
@@ -23,15 +26,18 @@ import {
   writeDonorKeyFile,
 } from 'aupm-mcp/donor-key'
 import { accountFromPhrase, type KeyAccount } from 'aupm-mcp/key-phrase'
+import { donateSettingLine } from './config.js'
 import {
   ALGO_PENDING_LINE,
   ALGO_SUGGESTED_MICRO,
   addressLines,
-  afterOptInStep,
   algoStep,
-  backupLines,
+  allSetLines,
+  backupIntroLines,
+  backupOutroLines,
   continueLines,
   currentNetwork,
+  donateStep,
   envNoticeLines,
   formatMicro,
   initNextSteps,
@@ -39,15 +45,22 @@ import {
   optedInLines,
   optInRequiredMicro,
   PROMPT_ENTER_ALGO,
+  PROMPT_ENTER_USDC,
   PROMPT_RETRY_YES,
   PROMPT_YES,
   paint,
   type Snapshot,
   STOPPED_LINE,
+  STOPPED_UNSAVED_LINE,
+  savedLines,
   shortfallLines,
   statusLines,
   testnetNote,
+  USDC_PENDING_LINE,
+  usdcArrivedLines,
+  usdcStep,
   warningBlock,
+  wordRows,
 } from './donor-text.js'
 import { signTxn } from './sign.js'
 
@@ -61,6 +74,8 @@ const USAGE = [
 export interface DonorIo {
   out(line: string): void
   err(line: string): void
+  /** Raw text for the backup screen only: the 25 words. The console io drops it without a TTY. */
+  secret(text: string): void
 }
 
 export interface DonorOptions {
@@ -74,6 +89,9 @@ export interface DonorOptions {
 const consoleIo: DonorIo = {
   out: (line) => console.log(line),
   err: (line) => console.error(line),
+  secret: (text) => {
+    if (process.stdout.isTTY === true) process.stdout.write(text)
+  },
 }
 
 function emit(io: DonorIo, lines: string[]): void {
@@ -221,13 +239,13 @@ async function withAnswers(input: Readable, run: (ask: Ask) => Promise<number>):
   }
 }
 
-function stopped(io: DonorIo): number {
-  io.out(STOPPED_LINE)
+function stopped(io: DonorIo, line = STOPPED_LINE): number {
+  io.out(line)
   return 0
 }
 
-async function waitForEnter({ io, ask }: Session): Promise<boolean> {
-  io.out(PROMPT_ENTER_ALGO)
+async function waitForEnter({ io, ask }: Session, prompt = PROMPT_ENTER_ALGO): Promise<boolean> {
+  io.out(prompt)
   return (await ask()) !== null
 }
 
@@ -241,63 +259,119 @@ async function waitForYes({ io, ask }: Session): Promise<boolean> {
   }
 }
 
-/** Checks the wallet once per Enter, sends the opt-in when the ALGO is there, then stops. */
+/** The line of the donate setting. A malformed config file gives its message instead. */
+function donateSetting(): string {
+  try {
+    return donateSettingLine()
+  } catch (error) {
+    if (error instanceof ConfigError) return `donate cannot be read. ${error.message}`
+    throw error
+  }
+}
+
+/** Waits for the USDC after the opt-in. Returns an exit code, or null to check the balance. */
+async function waitForUsdc(session: Session, snapshot: Snapshot, pressed: boolean) {
+  const { io, network } = session
+  const lines = pressed ? [USDC_PENDING_LINE] : usdcStep('Next step.', snapshot.address, network)
+  emit(io, ['', ...lines])
+  return (await waitForEnter(session, PROMPT_ENTER_USDC)) ? null : stopped(io)
+}
+
+/** One check of the wallet. Returns an exit code, or null when the donor must act and press Enter. */
+async function guideStep(
+  session: Session,
+  account: KeyAccount,
+  snapshot: Snapshot,
+  pressed: boolean,
+): Promise<number | null> {
+  const { io, network } = session
+  if (snapshot.optedIn && snapshot.usdc > 0n) {
+    emit(io, ['', ...usdcArrivedLines(snapshot), '', ...donateStep('Next step.')])
+    return 0
+  }
+  if (snapshot.optedIn) return await waitForUsdc(session, snapshot, pressed)
+  if (snapshot.algo >= snapshot.required) {
+    const txid = await sendOptIn(account, network)
+    emit(io, ['', ...optedInLines(txid, snapshot.address, network)])
+    return (await waitForEnter(session, PROMPT_ENTER_USDC)) ? null : stopped(io)
+  }
+  emit(io, ['', ...(pressed ? [ALGO_PENDING_LINE] : []), ...shortfallLines(snapshot, network)])
+  return (await waitForEnter(session)) ? null : stopped(io)
+}
+
+/** Checks the wallet once per Enter. It sends the opt-in when the ALGO is there. */
 async function guideFromState(
   session: Session,
   account: KeyAccount,
   afterEnter: boolean,
+  first?: Snapshot,
 ): Promise<number> {
-  const { io, network } = session
-  for (let pressedEnter = afterEnter; ; pressedEnter = true) {
-    const snapshot = await readSnapshot(account.address, network.usdcAsset)
-    if (snapshot.optedIn) {
-      emit(io, ['', ...afterOptInStep(snapshot, network)])
-      return 0
-    }
-    if (snapshot.algo >= snapshot.required) {
-      const txid = await sendOptIn(account, network)
-      emit(io, ['', ...optedInLines(txid, snapshot.address, network)])
-      return 0
-    }
-    emit(io, [
-      '',
-      ...(pressedEnter ? [ALGO_PENDING_LINE] : []),
-      ...shortfallLines(snapshot, network),
-    ])
-    if (!(await waitForEnter(session))) return stopped(io)
+  let snapshot = first
+  for (let pressed = afterEnter; ; pressed = true) {
+    snapshot ??= await readSnapshot(account.address, session.network.usdcAsset)
+    const code = await guideStep(session, account, snapshot, pressed)
+    if (code !== null) return code
+    snapshot = undefined
   }
 }
 
-async function guideNewWallet(
-  session: Session,
-  file: string,
-  account: KeyAccount,
-): Promise<number> {
+const SCREEN_ON = '\u001b[?1049h'
+const SCREEN_OFF = '\u001b[?1049l'
+
+/** True when the terminal can show and then drop the backup screen. */
+function canSwitchScreen(): boolean {
+  return process.stdout.isTTY === true && process.env.TERM !== 'dumb'
+}
+
+/**
+ * Shows the 25 words once and asks for yes. The words go to `io.secret` only, on the alternate
+ * screen when the terminal has one. They leave the screen when the donor answers.
+ */
+async function showBackup(session: Session, mnemonic: string): Promise<boolean> {
+  const { io } = session
+  const switched = canSwitchScreen()
+  if (switched) io.secret(SCREEN_ON)
+  try {
+    emit(io, backupIntroLines())
+    for (const row of wordRows(mnemonic)) io.secret(`${row}\n`)
+    emit(io, backupOutroLines())
+    return await waitForYes(session)
+  } finally {
+    if (switched) io.secret(SCREEN_OFF)
+  }
+}
+
+async function guideNewWallet(session: Session, file: string): Promise<number> {
   const { io, network } = session
-  const { address } = account
+  const mnemonic = algosdk.secretKeyToMnemonic(algosdk.generateAccount().sk)
+  const account = await accountOf(mnemonic)
   emit(io, [
-    'Created the donor wallet.',
+    'Making a new donor wallet. The key file is not saved yet.',
     ...testnetNote(network),
     ...warningBlock(file, process.platform === 'win32'),
     '',
-    ...addressLines(address, network),
+    ...addressLines(account.address, network),
     ...(await envNotice()),
     '',
-    ...backupLines(file),
   ])
-  if (!(await waitForYes(session))) return stopped(io)
-  emit(io, ['', ...algoStep('Step 1.', address, network, ALGO_SUGGESTED_MICRO, true)])
+  if (!(await showBackup(session, mnemonic))) return stopped(io, STOPPED_UNSAVED_LINE)
+  writeDonorKeyFile(mnemonic)
+  emit(io, ['', ...savedLines(file), '', ...addressLines(account.address, network), ''])
+  emit(io, algoStep('Step 1.', account.address, network, ALGO_SUGGESTED_MICRO, true))
   if (!(await waitForEnter(session))) return stopped(io)
   return await guideFromState(session, account, true)
 }
 
 async function guideExistingWallet(session: Session, file: string): Promise<number> {
+  const { io, network } = session
   const account = await accountOf(loadDonorMnemonic())
-  emit(session.io, [
-    ...continueLines(file, account.address, session.network),
-    ...(await envNotice()),
-  ])
-  return await guideFromState(session, account, false)
+  const snapshot = await readSnapshot(account.address, network.usdcAsset)
+  if (snapshot.optedIn && snapshot.usdc > 0n) {
+    emit(io, [...allSetLines(snapshot, network, donateSetting()), ...(await envNotice())])
+    return 0
+  }
+  emit(io, [...continueLines(file, account.address, network), ...(await envNotice())])
+  return await guideFromState(session, account, false, snapshot)
 }
 
 async function createWallet(): Promise<KeyAccount> {
@@ -331,7 +405,7 @@ async function runInit(io: DonorIo, network: Network, options: InitOptions): Pro
   return await withAnswers(options.input, async (ask) => {
     const session: Session = { io, ask, network }
     if (exists) return await guideExistingWallet(session, file)
-    return await guideNewWallet(session, file, await createWallet())
+    return await guideNewWallet(session, file)
   })
 }
 
