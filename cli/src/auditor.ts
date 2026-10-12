@@ -9,6 +9,8 @@ import {
   assertClaimable,
   assertGenesis,
   assertMappedSigner,
+  loraLink,
+  MIN_CLAIM_FEE,
   type NetworkName,
   readAccountFacts,
   readBalance,
@@ -31,6 +33,7 @@ import {
   previousReviewedVersion,
 } from './auditor-server.js'
 import { type AuditorDeps, defaultDeps, normalizeLogin, promptAccount } from './auditor-terminal.js'
+import { describeMicroUsdc, formatMicro } from './donor-text.js'
 
 const MAINNET_CAIP2 = 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8='
 const TESTNET_CAIP2 = 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
@@ -50,8 +53,8 @@ function networkOf(contract: ContractInfo): NetworkName {
   throw new Error(`The server reports an unknown network: ${contract.network}`)
 }
 
-function loraLink(network: NetworkName, txid: string): string {
-  return `https://lora.algokit.io/${network}/transaction/${txid}`
+function missingArgument(what: string, command: string): Error {
+  return new Error(`Missing ${what}. Run: aupm auditor ${command}\n${AUDITOR_USAGE.join('\n')}`)
 }
 
 function flagValue(args: string[], flag: string): string | undefined {
@@ -100,19 +103,23 @@ async function askRequired(deps: AuditorDeps, question: string): Promise<string>
 
 async function askScope(deps: AuditorDeps, previous: string | null) {
   deps.print(`Previous reviewed version: ${previous ?? 'none (first review)'}`)
+  deps.print(
+    'Answer 4 questions. Keep the answers short: the whole review note must fit in 1,024 bytes.',
+  )
   const coverage = await askRequired(deps, 'Coverage (for example: full source, 1 file, 162 lines)')
   const installScripts = await askRequired(deps, 'Install scripts (none, or list them)')
   const findings = await askRequired(deps, 'Findings (text, or none)')
   const changes = await askRequired(
     deps,
-    `Changes since ${previous ?? 'the previous version'} (or: ${FIRST_REVIEW})`,
+    `What changed since ${previous ?? 'the previous version'}? ` +
+      `(Type "${FIRST_REVIEW}" if this is your first review of the package)`,
   )
   return { coverage, installScripts, findings, changes }
 }
 
 async function review(args: string[], deps: AuditorDeps): Promise<void> {
   const spec = positionals(args)[0]
-  if (!spec) throw new Error(AUDITOR_USAGE.join('\n'))
+  if (!spec) throw missingArgument('package', 'review <name>@<version>')
   const { name, version } = parsePackageSpec(spec)
   const account = await promptAccount(deps, derivationChoice(args))
   const login = await loginFrom(args, deps)
@@ -121,7 +128,7 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
   const algod = deps.algod(network)
   assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
   const mapped = await readMappedAddress(algod, contract.appId, `github:${login}`)
-  assertMappedSigner(mapped, account.address)
+  assertMappedSigner(mapped, account.address, login)
   const integrity = await fetchNpmIntegrity(deps.fetch, name, version)
   const reviews = await fetchReviews(deps.fetch, deps.origin, login)
   const previous = previousReviewedVersion(reviews, name, version)
@@ -142,13 +149,18 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
   ]) {
     deps.print(line)
   }
-  if ((await deps.ask('Send this review anchor? Type "yes" to confirm: ')).trim() !== 'yes') {
+  const question =
+    'Send this review to the blockchain? It costs 0.001 ALGO and you cannot undo it. ' +
+    'Type "yes" to confirm: '
+  if ((await deps.ask(question)).trim() !== 'yes') {
     deps.print('Stopped. No transaction sent.')
     return
   }
-  const txid = await sendAnchor(algod, account, note)
-  deps.print(`Anchored. Transaction: ${txid}`)
+  const txid = await sendAnchor(algod, account, note, network)
+  deps.print(`Review recorded. Transaction: ${txid}`)
   deps.print(`Explorer: ${loraLink(network, txid)}`)
+  deps.print('Post this txid in your auditor application issue.')
+  deps.print(`After the ops record it, \`aupm auditor status ${login}\` shows it.`)
 }
 
 async function chainFacts(deps: AuditorDeps, login: string) {
@@ -164,22 +176,44 @@ async function chainFacts(deps: AuditorDeps, login: string) {
   return { contract, network, algod, identity, mapped, balance, facts }
 }
 
+const CLAIM_STEP = 'Run: aupm auditor claim'
+
+/** The one thing the auditor does next, from the first check that fails. */
+function claimNextStep(args: {
+  mapped: string | null
+  credited: bigint
+  minClaim: number
+  facts: AccountFacts | null
+}): string {
+  const { mapped, credited, minClaim, facts } = args
+  if (mapped === null || facts === null) return 'Ask the AuPM ops to link your address.'
+  if (credited < BigInt(minClaim)) {
+    return `Wait. You can claim from ${describeMicroUsdc(BigInt(minClaim))}.`
+  }
+  if (!facts.optedIn) return 'Opt in to USDC with your wallet app.'
+  if (facts.algoAvailable < BigInt(MIN_CLAIM_FEE)) {
+    return `Send ${formatMicro(BigInt(MIN_CLAIM_FEE))} ALGO to ${mapped}.`
+  }
+  return CLAIM_STEP
+}
+
 async function balance(args: string[], deps: AuditorDeps): Promise<void> {
   const raw = positionals(args)[0]
-  if (!raw) throw new Error(AUDITOR_USAGE.join('\n'))
+  if (!raw) throw missingArgument('GitHub login', 'balance <github-login>')
   const login = normalizeLogin(raw)
   const { contract, network, mapped, balance: credited, facts } = await chainFacts(deps, login)
-  const possible = mapped !== null && credited >= BigInt(contract.minClaim)
+  const step = claimNextStep({ mapped, credited, minClaim: contract.minClaim, facts })
   deps.print(`identity:         github:${login}`)
   deps.print(`network:          ${network}`)
-  deps.print(`mapped address:   ${mapped ?? 'none (an admin must map it)'}`)
+  deps.print(`mapped address:   ${mapped ?? 'none (the AuPM ops must link it)'}`)
   deps.print(`credited balance: ${credited} microUSDC`)
-  deps.print(`MIN_CLAIM:        ${contract.minClaim} microUSDC`)
+  deps.print(`minimum claim:    ${contract.minClaim} microUSDC`)
   deps.print(`USDC opt-in:      ${facts ? (facts.optedIn ? 'yes' : 'no') : 'unknown'}`)
   deps.print(
     `ALGO for the fee: ${facts ? `${facts.algoAvailable} microALGO available` : 'unknown'}`,
   )
-  deps.print(`claim possible:   ${possible && facts?.optedIn ? 'yes' : 'no'}`)
+  deps.print(`claim possible:   ${step === CLAIM_STEP ? 'yes' : 'no'}`)
+  deps.print(`Next step: ${step}`)
 }
 
 async function claim(args: string[], deps: AuditorDeps): Promise<void> {
@@ -193,26 +227,36 @@ async function claim(args: string[], deps: AuditorDeps): Promise<void> {
     minClaim: state.contract.minClaim,
     mapped: state.mapped,
     signer,
+    login,
+    usdcAssetId: state.contract.usdcAssetId,
     facts: state.facts ?? { optedIn: false, algoAvailable: 0n },
   })
-  deps.print(`Claiming ${state.balance} microUSDC for ${state.identity} (${signer}).`)
+  deps.print(
+    `Claiming ${describeMicroUsdc(state.balance)} for ${state.identity}. The USDC goes to ${signer}.`,
+  )
   const txid = await sendClaim(state.algod, account, {
     appId: state.contract.appId,
     identity: state.identity,
     payTo: state.contract.payTo,
     usdcAssetId: state.contract.usdcAssetId,
+    network: state.network,
   })
-  deps.print(`Claimed. Transaction: ${txid}`)
+  deps.print(`Claimed. The USDC is in your wallet. Transaction: ${txid}`)
   deps.print(`Explorer: ${loraLink(state.network, txid)}`)
 }
 
 async function status(args: string[], deps: AuditorDeps): Promise<void> {
   const raw = positionals(args)[0]
-  if (!raw) throw new Error(AUDITOR_USAGE.join('\n'))
+  if (!raw) throw missingArgument('GitHub login', 'status <github-login>')
   const login = normalizeLogin(raw)
   const reviews = await fetchReviews(deps.fetch, deps.origin, login)
   deps.print(`reviewer: github:${login}`)
-  if (reviews.length === 0) deps.print('No reviews.')
+  if (reviews.length === 0) {
+    deps.print(
+      `No reviews found for github:${login}. ` +
+        'The ops record a review after you post its txid in your application issue.',
+    )
+  }
   for (const r of reviews) {
     deps.print(`${r.name}@${r.version}  ${r.status}  ${r.reviewedAt}  anchor ${r.anchorTxid}`)
     deps.print(`  scope: ${r.scope}`)
@@ -241,7 +285,10 @@ export async function runAuditor(
   }
   try {
     if (SIGNING.has(sub) && !deps.isTTY) {
-      throw new Error(`Refused. aupm auditor ${sub} needs a terminal for the key. None found.`)
+      throw new Error(
+        `Refused. \`aupm auditor ${sub}\` asks for your recovery phrase on a hidden prompt. ` +
+          'Run it in an interactive terminal, not in a script or a pipe.',
+      )
     }
     await handler(rest, deps)
     return 0

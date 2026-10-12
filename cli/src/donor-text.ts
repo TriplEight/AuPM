@@ -44,6 +44,11 @@ export function formatMicro(micro: bigint): string {
   return fraction === '' ? `${whole}` : `${whole}.${fraction}`
 }
 
+/** `100,000 microUSDC (0.1 USDC)`. Integer math only. */
+export function describeMicroUsdc(micro: bigint): string {
+  return `${micro.toLocaleString('en-US')} microUSDC (${formatMicro(micro)} USDC)`
+}
+
 /** ALGO the account needs before it can opt in to USDC, from algod's minimum balance. */
 export function optInRequiredMicro(minBalance: bigint): bigint {
   const base = minBalance > ACCOUNT_MIN_BALANCE_MICRO ? minBalance : ACCOUNT_MIN_BALANCE_MICRO

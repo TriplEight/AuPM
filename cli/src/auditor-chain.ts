@@ -5,6 +5,7 @@
 // algod. The facilitator is not involved (the anchor and the claim are the auditor's own).
 import algosdk from 'algosdk'
 import type { KeyAccount } from 'aupm-mcp/key-phrase'
+import { describeMicroUsdc, formatMicro } from './donor-text.js'
 import { signTxn } from './sign.js'
 
 export const MIN_CLAIM_FEE = 2_000
@@ -15,6 +16,10 @@ export type NetworkName = 'mainnet' | 'testnet'
 const GENESIS_ID: Record<NetworkName, string> = {
   mainnet: 'mainnet-v1.0',
   testnet: 'testnet-v1.0',
+}
+
+export function loraLink(network: NetworkName, txid: string): string {
+  return `https://lora.algokit.io/${network}/transaction/${txid}`
 }
 
 const encoder = new TextEncoder()
@@ -86,21 +91,25 @@ export async function readAccountFacts(
 export function assertGenesis(network: NetworkName, genesisId: string): void {
   if (genesisId !== GENESIS_ID[network]) {
     throw new Error(
-      `The algod node reports network "${genesisId}". The server reports ${network}. ` +
-        'Check ALGOD_MAINNET_URL and ALGOD_TESTNET_URL.',
+      `The Algorand node is on network "${genesisId}". The AuPM server uses ${network}. ` +
+        `Unset ALGOD_MAINNET_URL and ALGOD_TESTNET_URL, or set them to a ${network} node.`,
     )
   }
 }
 
 /** Throws unless `signer` is the address mapped to the login. */
-export function assertMappedSigner(mapped: string | null, signer: string): void {
+export function assertMappedSigner(mapped: string | null, signer: string, login: string): void {
   if (!mapped) {
-    throw new Error('This login is not mapped to any address on-chain. Ask an admin to map it.')
+    throw new Error(
+      `No wallet address is linked to the GitHub login ${login}. ` +
+        'Ask the AuPM ops to link your address in your auditor application issue.',
+    )
   }
   if (mapped !== signer) {
     throw new Error(
-      `The key address (${signer}) is not the address mapped to this login (${mapped}). ` +
-        'claim() would reject this call.',
+      `The phrase you typed belongs to address ${signer}. ` +
+        `AuPM expects address ${mapped} for ${login}. Type the phrase of address ${mapped}. ` +
+        `For a Pera wallet with several accounts, add \`--address ${mapped}\`.`,
     )
   }
 }
@@ -111,23 +120,32 @@ export function assertClaimable(args: {
   minClaim: number
   mapped: string | null
   signer: string
+  login: string
+  usdcAssetId: number
   facts: AccountFacts
 }): void {
-  const { balance, minClaim, mapped, signer, facts } = args
-  assertMappedSigner(mapped, signer)
+  const { balance, minClaim, mapped, signer, login, usdcAssetId, facts } = args
+  assertMappedSigner(mapped, signer, login)
   if (balance < BigInt(minClaim)) {
     throw new Error(
-      `The credited balance is ${balance} microUSDC. MIN_CLAIM is ${minClaim}. ` +
-        'Wait for more nightly batches before you claim.',
+      `Your balance is ${describeMicroUsdc(balance)}. ` +
+        `The minimum claim is ${describeMicroUsdc(BigInt(minClaim))}. ` +
+        `Wait for more donations. Check with: aupm auditor balance ${login}`,
     )
   }
   if (!facts.optedIn) {
-    throw new Error('This address has not opted in to USDC. Opt in first, then claim.')
+    throw new Error(
+      `Address ${signer} has not opted in to USDC (asset id ${usdcAssetId}). ` +
+        'Opt in with your wallet app. Then run `aupm auditor claim` again.',
+    )
   }
   if (facts.algoAvailable < BigInt(MIN_CLAIM_FEE)) {
+    const free = facts.algoAvailable > 0n ? facts.algoAvailable : 0n
     throw new Error(
-      `This address has ${facts.algoAvailable} microALGO above its minimum balance. ` +
-        `The claim needs ${MIN_CLAIM_FEE} microALGO for the fee.`,
+      `Address ${signer} has ${formatMicro(free)} ALGO free. ` +
+        `The claim fee is ${formatMicro(BigInt(MIN_CLAIM_FEE))} ALGO. ` +
+        `Send at least ${formatMicro(BigInt(MIN_CLAIM_FEE) - free)} ALGO to ${signer}, ` +
+        'then run the command again.',
     )
   }
 }
@@ -136,10 +154,18 @@ async function sendAndConfirm(
   algod: algosdk.Algodv2,
   txn: algosdk.Transaction,
   account: KeyAccount,
+  network: NetworkName,
 ) {
   await algod.sendRawTransaction(await signTxn(account, txn)).do()
   const txid = txn.txID()
-  await algosdk.waitForConfirmation(algod, txid, 6)
+  try {
+    await algosdk.waitForConfirmation(algod, txid, 6)
+  } catch {
+    throw new Error(
+      'The transaction was sent but is not confirmed yet. ' +
+        `Check ${loraLink(network, txid)} before you send it again.`,
+    )
+  }
   return txid
 }
 
@@ -148,6 +174,7 @@ export async function sendAnchor(
   algod: algosdk.Algodv2,
   account: KeyAccount,
   note: Uint8Array,
+  network: NetworkName,
 ): Promise<string> {
   const { address } = account
   const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
@@ -157,14 +184,20 @@ export async function sendAnchor(
     note,
     suggestedParams: await algod.getTransactionParams().do(),
   })
-  return sendAndConfirm(algod, txn, account)
+  return sendAndConfirm(algod, txn, account, network)
 }
 
 /** Sends one claim(identity) call. The outer fee pools the inner transfer fee. */
 export async function sendClaim(
   algod: algosdk.Algodv2,
   account: KeyAccount,
-  call: { appId: number; identity: string; payTo: string; usdcAssetId: number },
+  call: {
+    appId: number
+    identity: string
+    payTo: string
+    usdcAssetId: number
+    network: NetworkName
+  },
 ): Promise<string> {
   const suggestedParams = await algod.getTransactionParams().do()
   suggestedParams.flatFee = true
@@ -183,5 +216,5 @@ export async function sendClaim(
     ],
     suggestedParams,
   })
-  return sendAndConfirm(algod, txn, account)
+  return sendAndConfirm(algod, txn, account, call.network)
 }
