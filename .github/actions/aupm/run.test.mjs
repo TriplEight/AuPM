@@ -328,7 +328,7 @@ test('reportCounts writes the four counts and the offer without donate', (t) => 
   })
   const text = readFileSync(summaryPath, 'utf8')
   assert.match(text, /\| 2 \| 3 \| 1 \| 4 \|/)
-  assert.match(text, /A donation would be 0\.002000 USDC for 2 audited packages/)
+  assert.match(text, /A donation would be 0\.002000 USDC for 2 reviewed packages/)
   assert.match(text, /whole lockfile/)
 })
 
