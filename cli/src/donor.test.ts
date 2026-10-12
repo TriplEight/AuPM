@@ -210,7 +210,7 @@ describe('aupm donor init', () => {
     for (const phrase of [
       'This file holds the secret key of your donor wallet (25 words):',
       `  ${keyFile}`,
-      'Hot wallet by design: any program running as this user can spend the funds.',
+      'The key is stored on this computer. Any program that runs as your user\n  can spend the funds.',
       '1 USDC pays for 1,000 reviewed packages',
       'This file is the only copy.',
       'Back up the 25 words offline: on paper,\n  or on an external drive.',
@@ -234,11 +234,11 @@ describe('aupm donor init', () => {
     expect(text).not.toContain('deadline')
     expect(text).toContain('Run `aupm donor status` at any time to see the next step.')
     expect(text).toContain('1. Send 0.3 ALGO to this address. Scan the QR code with your wallet.')
-    expect(text).toContain('The minimum is 0.201 ALGO')
+    expect(text).toContain('The minimum is 0.201 ALGO. 0.1 ALGO stays locked in the account.')
     expect(text).toContain('With Pera Wallet (recommended): buy ALGO.')
     expect(text.split('(recommended)').length).toBe(2)
     expect(text).toContain('3. Send 1 to 5 USDC to this address.')
-    expect(text).toContain('USDC from other chains is lost')
+    expect(text).toContain('USDC sent on other networks is lost')
     expect(text).toContain('2. Run `aupm donor optin`.')
     expect(text).toContain(
       'You may use a separate wallet. Put this before the same onboarding commands:',
@@ -255,18 +255,18 @@ describe('aupm donor init', () => {
     expect(text).toContain('aupm attest package-lock.json --donate')
     expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
     expect(text).toContain('every install is free, reviewed packages included.')
-    expect(text).toContain('Always donate: `aupm config set donate true` or AUPM_DONATE=true.')
+    expect(text).toContain('To donate on every install, run `aupm config set donate true`, or set')
     expect(text).not.toContain('plain install')
     expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
   })
 
-  it('stays within 41 lines and 80 columns, not counting the QR code and long commands', async () => {
+  it('stays within 46 lines and 80 columns, not counting the QR code and long commands', async () => {
     const io = captureIo()
     await runDonor(['init'], { io })
     const lines = allText(io)
       .split('\n')
       .filter((line) => !/[█▀▄]/.test(line) && !line.trim().startsWith('algorand://'))
-    expect(lines.length).toBeLessThanOrEqual(41)
+    expect(lines.length).toBeLessThanOrEqual(46)
     for (const line of lines) {
       if (isUnbreakable(line)) continue
       expect(line.length, line).toBeLessThanOrEqual(80)
@@ -346,14 +346,12 @@ describe('aupm donor init', () => {
     expect(fs.readFileSync(keyFile).equals(before)).toBe(true)
   })
 
-  it('says that the env var wins over the file and shows the address in use', async () => {
+  it('says that the env var replaces the file and shows the address in use', async () => {
     const envAccount = useAccount()
     const io = captureIo()
     expect(await runDonor(['init'], { io })).toBe(0)
     const text = allText(io)
-    expect(text).toContain(
-      'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.',
-    )
+    expect(text).toContain('AUPM_DONOR_MNEMONIC is set. AuPM uses it and ignores the key file.')
     expect(text).toContain(`Address in use: ${envAccount.address}`)
     expectNoMnemonic(text, envAccount.mnemonic)
   })
@@ -400,7 +398,7 @@ describe('aupm donor init on a terminal', () => {
     installFakeAlgod(freshState(300_000n))
     const { io, options } = guided(['no', 'yes', ''])
     expect(await runDonor(['init'], options)).toBe(0)
-    expect(allText(io)).toContain('Type yes to go on. Press Ctrl-C to stop.')
+    expect(allText(io)).toContain('Type yes to continue, or press Ctrl-C to stop.')
     expect(allText(io)).toContain('Opted in to USDC')
   })
 
@@ -428,6 +426,9 @@ describe('aupm donor init on a terminal', () => {
     ])
     expect(await runDonor(['init'], options)).toBe(0)
     expect(allText(io)).toContain('Shortfall: 0.101 ALGO.')
+    expect(allText(io)).toContain(
+      'The ALGO has not arrived yet. Wait for the transfer, then press Enter.',
+    )
     expect(sentWhenAsked).toBe(0)
     expect(state.submitted).toHaveLength(1)
   })
@@ -493,6 +494,18 @@ describe('aupm donor init on a terminal', () => {
     expect(state.submitted).toEqual([])
   })
 
+  it('says that the ALGO has not arrived only after an Enter, not at the first check', async () => {
+    writeKey(newAccount())
+    installFakeAlgod(freshState(0n))
+    const { io, options } = guided([''])
+    expect(await runDonor(['init'], options)).toBe(0)
+    const shown = io.out.mock.calls.filter(
+      (call) =>
+        call[0] === 'The ALGO has not arrived yet. Wait for the transfer, then press Enter.',
+    )
+    expect(shown).toHaveLength(1)
+  })
+
   it('sends nothing when the wallet is opted in already, and names the next step', async () => {
     writeKey(newAccount())
     const state = freshState(300_000n, optedIn())
@@ -505,6 +518,22 @@ describe('aupm donor init on a terminal', () => {
     const funded = guided([])
     expect(await runDonor(['init'], funded.options)).toBe(0)
     expect(allText(funded.io)).toContain('Donate.')
+  })
+
+  it('names the Algorand node when a request cannot reach it', async () => {
+    writeKey(newAccount())
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('fetch failed', {
+        cause: new Error('getaddrinfo ENOTFOUND node.example'),
+      })
+    })
+    const { io, options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(1)
+    const text = allText(io)
+    expect(text).toContain('Cannot reach the Algorand node (')
+    expect(text).toContain('getaddrinfo ENOTFOUND node.example')
+    expect(text).toContain('Check your network and run the command again. Nothing was sent.')
+    expect(text).not.toContain('fetch failed')
   })
 
   it('reports an algod failure and exits 1', async () => {
@@ -572,6 +601,9 @@ describe('aupm donor optin', () => {
     expect(state.submitted).toHaveLength(0)
     expect(state.requests.filter((request) => request.includes('/v2/accounts/'))).toHaveLength(1)
     expect(text).toContain('ALGO balance: 0.15 ALGO. Needed: 0.201 ALGO. Shortfall: 0.051 ALGO.')
+    expect(io.err).toHaveBeenCalledWith(
+      'Cannot opt in to USDC yet. The wallet needs 0.051 more ALGO. Nothing was sent.',
+    )
     expect(text).toContain(`algorand://${account.address}?amount=51000`)
     expect(text).toContain('Next step. Send 0.051 ALGO to this address.')
   })
@@ -635,7 +667,18 @@ describe('aupm donor optin', () => {
   it('tells the user to run init when no key exists', async () => {
     const io = captureIo()
     expect(await runDonor(['optin'], { io })).toBe(1)
-    expect(allText(io)).toContain('aupm donor init')
+    expect(allText(io)).toContain('No donor key found. Run `aupm donor init` to make one.')
+    expect(allText(io)).toContain('Experts: set AUPM_DONOR_MNEMONIC, or put the key in')
+  })
+
+  it('names the variable when the phrase in the environment is not valid', async () => {
+    process.env[KEY_VAR] = 'abandon abandon abandon'
+    const io = captureIo()
+    expect(await runDonor(['optin'], { io })).toBe(1)
+    expect(allText(io)).toContain(
+      'The donor key is not a valid recovery phrase. Check the AUPM_DONOR_MNEMONIC variable. ' +
+        'Nothing was sent.',
+    )
   })
 
   it('names no key word when the key is not a mnemonic', async () => {
@@ -707,7 +750,7 @@ describe('aupm donor status', () => {
     expect(state.requests.every((request) => request.startsWith('GET'))).toBe(true)
   })
 
-  it('says that the env var wins over the file and shows the address in use', async () => {
+  it('says that the env var replaces the file and shows the address in use', async () => {
     const fileAccount = newAccount()
     fs.mkdirSync(path.dirname(keyFile), { recursive: true })
     fs.writeFileSync(keyFile, `${fileAccount.mnemonic}\n`, { mode: 0o600 })
@@ -716,7 +759,7 @@ describe('aupm donor status', () => {
     const io = captureIo()
     await runDonor(['status'], { io })
     const text = allText(io)
-    expect(text).toContain('It wins over the key file')
+    expect(text).toContain('AuPM uses it and ignores the key file.')
     expect(text).toContain(`Address in use: ${envAccount.address}`)
     expect(text).not.toContain(fileAccount.address)
   })
@@ -736,7 +779,7 @@ describe('aupm donor status', () => {
 })
 
 describe('aupm donor on TestNet', () => {
-  const NOTE = 'TestNet is for development. Put NETWORK=testnet before every aupm command,'
+  const NOTE = 'TestNet is for development. Put NETWORK=testnet before every aupm command.'
   type DonorModule = typeof import('./donor.js')
   let donor: DonorModule
 
@@ -757,7 +800,7 @@ describe('aupm donor on TestNet', () => {
     expect(text.indexOf(NOTE)).toBeGreaterThan(-1)
     expect(text.indexOf(NOTE)).toBeLessThan(text.indexOf('PLEASE READ'))
     expect(text).toContain('Network: Algorand TestNet')
-    expect(text).toContain('ASA 10458941')
+    expect(text).toContain('asset id 10458941')
     expect(text).not.toContain('Pera Wallet')
     expectCleanSecretText(text)
   })
@@ -787,7 +830,7 @@ describe('aupm donor on TestNet', () => {
       await donor.runDonor([subcommand], { io })
       const text = allText(io)
       expect(text).toContain(NOTE)
-      expect(text).toContain('set AUPM_PROXY_URL to the TestNet server.')
+      expect(text).toContain('Set AUPM_PROXY_URL to the TestNet server. Example:')
       expect(text).toContain('Network: Algorand TestNet')
       expect(text).toContain(account.address)
       expectCleanSecretText(text)
@@ -829,6 +872,9 @@ describe('aupm donor usage', () => {
   it('prints usage for an unknown subcommand', async () => {
     const io = captureIo()
     expect(await runDonor(['frobnicate'], { io })).toBe(1)
-    expect(allText(io)).toContain('Usage: aupm donor')
+    expect(allText(io)).toContain('Usage: aupm donor init [--yes] | optin | status')
+    expect(allText(io)).toContain(
+      'status   Show the balances and the next step. This is the default.',
+    )
   })
 })

@@ -22,12 +22,25 @@ export interface ReviewRecord {
 
 type Fetch = typeof fetch
 
+const UNREADABLE_ANSWER =
+  'The AuPM server sent an answer this CLI cannot read. Update the CLI: npm install -g aupm-cli.'
+
 async function getJson(fetchImpl: Fetch, url: string): Promise<unknown> {
-  const res = await fetchImpl(url)
+  let res: Response
+  try {
+    res = await fetchImpl(url)
+  } catch (error) {
+    const cause = error instanceof Error && error.cause instanceof Error ? error.cause : error
+    const reason = cause instanceof Error ? cause.message : String(cause)
+    throw new Error(
+      `Cannot reach the AuPM server (${new URL(url).origin}): ${reason}. ` +
+        'Check your network and try again.',
+    )
+  }
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: unknown }
     const reason = typeof body.error === 'string' ? ` (${body.error})` : ''
-    throw new Error(`GET ${url} returned ${res.status}${reason}.`)
+    throw new Error(`The AuPM server answered ${res.status}${reason}. Try again later.`)
   }
   return res.json()
 }
@@ -47,7 +60,7 @@ export async function fetchContract(fetchImpl: Fetch, origin: string): Promise<C
     !isPositiveInt(usdcAssetId) ||
     !isPositiveInt(minClaim)
   ) {
-    throw new Error(`GET ${origin}/api/v1/contract returned an unexpected shape.`)
+    throw new Error(UNREADABLE_ANSWER)
   }
   return { network, appId, payTo, usdcAssetId, minClaim }
 }
@@ -61,7 +74,7 @@ export async function fetchReviews(
   const url = `${origin}/api/v1/reviews?reviewer=${encodeURIComponent(login)}`
   const body = (await getJson(fetchImpl, url)) as { reviews?: unknown }
   if (!Array.isArray(body.reviews)) {
-    throw new Error(`GET ${url} returned an unexpected shape.`)
+    throw new Error(UNREADABLE_ANSWER)
   }
   return body.reviews as ReviewRecord[]
 }
@@ -85,6 +98,7 @@ export async function fetchNpmIntegrity(
 ): Promise<string> {
   const url = `https://registry.npmjs.org/${name.replace('/', '%2f')}`
   const res = await fetchImpl(url)
+  if (res.status === 404) throw new Error(`npm has no package "${name}". Check the spelling.`)
   if (!res.ok) throw new Error(`npm registry returned ${res.status} for ${name}.`)
   const packument = (await res.json()) as {
     versions?: Record<string, { dist?: { integrity?: unknown } }>
