@@ -139,15 +139,20 @@ in it. Do not use an account that holds anything else.
    aupm donor init
    ```
 
-   - `init` makes a new Algorand account. It writes the 25 words to
-     `~/.config/aupm/donor.key` (mode 0600). It never prints the words and never overwrites the
-     file.
-   - On a terminal, `init` shows one step on each screen and waits for you.
-   - When it asks, write the 25 words on paper: open the key file in a text editor, copy the
-     words by hand, then close the editor. Type `yes`. To stop, press Ctrl-C. `init` then prints
-     `Stopped.` Run `aupm donor init` again to continue where you stopped.
-   - `init` prints the donor address.
-2. Optional: import the donor key into Pera Wallet. Pera then keeps a second copy of the key, and
+   - On a terminal, `init` makes a new Algorand account and shows the 25 words one time. It
+     shows them on a separate screen. Nothing is saved yet.
+   - Write the 25 words on paper, in order. Type `yes`. The words leave the screen. `init` then
+     writes them to `~/.config/aupm/donor.key` (mode 0600). It never overwrites the file.
+   - To stop, press Ctrl-C or type any other answer. `init` then prints
+     `Stopped. Nothing was saved.` The next `aupm donor init` makes a new account.
+   - `init` shows one step on each screen and waits for you. It prints the donor address.
+   - Without a terminal, or with `--yes`, `init` writes the key file at once. It never prints the
+     words. Back up the key file: open it in a text editor and copy the 25 words by hand.
+   - Run `aupm donor init` again at any time. If the donor account has an opt-in and USDC, `init`
+     prints a short summary: the address, the ALGO balance, the USDC balance, the number of
+     reviewed packages that the USDC pays for, and the `donate` setting with its source.
+2. Optional: import the donor key into Pera Wallet. After you type `yes`, `init` prints
+   `Optional: import the wallet into Pera Wallet.` Pera then keeps a second copy of the key, and
    you can fund the donor account from Pera directly. In Pera, select **Add account**, then
    **Import an account**, and type the 25 words.
 3. Send about 0.3 ALGO to the donor address. `init` shows a QR code for 0.3 ALGO. The minimum is
@@ -165,8 +170,11 @@ in it. Do not use an account that holds anything else.
    If the ALGO is not there yet, `optin` prints
    `Cannot opt in to USDC yet. The wallet needs <N> more ALGO. Nothing was sent.` and the
    shortfall, and exits 1. Run it again later.
-5. Send 1 to 5 USDC (asset `31566704`) to the donor address. After the opt-in, `aupm donor optin`
-   and `aupm donor status` show a QR code for 1 USDC.
+5. Send 1 to 5 USDC (asset `31566704`) to the donor address. After the opt-in, `init`,
+   `aupm donor optin` and `aupm donor status` show a QR code for 1 USDC. On the terminal, press
+   Enter after you send it. If the USDC has not arrived, `init` prints
+   `The USDC has not arrived yet. Wait for the transfer, then press Enter.` When the USDC
+   arrives, `init` shows the donate step.
 6. Check the donor account:
 
    ```bash
