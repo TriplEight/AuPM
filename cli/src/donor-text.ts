@@ -109,7 +109,8 @@ export function warningBlock(file: string, windows: boolean): string[] {
     paint(['bold', 'yellow'], rule),
     'This file holds the secret key of your donor wallet (25 words):',
     `  ${file}`,
-    '- Hot wallet by design: any program running as this user can spend the funds.',
+    '- The key is stored on this computer. Any program that runs as your user',
+    '  can spend the funds.',
     '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
     '- This file is the only copy. Back up the 25 words offline: on paper,',
     '  or on an external drive.',
@@ -123,8 +124,9 @@ export function warningBlock(file: string, windows: boolean): string[] {
 export function testnetNote(network: Network): string[] {
   if (!network.testnet) return []
   return [
-    'TestNet is for development. Put NETWORK=testnet before every aupm command,',
-    'and set AUPM_PROXY_URL to the TestNet server.',
+    'TestNet is for development. Put NETWORK=testnet before every aupm command.',
+    'Set AUPM_PROXY_URL to the TestNet server. Example:',
+    '  NETWORK=testnet AUPM_PROXY_URL=<url> aupm donor status',
     '',
   ]
 }
@@ -134,8 +136,10 @@ export function addressLines(address: string, network: Network): string[] {
 }
 
 export function envNoticeLines(address: string | null): string[] {
-  const lead = 'AUPM_DONOR_MNEMONIC is set in the environment. It wins over the key file.'
-  if (address === null) return [lead, 'The value is not a valid 25-word or 24-word phrase.']
+  const lead = 'AUPM_DONOR_MNEMONIC is set. AuPM uses it and ignores the key file.'
+  if (address === null) {
+    return [lead, 'The value is not a valid phrase. Remove it: `unset AUPM_DONOR_MNEMONIC`.']
+  }
   return [lead, `Address in use: ${address}`]
 }
 
@@ -148,7 +152,9 @@ export function algoStep(
   micro: bigint,
   detail = false,
 ): string[] {
-  const minimum = `The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO (0.1 account, 0.1 USDC opt-in, 0.001 fee).`
+  const minimum =
+    `The minimum is ${formatMicro(ALGO_MINIMUM_MICRO)} ALGO. 0.1 ALGO stays locked in the account. ` +
+    '0.1 ALGO stays locked for the USDC opt-in. 0.001 ALGO pays the fee.'
   const body = [
     ...(detail ? wrap(minimum) : []),
     ...qrLines(arc26Uri(address, micro)).map((line) => `${BODY_INDENT}${line}`),
@@ -164,7 +170,12 @@ export function algoStep(
 }
 
 export function optinStep(label: string): string[] {
-  return step(label, 'Run `aupm donor optin`.', 'It lets the wallet hold USDC.', [])
+  return step(
+    label,
+    'Run `aupm donor optin`.',
+    'An Algorand wallet must opt in before it can hold USDC.',
+    [],
+  )
 }
 
 export function usdcStep(
@@ -174,8 +185,8 @@ export function usdcStep(
   options: { withQr?: boolean; peraKnown?: boolean } = {},
 ): string[] {
   const { withQr = true, peraKnown = false } = options
-  const only = `Only USDC on Algorand (ASA ${network.usdcAsset}).`
-  const lost = 'USDC from other chains is lost.'
+  const only = `Send only USDC on the Algorand network (asset id ${network.usdcAsset}).`
+  const lost = 'USDC sent on other networks is lost.'
   const body = wrap(
     withQr
       ? 'The QR code asks for 1 USDC. You can change the amount in your wallet.'
@@ -241,7 +252,9 @@ export function donateStep(label: string): string[] {
       `It pays ${price} USDC for each reviewed package in the lockfile. ` +
         'Without --donate, every install is free, reviewed packages included.',
     ),
-    ...wrap('Always donate: `aupm config set donate true` or AUPM_DONATE=true.'),
+    ...wrap(
+      'To donate on every install, run `aupm config set donate true`, or set AUPM_DONATE=true.',
+    ),
   ])
 }
 
@@ -322,9 +335,10 @@ export function optedInLines(txid: string, address: string, network: Network): s
 
 export const PROMPT_ENTER_ALGO = 'Press Enter when you have sent the ALGO.'
 export const PROMPT_YES = 'Type yes when the 25 words are on paper:'
-export const PROMPT_RETRY_YES = 'Type yes to go on. Press Ctrl-C to stop.'
-export const STOPPED_LINE =
-  'Stopped. Run `aupm donor init` again to continue from the wallet state.'
+export const PROMPT_RETRY_YES = 'Type yes to continue, or press Ctrl-C to stop.'
+export const STOPPED_LINE = 'Stopped. Run `aupm donor init` again to continue where you stopped.'
+export const ALGO_PENDING_LINE =
+  'The ALGO has not arrived yet. Wait for the transfer, then press Enter.'
 
 /** The screen that asks the donor to write the 25 words on paper. */
 export function backupLines(file: string): string[] {
