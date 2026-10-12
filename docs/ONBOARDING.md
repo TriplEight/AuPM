@@ -140,10 +140,12 @@ in it. Do not use an account that holds anything else.
    ```
 
    - On a terminal, `init` makes a new Algorand account and shows the 25 words one time. It
-     shows them on a separate screen. Nothing is saved yet.
+     shows them on a separate screen. It saves nothing yet.
+   - Do not record or share your screen while `init` runs. A screen recording keeps the words.
    - Write the 25 words on paper, in order. Type `yes`. The words leave the screen. `init` then
-     writes them to `~/.config/aupm/donor.key` (mode 0600). It never overwrites the file.
-   - To stop, press Ctrl-C or type any other answer. `init` then prints
+     writes them to `~/.config/aupm/donor.key` (mode 0600). It never overwrites the file. Any
+     other answer asks again.
+   - To stop, press Ctrl-C. `init` then prints
      `Stopped. Nothing was saved.` The next `aupm donor init` makes a new account.
    - `init` shows one step on each screen and waits for you. It prints the donor address.
    - Without a terminal, or with `--yes`, `init` writes the key file at once. It never prints the
