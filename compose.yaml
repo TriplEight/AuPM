@@ -9,7 +9,11 @@
 #   (proxy/Dockerfile) and reads config from .env (gitignored, never baked
 #   into the image — see .dockerignore).
 # - Deployed stack: `image:` pins the published tag. Bump it in a commit to
-#   deploy a new version; a redeploy pulls that commit (N2). An optional
+#   deploy a new version; a redeploy pulls that commit (N2). `pull_policy:
+#   always` makes `docker compose up` pull the CI image from the registry.
+#   Without it, Compose builds a service with a `build:` section from source
+#   when the tag is not on the host, and that build reports version "dev"
+#   in /api/v1/health. Only an explicit `--build` builds. An optional
 #   stack.env file next to this compose file supplies variables both for
 #   ${VAR} interpolation and, via the env_file entry below, as container
 #   environment.
@@ -53,6 +57,7 @@
 services:
   aupm:
     image: ghcr.io/tripleight/aupm:v0.2.14
+    pull_policy: always
     build:
       context: .
       dockerfile: proxy/Dockerfile
