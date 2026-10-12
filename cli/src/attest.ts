@@ -95,8 +95,14 @@ export async function runAttest(argv: string[]): Promise<number> {
       fs.writeFileSync(args.outPath, JSON.stringify(result.attestation, null, 2))
       console.log(`attestation written to ${args.outPath}`)
       const counts = countsFromSummary(result.summary)
-      const input = { counts, donate, settlement: null, hasDonorKey: donorKeyExists() }
+      const input = {
+        counts,
+        donate: donate && !result.donationFailure,
+        settlement: null,
+        hasDonorKey: donorKeyExists(),
+      }
       for (const line of summaryLines(input)) console.log(line)
+      if (result.donationFailure) console.log(result.donationFailure.reason)
       console.log(
         JSON.stringify(
           { ...(result.summary as Record<string, unknown>), withheld: result.withheld },
@@ -108,7 +114,8 @@ export async function runAttest(argv: string[]): Promise<number> {
     }
 
     console.log(`donation required: ${formatMicroUsd(result.priceMicro)} for ${result.resourceUrl}`)
-    console.log('retry with --donate to opt in')
+    if (result.donationFailure) console.log(result.donationFailure.reason)
+    else console.log('retry with --donate to opt in')
     return 0
   }
 
@@ -116,9 +123,15 @@ export async function runAttest(argv: string[]): Promise<number> {
   console.log(`attestation written to ${args.outPath}`)
   const { settlement } = result
   const counts = countsFromSummary(result.summary)
-  for (const line of summaryLines({ counts, donate, settlement, hasDonorKey: donorKeyExists() })) {
-    console.log(line)
+  const { donationFailure } = result
+  const input = {
+    counts,
+    donate: donate && !donationFailure,
+    settlement,
+    hasDonorKey: donorKeyExists(),
   }
+  for (const line of summaryLines(input)) console.log(line)
+  if (donationFailure) console.log(donationFailure.reason)
   const extra = settlement
     ? { donatedMicro: settlement.amountMicro, settlementTxid: settlement.txid }
     : {}

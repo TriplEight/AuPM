@@ -271,10 +271,13 @@ export async function printPostInstallSummary(
 
   const settlement = outcome.status === 'attested' ? outcome.settlement : null
   const counts = outcomeCounts(outcome)
-  const input = { counts, donate: allowDonation, settlement, hasDonorKey: donorKeyExists() }
+  const { donationFailure } = outcome
+  const donate = allowDonation && !donationFailure
+  const input = { counts, donate, settlement, hasDonorKey: donorKeyExists() }
   for (const line of summaryLines(input)) {
     console.log(`aupm: ${line}`)
   }
+  if (donationFailure) console.log(`aupm: ${donationFailure.reason}`)
 
   if (attestOutPath && 'attestation' in outcome && outcome.attestation !== undefined) {
     fs.writeFileSync(attestOutPath, JSON.stringify(outcome.attestation, null, 2))
