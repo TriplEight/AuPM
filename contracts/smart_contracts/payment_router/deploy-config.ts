@@ -13,8 +13,8 @@ import { APP_SPEC, PaymentRouterFactory } from '../artifacts/payment_router/Paym
  * The subset of scripts/network.mjs this package reuses: the per-network
  * algod/indexer endpoint defaults, overridable by ALGOD_SERVER/ALGOD_PORT/
  * ALGOD_TOKEN and INDEXER_URL/INDEXER_PORT/INDEXER_TOKEN. scripts/network.mjs
- * is the one place those defaults are written (scripts/e2e.mjs,
- * scripts/optin-usdc.mjs already import it); repeating them here would be a
+ * is the one place those defaults are written (scripts/optin-usdc.mjs
+ * already imports it); repeating them here would be a
  * second table to keep in sync.
  */
 interface NetworkEndpoints {
@@ -71,7 +71,7 @@ export async function resolveClientConfig(
   }
 }
 
-// USDC ASA id per network (CLAUDE.md canonical facts: MainNet 31566704,
+// USDC ASA id per network (MainNet 31566704,
 // TestNet 10458941, rehearsal only). scripts/network.mjs reads the same ids
 // from @x402-avm/avm for the proxy and the operator scripts. This package
 // has no dependency on that workspace, so the two fixed ids are repeated
@@ -183,7 +183,7 @@ export function assertCrediterDistinct(
 
 /**
  * Refuses to map an identity to an address that is not opted into USDC
- * (SPEC §13.3: every mapped address must be opted into USDC 31566704).
+ * (every mapped address must be opted into USDC 31566704).
  * Pure: covered directly by deploy-config.spec.ts; the opt-in check itself
  * is an algod account lookup done by the caller.
  *
@@ -194,7 +194,7 @@ export function assertCrediterDistinct(
 export function assertOptedIntoUsdc(identity: string, address: string, holdsAsset: boolean): void {
   if (!holdsAsset) {
     throw new Error(
-      `refusing to map ${identity} to ${address}: that address is not opted into USDC (SPEC §13.3)`,
+      `refusing to map ${identity} to ${address}: that address is not opted into USDC`,
     )
   }
 }
@@ -210,8 +210,8 @@ export interface DeployPaymentRouterParams {
   /**
    * Overrides the app name algokit's idempotent `factory.deploy()` looks up
    * by (creator address + name). `deploy()` below leaves this unset and
-   * keeps the operator's idempotent "PaymentRouter" behavior; the hermetic
-   * rehearsal (scripts/e2e.mjs) passes a unique name per run (R3d) so it
+   * keeps the operator's idempotent "PaymentRouter" behavior; a hermetic
+   * rehearsal passes a unique name per run so it
    * never finds — and never touches — another run's leftover app.
    */
   appName?: string
@@ -257,8 +257,7 @@ export function assertAppCreatedFresh(operationPerformed: string): void {
  * setCrediter/setIdentity call (R3d): algokit's idempotent
  * `factory.deploy()` reuses any existing app with the same creator +
  * appName, and this deployer may have already created an earlier
- * PaymentRouter for a different payTo (SPEC §10.2: payTo never changes
- * once set) — setting crediter/identities on that app would silently
+ * PaymentRouter for a different payTo — setting crediter/identities on that app would silently
  * repoint an unrelated deployment.
  *
  * @param appId - the reused app's id (message only).
@@ -323,8 +322,7 @@ export async function assertExistingAppSafeToReuse(
  * Deploys PaymentRouter, funds the app account for box MBR, sets the
  * crediter key, and maps every identity in `identityMap`.
  * Does not rekey payTo — that is scripts/rekey-payto.mjs, run
- * separately with the payTo key, after payTo already holds USDC (SPEC
- * §10.2 order).
+ * separately with the payTo key, after payTo already holds USDC.
  *
  * Explicit-argument core of `deploy()` below, so a TestNet rehearsal script
  * can deploy a fresh app for fresh, in-memory accounts without reading
@@ -404,7 +402,7 @@ export async function deployPaymentRouter(
 
   console.log(
     `PaymentRouter app id: ${appClient.appId}. Next: fund payTo with USDC, then run ` +
-      'scripts/rekey-payto.mjs with the payTo key (SPEC §10.2 order).',
+      'scripts/rekey-payto.mjs with the payTo key.',
   )
 
   return {
@@ -429,10 +427,10 @@ async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<Algo
   return AlgorandClient.fromConfig(await resolveClientConfig(network))
 }
 
-// --- 2-of-3 admin multisig creator (ADR 0010, SPEC §10.2a) ------------------
+// --- 2-of-3 admin multisig creator ------------------
 //
-// Global.creatorAddress must be a 2-of-3 Algorand multisig, never one key
-// (docs/adr/0010): no single lost or leaked key can call setCrediter,
+// Global.creatorAddress must be a 2-of-3 Algorand multisig, never one key:
+// no single lost or leaked key can call setCrediter,
 // setIdentity, announceRelease, or executeRelease alone. This workstation
 // never holds two of the three admin private keys at once, so the create
 // call — like every later admin call — cannot be signed here in one step.
@@ -457,14 +455,14 @@ export const ADMIN_MSIG_THRESHOLD = 2
 /**
  * Parses AUPM_ADMIN_MSIG_ADDRS ("addr1,addr2,addr3") into exactly three
  * distinct, valid Algorand addresses — the admin multisig's signer set
- * (ADR 0010). Pure: covered directly by deploy-config.spec.ts.
+ * Pure: covered directly by deploy-config.spec.ts.
  *
  * @param addrsEnv - the raw AUPM_ADMIN_MSIG_ADDRS environment value.
  */
 export function parseAdminMultisigAddrs(addrsEnv: string | undefined): string[] {
   const raw = (addrsEnv ?? '').trim()
   if (!raw) {
-    throw new Error('AUPM_ADMIN_MSIG_ADDRS is not set (ADR 0010: a 2-of-3 multisig creator)')
+    throw new Error('AUPM_ADMIN_MSIG_ADDRS is not set (the creator is a 2-of-3 multisig)')
   }
   const addrs = raw
     .split(',')
@@ -486,7 +484,7 @@ export function parseAdminMultisigAddrs(addrsEnv: string | undefined): string[] 
 
 /**
  * The algosdk multisig metadata for the fixed 2-of-3 admin multisig
- * (ADR 0010). The threshold is always ADMIN_MSIG_THRESHOLD — never read
+ * The threshold is always ADMIN_MSIG_THRESHOLD — never read
  * from the environment. Pure: covered directly by deploy-config.spec.ts.
  *
  * @param addrs - the three signer addresses (parseAdminMultisigAddrs).
@@ -519,7 +517,7 @@ const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)vo
  * object.
  *
  * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
- * @param payToAddress - the payTo account this deploy fixes at creation (SPEC §10.2).
+ * @param payToAddress - the payTo account this deploy fixes at creation.
  * @param usdcAssetId - the USDC asset id for the target network.
  * @param suggestedParams - the algod transaction params (fee, validity window, genesis).
  */
@@ -600,11 +598,11 @@ export async function deployMultisigCreate(): Promise<void> {
   const outPath = process.env.PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH ?? './payment-router-create.txn'
   writeUnsignedTxnFile(txn, outPath)
 
-  console.log(`Admin multisig address (2-of-3, ADR 0010): ${multisigAddress}`)
+  console.log(`Admin multisig address (2-of-3): ${multisigAddress}`)
   printMultisigSigningInstructions('createApplication', outPath)
 }
 
-// --- 2-of-3 admin multisig: post-creation admin calls (ADR 0010) ------------------------------
+// --- 2-of-3 admin multisig: post-creation admin calls ------------------------------
 //
 // setCrediter, setIdentity, announceRelease and executeRelease are admin-only
 // (contract.algo.ts: each asserts `Txn.sender.bytes === Global.creatorAddress.bytes`), so each
@@ -769,7 +767,7 @@ export function buildUnsignedSetIdentityTxn(
  * @param appId - the deployed PaymentRouter app id (parseAppId).
  * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
  * @param toAddress - the migration target; `payTo`'s own address when the rekey target is
- *   `payTo` itself (SPEC §10.2a: the rekey changes the authorizer, not the address).
+ *   `payTo` itself.
  * @param suggestedParams - the algod transaction params.
  */
 export function buildUnsignedAnnounceReleaseTxn(
@@ -861,7 +859,7 @@ function printMultisigSigningInstructions(callLabel: string, outPath: string): v
     'Two of the three holders must sign it offline (goal clerk multisig sign), then POST the ' +
       'signed file to the target network algod /v2/transactions ' +
       '(Content-Type: application/x-binary). Do not use `algokit goal clerk rawsend`: it sends ' +
-      'to LocalNet. See the operator runbook (not published).',
+      'to LocalNet.',
   )
 }
 
@@ -933,8 +931,8 @@ export async function deployMultisigAnnounceRelease(): Promise<void> {
  * PAYMENT_ROUTER_MSIG_EXECUTE_RELEASE_TXN_PATH (default ./payment-router-execute-release.txn).
  * Refuses on MainNet without CONFIRM_MAINNET=1, same as every other entry here — running this
  * before the delay has passed or after the execute window has closed still writes a file,
- * since only a live executeRelease() call checks the timing; the operator runbook (not
- * published) gates the operator's own timing. Sign and submit the file inside the window.
+ * since only a live executeRelease() call checks the timing; the operator gates the
+ * timing.  Sign and submit the file inside the window.
  */
 export async function deployMultisigExecuteRelease(): Promise<void> {
   const payToAddress = process.env.PAY_TO_ADDRESS
@@ -961,7 +959,7 @@ export async function deployMultisigExecuteRelease(): Promise<void> {
 
 /**
  * Refuses the single-key `deploy()` path on MainNet, before any transaction is built, any algod
- * client exists, or any mnemonic is read. ADR 0010 requires the 2-of-3 admin multisig as
+ * client exists, or any mnemonic is read. MainNet requires the 2-of-3 admin multisig as
  * `Global.creatorAddress` there; `deploy()`/`deployPaymentRouter()` create the app from one
  * `DEPLOYER_MNEMONIC` key alone, so they can never run against MainNet. A no-op on TestNet and
  * LocalNet: `deploy()` stays the rehearsal path there (R3d). Pure: covered directly by
@@ -972,9 +970,9 @@ export async function deployMultisigExecuteRelease(): Promise<void> {
 export function assertSingleKeyDeployNotMainnet(network: 'mainnet' | 'testnet'): void {
   if (network === 'mainnet') {
     throw new Error(
-      'refusing a single-key deploy() on MainNet: ADR 0010 requires the 2-of-3 admin multisig ' +
+      'refusing a single-key deploy() on MainNet: the admin must be a 2-of-3 multisig ' +
         'as Global.creatorAddress there — run deployMultisigCreate() and the deployMultisig* ' +
-        'admin-call entries instead (operator runbook section 2a, not published)',
+        'admin-call entries instead',
     )
   }
 }
@@ -985,7 +983,7 @@ export function assertSingleKeyDeployNotMainnet(network: 'mainnet' | 'testnet'):
  * with them. Behavior unchanged from before the R3a refactor. Single-key
  * (DEPLOYER_MNEMONIC): kept for TestNet/LocalNet rehearsal (R3d's hermetic
  * fresh-app runs). The MainNet operator path uses deployMultisigCreate()
- * and the deployMultisig* admin-call entries above instead, per ADR 0010 —
+ * and the deployMultisig* admin-call entries above instead —
  * assertSingleKeyDeployNotMainnet refuses this path outright on MainNet, so
  * CONFIRM_MAINNET has nothing to gate here (it still gates every
  * deployMultisig* entry above).

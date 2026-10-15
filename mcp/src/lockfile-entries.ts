@@ -1,7 +1,7 @@
 // mcp/src/lockfile-entries.ts
 //
 // Counts the package entries in a lockfile body, so the CLI and the MCP
-// server compute the same client-side spend cap (SPEC.md §11.4) from one
+// server compute the same client-side spend cap from one
 // place, instead of three separate copies. It handles package-lock.json
 // (JSON), pnpm-lock.yaml (lockfileVersion '9.0') and yarn.lock (yarn classic
 // v1); the lockfile's file name picks the format.
@@ -10,7 +10,7 @@ import { isMap, isScalar, parseDocument } from 'yaml'
 
 export const PNPM_LOCKFILE_NAME = 'pnpm-lock.yaml'
 export const PNPM_LOCKFILE_VERSION = '9.0'
-/** The server answers 413 above this size, before it parses (ADR 0015). */
+/** The server answers 413 above this size, before it parses. */
 export const PNPM_LOCKFILE_MAX_BYTES = 2 * 1024 * 1024
 
 export const YARN_LOCKFILE_NAME = 'yarn.lock'
@@ -36,7 +36,7 @@ function isPackagesMapLockfile(value: unknown): value is PackagesMapLockfile {
 /**
  * Counts the entries in a `package-lock.json` body: the keys of the
  * `lockfileVersion` 2/3 `packages` map, excluding the root `""` key
- * (SPEC.md §11.4). Never trusts `lockfileVersion` alone — only the
+ * Never trusts `lockfileVersion` alone — only the
  * `packages` map shape matters here, the same thing the server's own
  * lockfile analysis keys on.
  */

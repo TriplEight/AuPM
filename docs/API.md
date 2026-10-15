@@ -2,7 +2,7 @@
 
 This page lists the public routes of an AuPM server and the CLI commands that use them. The
 examples use the MainNet origin `https://aupm.fyi`. For the onboarding of each role, see
-[ONBOARDING.md](ONBOARDING.md). The authoritative description is [SPEC.md](../SPEC.md).
+[ONBOARDING.md](ONBOARDING.md).
 
 ## Free routes
 

@@ -1,6 +1,6 @@
 // proxy/src/claims/genesis.ts
 //
-// Genesis-id guard for the nightly job (SPEC.md §13.2, R3c). An operator
+// Genesis-id guard for the nightly job (R3c). An operator
 // .env with NETWORK=testnet but ALGOD_SERVER/INDEXER_URL pointed at
 // MainNet makes the nightly job reconcile and credit against the wrong
 // chain. assertGenesisMatchesNetwork is a pure comparison; fetchGenesisId

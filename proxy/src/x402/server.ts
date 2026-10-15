@@ -3,7 +3,7 @@
 // Wires the GoPlausible facilitator, the AVM exact scheme, the paid route
 // table, and the tarball free-tier hook into an x402HTTPResourceServer.
 //
-// The facilitator is mandatory (CLAUDE.md invariant 6). There is no local
+// The facilitator is mandatory. There is no local
 // facilitator and no direct chain submission — the former proxy/src/settle.ts
 // did that and was an authentication bypass; it is deleted, not repaired.
 

@@ -281,7 +281,7 @@ with plain npm. The full reference is
 
 ### Procedure
 
-1. Get a full 40-character commit SHA of `TriplEight/AuPM` from the `master` branch. Never use a
+1. Get a full 40-character commit SHA of `TriplEight/AuPM` from the `main` branch. Never use a
    branch name, a tag or a short SHA.
 2. Set up Node, and pnpm or yarn if the project uses them, before the AuPM step.
 3. To donate, do the donor procedure in section 2 first. Then store the same key file as a
@@ -325,8 +325,7 @@ An auditor reads the exact tarball of a package version and records the review o
 AuPM shows that version as `COMMUNITY_REVIEWED`. The live contract pays the auditor 30% of each
 donation for that version (the MVP split).
 
-NOTE: this audit process is the MVP version. It will change soon, after the auditor pilot
-(ADR 0027).
+NOTE: this audit process is the MVP version. It will change soon, after the auditor pilot.
 
 ### What you need
 
@@ -417,5 +416,5 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 ## Help
 
 - Questions and bugs: open an issue in `TriplEight/AuPM`.
-- How AuPM works: [README.md](../README.md), [SPEC.md](../SPEC.md) and [docs/adr/](adr/).
+- How AuPM works: [README.md](../README.md).
 - The HTTP routes: [API.md](API.md).

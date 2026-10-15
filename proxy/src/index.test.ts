@@ -228,8 +228,7 @@ describe('index.ts startup guard (subprocess)', () => {
 describe('index.ts PAY_TO guard (subprocess)', () => {
   // WARNING: G5 — a misconfigured PAY_TO must never let the port bind. A
   // server advertising an empty or malformed payTo answers 402s no caller
-  // can pay against, and payTo is the leaderboard key (CLAUDE.md invariant
-  // 1). None of these three cases may reach the facilitator or the port.
+  // can pay against, and payTo is the leaderboard key. None of these three cases may reach the facilitator or the port.
   const DEAD_FACILITATOR = 'http://127.0.0.1:9'
 
   test(

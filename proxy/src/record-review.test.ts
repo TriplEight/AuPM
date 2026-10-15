@@ -1,7 +1,6 @@
 // proxy/src/record-review.test.ts
 //
-// Integration test for scripts/record-review.mjs's write path (Q6, SPEC
-// §14, ADR 0007): a successful run must write anchor_txid, review_scope,
+// Integration test for scripts/record-review.mjs's write path (Q6): a successful run must write anchor_txid, review_scope,
 // repo, integrity, reviewer, and status COMMUNITY_REVIEWED through the
 // proxy's real SQLite schema (proxy/src/db.ts, proxy/src/status.ts) — not a
 // second schema copy. Everything except the status store itself (the
@@ -128,7 +127,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
         network: 'mainnet',
         log: () => {},
       }),
-    ).rejects.toThrow(/TestNet-only \(ADR 0012\)/)
+    ).rejects.toThrow(/TestNet-only/)
 
     expect(prompted).toBe(false)
     expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')

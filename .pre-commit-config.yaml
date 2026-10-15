@@ -6,12 +6,12 @@
 # `prek run --all-files`, so local and CI enforcement stay in parity.
 #
 # Local checks (guard.sh, Biome, typecheck, the test suites) run as
-# `language: system` hooks. They call the exact commands CLAUDE.md and CI
-# already use, so no wrapper script exists twice.
+# `language: system` hooks. They call the exact commands CI
+# already uses, so no wrapper script exists twice.
 repos:
   # gitleaks/gitleaks — secret scanning. Catches a donor mnemonic or a
-  # private key before it reaches a commit (CLAUDE.md: never log or
-  # hardcode a mnemonic). Custom rule for Algorand mnemonics in
+  # private key before it reaches a commit (a mnemonic is never logged or
+  # hardcoded). Custom rule for Algorand mnemonics in
   # .gitleaks.toml. Pinned to the v8.30.0 tag commit (the version
   # installed locally at /usr/local/bin/gitleaks).
   - repo: https://github.com/gitleaks/gitleaks
@@ -20,7 +20,7 @@ repos:
       - id: gitleaks
 
   # rhysd/actionlint — lints .github/workflows for syntax errors and
-  # unsafe patterns (CLAUDE.md invariant: CI must not silently break).
+  # unsafe patterns (CI must not silently break).
   # Pinned to the v1.7.12 tag commit.
   - repo: https://github.com/rhysd/actionlint
     rev: 914e7df21a07ef503a81201c76d2b11c789d3fca # v1.7.12

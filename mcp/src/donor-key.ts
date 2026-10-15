@@ -1,8 +1,8 @@
 // mcp/src/donor-key.ts
 //
 // The donor key file: `$XDG_CONFIG_HOME/aupm/donor.key` (default `~/.config/aupm/donor.key`).
-// It holds the 25 words (Algo25) or the 24 words (Universal Wallet, ADR 0028) and a newline,
-// nothing else. Directory 0700, file 0600 (SPEC.md §11.4).
+// It holds the 25 words (Algo25) or the 24 words (Universal Wallet) and a newline,
+// nothing else. Directory 0700, file 0600.
 //
 // WARNING: never print or expose the mnemonic. Error messages name the path only.
 import fs from 'node:fs'

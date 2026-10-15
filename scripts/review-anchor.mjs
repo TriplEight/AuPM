@@ -1,5 +1,5 @@
 // Pure logic used by scripts/record-review.mjs (the operator's machine) and
-// its tests — SPEC §14, ADR 0007. The auditor's anchor is sent by
+// its tests. The auditor's anchor is sent by
 // `aupm auditor review` (cli/src/auditor*.ts).
 //
 // No I/O, no network, no chain: every function here takes plain data
@@ -8,7 +8,7 @@
 // network and no facilitator involved (this is the auditor's own
 // self-payment, sent by algod — never the facilitator, never the proxy).
 
-// ARC-2 prefix for the review anchor's note (`aupm:j{...}`, SPEC §14).
+// ARC-2 prefix for the review anchor's note (`aupm:j{...}`).
 export const NOTE_PREFIX = 'aupm:j'
 
 /**
@@ -30,7 +30,7 @@ export function encodeReviewNote({ name, version, integrity, reviewer, scope }) 
  * Decodes and validates a review anchor's note bytes (or its plain string
  * form, for tests). Throws on anything that is not exactly the expected
  * ARC-2 `aupm:j{...}` shape — a malformed note must never resolve to a
- * partially-trusted record (SPEC §14, §12.4).
+ * partially-trusted record.
  *
  * @param {Uint8Array|string} noteBytes
  * @returns {{v: 1, name: string, version: string, integrity: string, reviewer: string, scope: string}}
@@ -80,7 +80,7 @@ export function githubIdentity(loginOrIdentity) {
 
 /**
  * Resolves the repo-pool key for `name` from the npm packument's
- * `repository` field for the reviewed version (SPEC §13.1): the GitHub
+ * `repository` field for the reviewed version: the GitHub
  * `owner/repo`, when the field names a GitHub repo, else `npm:<name>`.
  *
  * @param {string} name
@@ -169,7 +169,7 @@ export function repositoryForVersion(packument, version) {
 
 /**
  * Throws unless `tx` is a confirmed, 0-microAlgo, self-to-self payment —
- * the shape a review anchor must have (SPEC §14). Accepts the indexer
+ * the shape a review anchor must have. Accepts the indexer
  * Transaction shape (camelCase, as algosdk v3's Indexer client returns it).
  *
  * @param {{txType?: string, sender: string, paymentTransaction?: {amount: bigint|number, receiver: string}, confirmedRound?: bigint|number}} tx
@@ -211,7 +211,7 @@ export function checkSenderIsMappedAuditor({ sender, identity, mappedAddress }) 
 
 /**
  * Throws unless the note's claimed integrity equals npm's own
- * `dist.integrity` for that exact version (SPEC §14, §12.4) — the fact that
+ * `dist.integrity` for that exact version — the fact that
  * binds the review to one specific tarball.
  *
  * @param {{integrity: string}} note
@@ -225,12 +225,12 @@ export function checkIntegrityMatchesNpm(note, npmIntegrity) {
   }
 }
 
-/** A scope that starts with the word "unread" marks a TestNet rehearsal review (ADR 0012). */
+/** A scope that starts with the word "unread" marks a TestNet rehearsal review. */
 const UNREAD_SCOPE = /^\s*unread\b/i
 
 /**
  * Throws when an unread rehearsal review would be recorded anywhere except TestNet
- * (ADR 0012, CLAUDE.md invariant 5). Any network value other than "testnet" counts as MainNet.
+ * Any network value other than "testnet" counts as MainNet.
  *
  * @param {string} scope - the anchor note's review scope.
  * @param {string} network - the network the review is recorded for.
@@ -239,7 +239,7 @@ export function checkScopeAllowedOnNetwork(scope, network) {
   if (network !== 'testnet' && UNREAD_SCOPE.test(scope)) {
     throw new Error(
       `refusing: scope "${scope}" marks an unread review, and unread reviews are ` +
-        `TestNet-only (ADR 0012); network is ${network}`,
+        `TestNet-only; network is ${network}`,
     )
   }
 }

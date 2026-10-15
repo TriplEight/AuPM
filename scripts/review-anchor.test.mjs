@@ -25,7 +25,7 @@ const FIELDS = {
 
 test('checkScopeAllowedOnNetwork refuses an unread scope off TestNet', () => {
   for (const scope of ['unread: testnet rehearsal', 'UNREAD', '  Unread rehearsal']) {
-    assert.throws(() => checkScopeAllowedOnNetwork(scope, 'mainnet'), /TestNet-only \(ADR 0012\)/)
+    assert.throws(() => checkScopeAllowedOnNetwork(scope, 'mainnet'), /TestNet-only/)
     assert.throws(() => checkScopeAllowedOnNetwork(scope, 'localnet'), /TestNet-only/)
     assert.doesNotThrow(() => checkScopeAllowedOnNetwork(scope, 'testnet'))
   }

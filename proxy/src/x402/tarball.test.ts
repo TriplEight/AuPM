@@ -143,7 +143,7 @@ describe('tarballFreeTierHook', () => {
     expect(result).toEqual({ grantAccess: true })
   })
 
-  // Only the exact value "1" opts in — CLAUDE.md invariant 4: "X-AuPM-Donate: 0
+  // Only the exact value "1" opts in — "X-AuPM-Donate: 0
   // on an attestation route gets a free partial attestation", and the same
   // rule applies to the tarball route: any other value stays free.
   test('grants access for a reviewed tarball with X-AuPM-Donate: 0', async () => {
@@ -186,7 +186,7 @@ describe('tarballFreeTierHook', () => {
   )
 
   // Companion case: the same encodings, reviewed, with no donate header —
-  // must grant free access (SPEC §10.4: npm install can never pay a 402).
+  // must grant free access.
   test.each([
     ['literal slash', '/@scope/pkg/-/pkg-1.0.0.tgz'],
     ['%40-encoded scope only', '/%40scope/pkg/-/pkg-1.0.0.tgz'],

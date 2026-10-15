@@ -205,7 +205,7 @@ function runProcess(command, args, options, spawnFn) {
  * process.exit itself, so callers (including tests) can inspect the result.
  * Fails open: every caught error, non-zero CLI exit, and spawn
  * failure returns 0. Without donate: true, the CLI still exits 0 with a
- * partial result (SPEC.md §11.4); this only warns and reports the
+ * partial result; this only warns and reports the
  * withheld count. The single exception is a reported integrityMismatch
  * above zero when failOnMismatch is true.
  */
@@ -254,7 +254,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
     const summary = parseSummaryFromStdout(result.stdout)
 
     // Without donate: true, the CLI still writes a partial signed receipt and
-    // reports how many reviewed entries it withheld (SPEC.md §11.4) — this
+    // reports how many reviewed entries it withheld — this
     // is a normal, passing outcome, not an error. Report the count and
     // keep going.
     const withheldCount = summary?.withheld ?? 0

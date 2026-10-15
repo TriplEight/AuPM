@@ -412,7 +412,7 @@ describe('POST /v1/attest/lockfile', () => {
       { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
     ])
     // predicate.packages[].reviewer must carry the same identity, never a
-    // raw Algorand address — SPEC.md §12.3's lockfile statement shape.
+    // raw Algorand address (the lockfile statement shape).
     const body = (await res.json()) as { attestation: Envelope }
     const statement = decodeStatement(body.attestation)
     const predicate = statement.predicate as { packages: { reviewer: string | null }[] }
@@ -421,12 +421,11 @@ describe('POST /v1/attest/lockfile', () => {
   })
 })
 
-// SPEC.md §11.2, §12.3, ADR 0006: `X-AuPM-Donate: 0` on a lockfile with
+// `X-AuPM-Donate: 0` on a lockfile with
 // reviewed content returns a free partial attestation, before the payment
 // gate. Every reviewed entry whose integrity matches is left out of
 // predicate.packages and counted in predicate.withheld. An
-// INTEGRITY_MISMATCH or UNRESOLVABLE entry is never withheld (CLAUDE.md
-// invariant 4).
+// INTEGRITY_MISMATCH or UNRESOLVABLE entry is never withheld.
 describe('POST /v1/attest/lockfile: partial attestation (X-AuPM-Donate: 0)', () => {
   function mixedLockfileBody() {
     return JSON.stringify({
@@ -909,7 +908,7 @@ describe('GET /v1/attest', () => {
     expect(second.status).toBe(429)
   })
 
-  // SPEC.md §11.2, §12.3, ADR 0006: X-AuPM-Donate: 0 on a reviewed version
+  // X-AuPM-Donate: 0 on a reviewed version
   // returns a free partial attestation, withholding the one entry this
   // route could otherwise sell.
   test('X-AuPM-Donate: 0 on a reviewed version returns 200 partial, withheld 1', async () => {
@@ -932,7 +931,7 @@ describe('GET /v1/attest', () => {
     expect(predicate.withheld).toBe(1)
     expect(predicate.absentMeans).toBe('UNREVIEWED_OR_WITHHELD')
     expect(predicate.packages).toHaveLength(0)
-    // SPEC.md §12.3: the subject is not withheld, only predicate.packages —
+    // The subject is not withheld, only predicate.packages —
     // a partial attestation still carries the real, known-good digest.
     expect(statement.subject[0]?.digest.sha512).toBe(SHA512_FIXTURE_HEX)
     expect(getAttribution()).toEqual({ route: 'single-attest', priceMicro: 0, packages: [] })
@@ -1465,7 +1464,7 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     expect(res.status).toBe(400)
   })
 
-  test('an empty body answers 400 (the 402-first rule of ADR 0013 applies at the gate)', async () => {
+  test('an empty body answers 400 (the 402-first rule applies at the gate)', async () => {
     const { app } = buildTestApp()
     const res = await postYaml(app, '')
     expect(res.status).toBe(400)

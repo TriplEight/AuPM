@@ -3,7 +3,7 @@
 // The lockfile summary that `aupm install`, `aupm pnpm` and `aupm attest` print. It has the
 // same shape with and without `--donate`. The counts come from the summary that the server
 // returns. This module never withholds an integrity mismatch or an unresolvable entry
-// (CLAUDE.md invariant 4). Amounts are integer micro-units; no float touches an amount.
+// Amounts are integer micro-units; no float touches an amount.
 import { EXPLORER_NETWORK, PRICE_PER_ENTRY_MICRO } from 'aupm-mcp/donor'
 import { AUPM_DONOR_MNEMONIC_ENV, readDonorKeyFile } from 'aupm-mcp/donor-key'
 import { formatMicro } from './donor-text.js'

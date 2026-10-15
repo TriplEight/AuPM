@@ -1,6 +1,6 @@
 // proxy/src/config.ts
 //
-// MainNet is the target; TestNet is pre-flight rehearsal only (CLAUDE.md).
+// MainNet is the target; TestNet is pre-flight rehearsal only.
 // NETWORK selects which CAIP-2 network id and USDC ASA id this proxy uses.
 // Defaults to mainnet so an unset NETWORK never silently rehearses forever.
 import {
@@ -27,8 +27,8 @@ export const USDC_ASA_ID: string = NETWORK === 'testnet' ? USDC_TESTNET_ASA_ID :
 export const FACILITATOR_URL = process.env.FACILITATOR_URL ?? 'https://facilitator.goplausible.xyz'
 
 // payTo is fixed for the whole competition — the rekeyed PaymentRouter payTo
-// account, not the application address (SPEC.md). It is the leaderboard key
-// (CLAUDE.md invariant 1). Never change it in code.
+// account, not the application address. It is the leaderboard key
+// Never change it in code.
 export const PAY_TO = process.env.PAY_TO_ADDRESS ?? ''
 
 /**
@@ -62,7 +62,7 @@ export function assertValidPayTo(payTo: string = PAY_TO): void {
 // publishes it.
 export const MIN_CLAIM = 100_000
 
-// Attribution tag, written at settlement time, not retroactive (CLAUDE.md).
+// Attribution tag, written at settlement time, not retroactive.
 export const TAG = 'x402-global-challenge'
 
 export const MAX_TIMEOUT_SECONDS = 60
@@ -120,7 +120,7 @@ export function resolveFeePayer(
 // ---------------------------------------------------------------------------
 
 // ISSUER is `predicate.issuer` on every signed statement, and the base of
-// the predicate-type URLs below (SPEC.md 12.3). Every signed statement
+// the predicate-type URLs below. Every signed statement
 // carries it, so a wrong value can never be corrected after the fact — there
 // is no safe placeholder domain, and the team does not own one. Defaults
 // to '' so importing this module never throws (same lazy pattern as PAY_TO
@@ -175,7 +175,7 @@ function describeIssuerUrlProblem(value: string): string | undefined {
 }
 
 // `validFrom` published on the configured attestation signing key's entry at
-// GET /.well-known/aupm-keys.json (SPEC.md 12.2). Defaults to '' so importing
+// GET /.well-known/aupm-keys.json. Defaults to '' so importing
 // this module never throws (same lazy pattern as ISSUER above);
 // assertValidKeyValidFrom() is the boot guard, called from main() alongside
 // assertValidIssuerUrl(). Runs on every network, for the same reason.
@@ -209,7 +209,7 @@ function describeKeyValidFromProblem(value: string): string | undefined {
 
 // The AuPM attestation signing key (DSSE, ed25519). Hot on the server by
 // necessity; never funded, never used on-chain, and separate from
-// payTo/admin/pool keys (CLAUDE.md). ATTEST_SIGNING_KEY is either a 25-word
+// payTo/admin/pool keys. ATTEST_SIGNING_KEY is either a 25-word
 // Algorand mnemonic or a hex-encoded 32-byte seed. Loaded once and memoized
 // — callers use getAttestationSigningKey(), never process.env directly, so
 // the loading logic lives in exactly one place.

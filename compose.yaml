@@ -1,6 +1,6 @@
 # compose.yaml
 #
-# One service (SPEC.md 10.3, ADR 0001): no database container. The SQLite
+# One service: no database container. The SQLite
 # file lives on the named volume "aupm-db", mounted at /data inside the
 # container.
 #
@@ -19,23 +19,22 @@
 #   environment.
 # Either config file may be absent; each entry below is optional.
 #
-# The operator's record-review flow (SPEC.md §14, ADR 0007) runs against
+# The operator's record-review flow runs against
 # this same image and service name, from the repository's proxy/Dockerfile
 # WORKDIR (/app/proxy):
 #   docker compose run --rm aupm node --import tsx/esm \
 #     ../scripts/record-review.mjs <anchorTxid>
 # `docker compose run` allocates a TTY by default; record-review.mjs refuses
-# to run without one (CLAUDE.md invariant 5), so this only works
+# to run without one, so this only works
 # interactively — never with `-T`/`--no-TTY`, and never from a non-interactive
 # CI job or cron entry.
 #
 # The nightly job needs no `docker compose run`. The proxy process
-# schedules its own nightly run (ADR 0009); a redeploy of this
+# schedules its own nightly run; a redeploy of this
 # service carries the schedule with it.
 #
 # AUPM_BACKUP_HOST_DIR (.env.example) is the host directory the nightly
-# job's backup step writes a dated `VACUUM INTO` copy to (SPEC.md §13.2
-# step 2), bind-mounted at the fixed container path /backup. BACKUP_DIR is
+# job's backup step writes a dated `VACUUM INTO` copy to, bind-mounted at the fixed container path /backup. BACKUP_DIR is
 # set here, not read from .env, so the nightly job always writes to the
 # mounted path regardless of what a bare, non-Docker `pnpm -C proxy
 # nightly` run has BACKUP_DIR set to in .env. `docker compose up` and

@@ -1,7 +1,6 @@
 // proxy/src/claims/nightly-main.ts
 //
-// The nightly job's manual, operator-run entry point (SPEC.md §13.2, ADR
-// 0001, ADR 0005, ADR 0009). The proxy process itself now runs the job on
+// The nightly job's manual, operator-run entry point. The proxy process itself now runs the job on
 // its own schedule (proxy/src/index.ts, daily at 03:17 UTC plus a start-up
 // catch-up run) — this file stays for a one-off, by-hand pass, for example
 // right after a deploy or while debugging. It holds no scheduling,

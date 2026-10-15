@@ -2,7 +2,7 @@
 //
 // `aupm attest <lockfile> [--donate] [--out <path>]` — requests a signed
 // lockfile attestation via the MCP attest_lockfile handler and writes the
-// envelope to disk. Donation is opt-in (SPEC.md §11.4): without --donate,
+// envelope to disk. Donation is opt-in: without --donate,
 // the reviewed entries are withheld, not refused — the CLI still writes
 // the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
@@ -55,7 +55,7 @@ function parseAttestArgv(argv: string[]): ParsedAttestArgs {
  * Runs `aupm attest` end to end: parses argv, requests the attestation,
  * writes it to disk, and returns the process exit code. Without --donate, a
  * `donation_required` result still writes the partial attestation (when the
- * server returned one) and always exits 0 — SPEC.md §11.4: donating is an
+ * server returned one) and always exits 0 — donating is an
  * opt-in, not a requirement to get any attestation at all.
  */
 export async function runAttest(argv: string[]): Promise<number> {

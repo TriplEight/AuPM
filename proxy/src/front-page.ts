@@ -1,7 +1,7 @@
 // proxy/src/front-page.ts
 //
 // The static front page at `GET /`. The x402 Bazaar merchant card reads the
-// `og:` tags from this page (SPEC.md 11.2).
+// `og:` tags from this page.
 
 const README_URL = 'https://github.com/TriplEight/AuPM#readme'
 const SITE_NAME = 'AuPM'

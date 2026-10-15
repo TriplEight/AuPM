@@ -205,7 +205,7 @@ describe('x402 gate', () => {
     expect(res.headers.get('X-AuPM-Tier')).toBe('UNREVIEWED')
   })
 
-  // ADR 0006 / SPEC §10.4: npm install can never pay a 402, so a reviewed
+  // Npm install can never pay a 402, so a reviewed
   // tarball is free unless the request opts in with X-AuPM-Donate: 1.
   test('unreviewed tarball path with X-AuPM-Donate: 1: still returns 200', async () => {
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz', {
@@ -223,7 +223,7 @@ describe('x402 gate', () => {
   })
 
   // Any header value other than the exact string "1" does not opt in
-  // (CLAUDE.md invariant 4: "X-AuPM-Donate: 0 ... gets a free partial
+  // ("X-AuPM-Donate: 0 ... gets a free partial
   // attestation" — the tarball route applies the identical rule).
   test('reviewed tarball path, X-AuPM-Donate: 0: returns 200, not 402', async () => {
     setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
@@ -504,7 +504,7 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 
-  // SPEC §11.2, ADR 0008: the lockfile route prices at 1,000 microUSDC x N
+  // The lockfile route prices at 1,000 microUSDC x N
   // reviewed entries — a DynamicPrice function, resolved against the exact
   // same LockfileAnalysis the pre-middleware already computed (never a
   // second parse). N is `summary.reviewed`, not `summary.total`.
@@ -579,7 +579,7 @@ describe('x402 gate', () => {
     expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
   })
 
-  // SPEC §10.4, §12.3: an INTEGRITY_MISMATCH or UNRESOLVABLE entry is never
+  // An INTEGRITY_MISMATCH or UNRESOLVABLE entry is never
   // charged — N counts only COMMUNITY_REVIEWED entries whose integrity
   // matches, never the tree's total entry count.
   test('POST /v1/attest/lockfile: an INTEGRITY_MISMATCH and an UNRESOLVABLE entry are never charged', async () => {
@@ -635,7 +635,7 @@ describe('x402 gate', () => {
   // Defect this pins: the free-path limiter only guarded the zero-coverage
   // and partial branches, never the priced one — a caller with one reviewed
   // entry could spend server CPU (a parse, roughly 500 status lookups, and
-  // a signature) on every request at no cost (SPEC.md §12.3). A second,
+  // a signature) on every request at no cost. A second,
   // per-IP limiter now runs before the body is even read, on every lockfile
   // request, paid or free.
   test('POST /v1/attest/lockfile: a priced request under the per-request cap still reaches the 402 gate', async () => {
@@ -701,8 +701,7 @@ describe('x402 gate', () => {
     expect(res.status).toBe(402)
   })
 
-  // X-AuPM-Donate: 0 opts into the free partial attestation (SPEC.md §11.2,
-  // §12.3, ADR 0006) before the payment gate runs — the gate must never see
+  // X-AuPM-Donate: 0 opts into the free partial attestation before the payment gate runs — the gate must never see
   // this request, on either attestation route.
   test('POST /v1/attest/lockfile, X-AuPM-Donate: 0: 200 partial, never 402', async () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', null, null, REVIEWED_INTEGRITY)
@@ -816,7 +815,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(300)
   })
 
-  // SPEC §11.2, §13.2, ADR 0008, ADR 0011: a settled lockfile payment for N
+  // A settled lockfile payment for N
   // reviewed packages ledgers each package's own full 300/100/200/250/100/50
   // role shares (MainNet) — never a cross-package split — and the accrual
   // sum across all packages equals the exact amount charged.
@@ -929,7 +928,7 @@ describe('claims ledger, wired into the real app', () => {
     const paidApp = createApp(paidHttpServer)
 
     // Opt in to payment — without X-AuPM-Donate: 1, the free-tier hook would
-    // grant access here instead of returning 402 (ADR 0006, SPEC §10.4).
+    // grant access here instead of returning 402.
     const unpaidRes = await paidApp.request('/lodash/-/lodash-4.17.21.tgz', {
       headers: { 'X-AuPM-Donate': '1' },
     })
@@ -1246,7 +1245,7 @@ describe('unmatched AuPM paths', () => {
     }
   })
 })
-// ADR 0013, SPEC §10.5: an empty request gets the 402 challenge for one
+// An empty request gets the 402 challenge for one
 // reviewed package. Every other invalid request still gets 400 first.
 describe('empty attestation request (402 first)', () => {
   type Challenge = {
@@ -1391,7 +1390,7 @@ describe('empty attestation request (402 first)', () => {
   })
 })
 
-// L17a: a yarn classic yarn.lock on the lockfile route (ADR 0018).
+// L17a: a yarn classic yarn.lock on the lockfile route.
 describe('POST /v1/attest/lockfile with a yarn classic yarn.lock', () => {
   const URL_PATH = '/v1/attest/lockfile'
   const YARN_HEADER = '# yarn lockfile v1\n\n'

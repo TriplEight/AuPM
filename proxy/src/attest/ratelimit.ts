@@ -3,7 +3,7 @@
 // Per-IP rate limiter for the free lockfile path (a lockfile with zero
 // reviewed packages). That path is unpriced but not free to run: it still
 // costs a parse, roughly 500 status lookups, and a signature. Cap it per IP
-// so it cannot be used as an unpriced signing oracle (SPEC.md §12.3).
+// so it cannot be used as an unpriced signing oracle.
 
 /** A rate limiter keyed by an arbitrary string (the caller's IP here). */
 export interface RateLimiter {
@@ -28,7 +28,7 @@ export const DEFAULT_FREE_LOCKFILE_RATE_LIMIT: RateLimiterConfig = {
  * caller cannot spend server CPU (a parse, roughly 500 status lookups, and
  * a signature) on a priced lockfile just because it has at least one
  * reviewed entry — the free-path limiter above only guards the zero-
- * coverage and partial branches, not this one (SPEC.md §12.3).
+ * coverage and partial branches, not this one.
  */
 export const DEFAULT_LOCKFILE_REQUEST_RATE_LIMIT: RateLimiterConfig = {
   windowMs: 60 * 60 * 1000,

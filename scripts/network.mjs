@@ -6,7 +6,7 @@
 //
 // scripts/ has no node_modules of its own; requireFromProxy anchors a CJS
 // require() at the proxy workspace, which already depends on @x402-avm/avm
-// (mirrors scripts/e2e.mjs and scripts/check-402.mjs).
+// (mirrors scripts/check-402.mjs).
 
 import { createRequire } from 'node:module'
 
@@ -49,7 +49,7 @@ export function parseNetworkFlag(argv, env = process.env) {
 
 /**
  * The USDC ASA id for `network`, read from @x402-avm/avm — never
- * hardcoded here (CLAUDE.md: MainNet USDC ASA is 31566704, TestNet
+ * hardcoded here (MainNet USDC ASA is 31566704, TestNet
  * 10458941, rehearsal only).
  *
  * @param {'testnet'|'mainnet'} network
@@ -74,7 +74,7 @@ export function caip2NetworkId(network) {
 /**
  * The algod endpoint for `network`. ALGOD_SERVER/ALGOD_PORT/ALGOD_TOKEN in
  * `env` override the per-network default, matching every script that
- * already reads them this way (scripts/e2e.mjs, scripts/optin-usdc.mjs).
+ * already reads them this way (scripts/optin-usdc.mjs).
  *
  * @param {'testnet'|'mainnet'} network
  * @param {NodeJS.ProcessEnv} [env] - defaults to process.env.

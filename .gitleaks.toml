@@ -29,14 +29,13 @@ description = "A name containing \"mnemonic\" assigned a literal multi-word valu
 regex       = '''(?i)[a-z0-9_]*mnemonic[a-z0-9_]*[[:space:]]*[:=][[:space:]]*["'][a-zA-Z]+([[:space:]]+[a-zA-Z]+)+["']'''
 
 # ---------------------------------------------------------------------------
-# Allowlist. Mirrors scripts/guard.sh RULE 7's own scope exclusions: vendor
-# skill reference docs and test fixtures legitimately hold synthetic
+# Allowlist. Mirrors scripts/guard.sh RULE 7's own scope exclusions: test
+# fixtures legitimately hold synthetic
 # secret-shaped strings (a hex key, an example signing key) that are not
 # real credentials.
 # ---------------------------------------------------------------------------
 [allowlist]
 paths = [
-  '''(^|/)\.claude/skills/''',
   '''\.test\.''',
   '''(^|/)\.env\.example$''',
 ]
