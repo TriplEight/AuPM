@@ -1,7 +1,7 @@
 // mcp/src/signer.ts
 //
 // Derives a ClientAvmSigner (the 2.6 x402-avm signer helper) from a donor phrase: a 25-word
-// Algorand mnemonic, or a 24-word Universal Wallet phrase at derivation 1 (ADR 0028).
+// Algorand mnemonic, or a 24-word Universal Wallet phrase at derivation 1.
 // Uses algokit-utils' key primitives, not algosdk — algosdk stays in this repo for contract
 // and deployment scripts only. The signing steps match toClientAvmSigner.
 //

@@ -1,6 +1,6 @@
 // proxy/src/routes/health.ts
 //
-// GET /api/v1/health (item N1.6, ADR 0009): free, unauthenticated, never
+// GET /api/v1/health (item N1.6): free, unauthenticated, never
 // gated — mirrors routes/status.ts. Reports the nightly job's last run and
 // last success. Returns 200 when the last successful run started at most
 // HEALTHY_SUCCESS_MAX_AGE_MS ago, else 503 — an operator's monitoring

@@ -1,6 +1,6 @@
 // proxy/src/claims/indexer.ts
 //
-// Production IndexerClient (SPEC.md 5.2) for
+// Production IndexerClient for
 // proxy/src/claims/reconcile.ts: lists confirmed USDC axfers into `payTo`
 // from an Algorand indexer, via algosdk's own Indexer client. Pages through
 // every result with `next-token` — a busy `payTo` can span more than one

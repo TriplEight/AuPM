@@ -19,9 +19,9 @@ import {
   UNASSIGNED,
 } from './attribution-rules.js'
 
-// One split on every network (ADR 0011).
+// One split on every network.
 describe('role shares', () => {
-  test('300/100/200/250/100/50 of 20000 microUSDC scale exactly (ADR 0011)', () => {
+  test('300/100/200/250/100/50 of 20000 microUSDC scale exactly', () => {
     expect(computeRoleShareMicro(20000, 'auditor')).toBe(6000)
     expect(computeRoleShareMicro(20000, 'contributor')).toBe(2000)
     expect(computeRoleShareMicro(20000, 'maintainer')).toBe(4000)
@@ -42,7 +42,7 @@ describe('role shares', () => {
 })
 
 describe('mvpSplit', () => {
-  test('MVP split (ADR 0011)', () => {
+  test('MVP split', () => {
     expect(mvpSplit()).toEqual({ auditorPercent: 30, opsPercent: 70 })
   })
 })

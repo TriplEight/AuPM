@@ -230,7 +230,7 @@ export async function findLockfileDir(
   return cwd
 }
 
-/** ADR 0030: a fixed pointer to the tool's own audit. AuPM reads no advisory data. */
+/** A fixed pointer to the tool's own audit. AuPM reads no advisory data. */
 function auditPointer(tool: Tool): string {
   return (
     `Known advisories: run \`${tool} audit\` (source: npm, GitHub Advisory Database). ` +

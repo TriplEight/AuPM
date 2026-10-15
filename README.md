@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/21a37db8-e27c-4132-9ec1-951285fa3149
   <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/License-AGPL--3.0-00E58B?style=flat-square&labelColor=0B0F19&logo=gnu&logoColor=00E58B"></a>
   <a href="https://www.npmjs.com/package/aupm-cli"><img alt="npm: aupm-cli" src="https://img.shields.io/npm/v/aupm-cli?style=flat-square&labelColor=0B0F19&color=00E58B&label=aupm-cli"></a>
   <a href="https://www.npmjs.com/package/aupm-mcp"><img alt="npm: aupm-mcp" src="https://img.shields.io/npm/v/aupm-mcp?style=flat-square&labelColor=0B0F19&color=00E58B&label=aupm-mcp"></a>
-  <a href="https://github.com/TriplEight/AuPM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TriplEight/AuPM/ci.yml?branch=master&style=flat-square&labelColor=0B0F19&label=CI&color=00E58B"></a>
+  <a href="https://github.com/TriplEight/AuPM/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/TriplEight/AuPM/ci.yml?branch=main&style=flat-square&labelColor=0B0F19&label=CI&color=00E58B"></a>
 </p>
 
 <p align="center">
@@ -116,8 +116,8 @@ aupm config set donate true         # always donate; --no-donate skips it once
 at most 2 MiB).
 
 `AUPM_PROXY_URL` sets the registry the CLI talks to. It defaults to `https://aupm.fyi`, the
-MainNet deployment. For a local proxy, use `http://localhost:4873/`. To build the CLI from
-source, see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+MainNet deployment. For a local proxy, use `http://localhost:4873/`.
+
 
 ### In CI
 
@@ -140,14 +140,14 @@ aupm verify attestation.json --lockfile package-lock.json --keys aupm-keys.json
 
 AuPM is at an early stage. It runs on Algorand MainNet, and donations settle there. Many
 steps are still manual, and only the auditor and ops roles are paid today.
-[docs/ROADMAP.md](docs/ROADMAP.md) lists what comes next. If one of these fits you, please
-join:
+If one of these fits you, please join:
 
 - **Review packages.** Read a tarball, record your review, and get paid for it. See
   "For auditors" below.
 - **Maintain a package?** Tell us in an issue. The maintainer share is planned, not live.
   Your input decides how it works.
-- **Write code.** Pick an item from the roadmap, or open an issue first.
+- **Suggest a change.** Open an issue. The project takes issues only. See
+  [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Try it.** Point npm at `https://aupm.fyi/` and tell us what breaks.
 
 ## How donations work
@@ -168,7 +168,7 @@ Only these opt-ins donate:
   MainNet unless the job sets `NETWORK: testnet`.
 
 Plain `npm install` through AuPM never donates. To donate, you need a funded Algorand account
-holding USDC. See "Donor account setup" in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md).
+holding USDC. See the donor section in [docs/ONBOARDING.md](docs/ONBOARDING.md).
 
 ### Why crypto?
 
@@ -208,8 +208,7 @@ MVP split. So far, the split pays only the auditor and ops roles:
 
 The MVP's 70% is ops income now, not a debt owed to the other roles. The live contract pays
 this split. A new contract version moves to the target split, and then a role with no payee
-sends its share to treasury, not to ops. TestNet runs the same split. See
-[ADR 0019](docs/adr/0019-split-40-10-25-20-5-package-pools.md) for the split rationale.
+sends its share to treasury, not to ops. TestNet runs the same split.
 
 ### Trust model
 
@@ -219,8 +218,7 @@ no delay, because remapping an identity or changing the crediter key takes effec
 A migration to a new contract needs a public announcement, then a 7-day delay, and then must
 run within the next 7 days or be announced again. The delay gives payees a warning window
 for a migration. It does not limit what the multisig can do. Any balance still unclaimed at
-migration moves to the treasury account, which pays it to the payee on request. See
-[ADR 0010](docs/adr/0010-contract-change-policy.md) for the full design.
+migration moves to the treasury account, which pays it to the payee on request.
 
 ## For auditors
 
@@ -231,7 +229,7 @@ Onboarding is manual in the MVP (planned). The path today:
    registry. It needs no redeploy. Logins are lower case.
 3. You read the exact tarball you are reviewing.
 4. You anchor the review with a 0-ALGO self-payment to your own address, carrying an ARC-2
-   note (`aupm:j{...}`, see [ADR 0007](docs/adr/0007-auditor-anchors-review.md)).
+   note (`aupm:j{...}`).
 5. The operator runs `record-review` against your anchor transaction, which flips the package
    to `COMMUNITY_REVIEWED`.
 6. The nightly batch credits your balance in PaymentRouter.
@@ -241,12 +239,9 @@ Attestations use DSSE envelopes with in-toto Statement v1 and ed25519 signatures
 
 ## Links
 
-- [SPEC.md](SPEC.md) — the authoritative specification.
 - [docs/ONBOARDING.md](docs/ONBOARDING.md) — step-by-step onboarding for each user role.
 - [docs/API.md](docs/API.md) — the HTTP routes, attestations and the offline check.
-- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — build, run and deploy this repository.
-- [docs/ROADMAP.md](docs/ROADMAP.md) — what comes next, and where help is welcome.
-- [docs/adr/](docs/adr/) — design decisions.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — how to file issues and report a security problem.
 - [Leaderboard](https://facilitator.goplausible.xyz/data/leaderboards?cat=merchants&env=mainnet&src=x402-global-challenge)
 
 ## License

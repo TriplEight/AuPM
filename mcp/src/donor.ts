@@ -43,7 +43,7 @@ export function donorAlgodUrl(): string {
 }
 
 /**
- * Price of one reviewed entry, in microUSDC (SPEC.md §11.2, §11.4). The
+ * Price of one reviewed entry, in microUSDC. The
  * spend cap and the withheld-entry price are both multiples of this value.
  * No config knob.
  */
@@ -51,7 +51,7 @@ export const PRICE_PER_ENTRY_MICRO = 1_000
 
 /**
  * A donation never signs above `PRICE_PER_ENTRY_MICRO * entryCount`
- * microUSDC (SPEC.md §11.4): 1,000 for a tarball or a single attestation,
+ * microUSDC: 1,000 for a tarball or a single attestation,
  * or 1,000 times the number of entries in a lockfile. No fixed cap and no
  * config knob — the only limit is this formula and the donor account
  * balance.
@@ -189,7 +189,7 @@ function requirementAsset(requirement: PaymentRequirements): unknown {
 
 // A requirement is fine to donate only when both the top-level asset and
 // extra.asset name the selected network's USDC ASA, and the amount is at or
-// under the spend cap. CLAUDE.md: extra.asset is always explicit; an
+// under the spend cap. extra.asset is always explicit; an
 // omitted asset may resolve to ALGO instead of USDC.
 function isDonationCompliant(requirement: PaymentRequirements, capMicro: bigint): boolean {
   if (requirement.asset !== USDC_ASSET_ID) return false
@@ -326,7 +326,7 @@ export function readSettlementTxid(res: Response): string | null {
   return decoded.transaction
 }
 
-/** Header name AuPM clients send on every request (SPEC.md §11.4, ADR 0006). */
+/** Header name AuPM clients send on every request. */
 export const DONATE_HEADER = 'X-AuPM-Donate'
 
 // Attaches X-AuPM-Donate: 1 (opt-in) or X-AuPM-Donate: 0 (opt-out) to init,
@@ -392,8 +392,7 @@ export type DonationFetchResult =
 
 /**
  * Fetches url, paying a 402 only when allowDonation is true. Sends
- * X-AuPM-Donate: 1 with the opt-in and X-AuPM-Donate: 0 without it (SPEC.md
- * §11.4). Uses wrapFetchWithPayment for the whole pay-and-retry flow. The
+ * X-AuPM-Donate: 1 with the opt-in and X-AuPM-Donate: 0 without it. Uses wrapFetchWithPayment for the whole pay-and-retry flow. The
  * spend cap and asset check run as an x402Client policy, so a refused
  * requirement never signs and never retries.
  *

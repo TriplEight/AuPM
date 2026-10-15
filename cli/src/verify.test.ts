@@ -309,7 +309,7 @@ describe('runVerify (end to end, exit code)', () => {
   })
 })
 
-// A partial attestation (SPEC.md §11.2, §12.3: X-AuPM-Donate: 0) has the same
+// A partial attestation (X-AuPM-Donate: 0) has the same
 // envelope and Statement shape as a full one — only predicate.packages,
 // predicate.withheld, and predicate.absentMeans differ. verify.ts checks the
 // signature and, optionally, the subject digest; it never inspects the
@@ -333,7 +333,7 @@ describe('runVerify: partial attestation (X-AuPM-Donate: 0 shape)', () => {
         lockfileVersion: 3,
         summary: { total: 3, reviewed: 2, unreviewed: 0, unresolvable: 1, integrityMismatch: 0 },
         // The two matching-reviewed entries are withheld; only the
-        // UNRESOLVABLE entry is listed (CLAUDE.md invariant 4).
+        // UNRESOLVABLE entry is listed.
         packages: [
           {
             name: 'gitdep',

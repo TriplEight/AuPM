@@ -290,13 +290,13 @@ describe('PaymentRouter', () => {
     expect(inner.assetAmount).toEqual(120_000n)
   })
 
-  // ADR 0010 / SPEC §10.2a: announceRelease() then executeRelease() replace
+  // AnnounceRelease() then executeRelease() replace
   // releaseAuthority(). ctx.ledger.patchGlobalData({ round }) is the only
   // way this JavaScript harness can move Global.round; it does not build
   // the ARC-4 router, so no test here sends a real, separately-authorized
   // rekeyed transaction — see the UpdateApplication/DeleteApplication
   // caution below for the same limit applied to routing.
-  describe('announceRelease() / executeRelease() (ADR 0010)', () => {
+  describe('announceRelease() / executeRelease()', () => {
     test('announceRelease(): a non-admin sender fails', () => {
       const { contract } = setup(0n)
       const notAdmin = ctx.any.account()
@@ -502,8 +502,7 @@ describe('PaymentRouter', () => {
   // It does not build or run the ARC-4 router the compiled approval program
   // uses to dispatch on OnCompletion. So this suite cannot send a real
   // UpdateApplication or DeleteApplication application call and observe the
-  // router reject it; that only happens under Puya-compiled TEAL (see
-  // docs/RUNBOOK-contract-build.md). Instead, this proves the two facts that
+  // router reject it; that only happens under Puya-compiled TEAL. Instead, this proves the two facts that
   // make that rejection follow: the class defines no handler PaymentRouter
   // routes to either OnCompletion, and the generated ARC-56 spec lists
   // neither action for any method or bare call.

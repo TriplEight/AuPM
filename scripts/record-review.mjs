@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-// Records one human review from its on-chain anchor (SPEC §14, ADR 0007).
+// Records one human review from its on-chain anchor.
 // Run by the operator, on the server. Reads the anchor transaction from the
 // indexer, checks its sender against the PaymentRouter
 // identity box of the note's reviewer, checks its integrity against
-// npm for that exact version, resolves the repo key (SPEC §13.1), prints
+// npm for that exact version, resolves the repo key, prints
 // every field, requires an interactive "yes", and only then writes the row
 // through the proxy's own SQLite schema (proxy/src/status.ts's setStatus —
 // never a second schema copy, never raw SQL here).
@@ -18,7 +18,7 @@
 //     ../scripts/record-review.mjs <anchorTxid> --network <network>
 // (the image's working directory is /app/proxy).
 //
-// This never runs in CI, a fixture or a seed path (CLAUDE.md invariant 5):
+// This never runs in CI, a fixture or a seed path:
 // with no TTY on stdin, it refuses before any network or database access.
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline/promises'
@@ -60,7 +60,7 @@ function printUsage() {
  * @param {string|undefined} deps.paymentRouterAppId - PAYMENT_ROUTER_APP_ID.
  * @param {(appId: number, identity: string) => Promise<string|null>} deps.readMappedAddress -
  *   the address in the PaymentRouter identity box of `identity`, or null when unmapped.
- * @param {string} deps.network - the network the review is recorded for (ADR 0012).
+ * @param {string} deps.network - the network the review is recorded for.
  * @param {(line: string) => void} [deps.log]
  * @returns {Promise<{recorded: boolean, pkg?: string, version?: string, repo?: string, reviewer?: string}>}
  */
@@ -124,7 +124,7 @@ export async function runRecordReview({
 }
 
 async function main() {
-  // Refuses before any network or database access (CLAUDE.md invariant 5):
+  // Refuses before any network or database access:
   // a script with no TTY on stdin never records a review, on purpose.
   if (!process.stdin.isTTY) {
     console.error('refusing: record-review.mjs requires an interactive TTY, none found')

@@ -59,7 +59,7 @@ describe('buildRoutes', () => {
       const accepts = routes[key].accepts
       return Array.isArray(accepts) ? accepts[0]?.price : accepts.price
     }
-    // SPEC §11.2, ADR 0008: the lockfile route is 1,000 microUSDC x N reviewed
+    // The lockfile route is 1,000 microUSDC x N reviewed
     // entries, no cap, no discount — a DynamicPrice function, never a flat
     // dollar string. The single-attest and tarball routes stay flat: each
     // charges for exactly one reviewed package.
@@ -79,10 +79,10 @@ describe('buildRoutes', () => {
   })
 
   // Composed, not a literal, for the same reason as STALE_FLAT_LOCKFILE_PRICE
-  // above: never write this misattribution (SPEC §6.2) while ops holds it.
+  // above: never write this misattribution while ops holds it.
   const OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER = ['20%', 'to maintainers'].join(' ')
 
-  test('every Bazaar description and og:description shows both splits and $0.001 (SPEC §6.2)', () => {
+  test('every Bazaar description and og:description shows both splits and $0.001', () => {
     const texts = [
       routes[LOCKFILE_ROUTE_KEY].description ?? '',
       routes[SINGLE_ATTEST_ROUTE_KEY].description ?? '',

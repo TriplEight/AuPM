@@ -40,7 +40,7 @@ export const TARBALL_ROUTE_KEY = 'GET /*/-/*'
  * apply the identical normalisation, they disagree with the matcher on what
  * counts as a tarball path — in one direction that serves a reviewed
  * tarball for free, in the other it charges an unreviewed one, violating
- * "unreviewed never returns 402" (CLAUDE.md invariant 4).
+ * "unreviewed never returns 402".
  *
  * CAUTION: decode before collapsing slashes, never after — collapsing
  * first would miss slash-runs created by decoding (e.g. a `%2F` landing
@@ -100,7 +100,7 @@ export function isTarballPath(path: string): boolean {
   return normalized.includes('/-/') && /\.tgz$/i.test(normalized)
 }
 
-/** Integer micro-USDC charged for one reviewed tarball download (CLAUDE.md: $0.001). */
+/** Integer micro-USDC charged for one reviewed tarball download ($0.001). */
 export const TARBALL_PRICE_MICRO = 1_000
 
 /**
@@ -161,12 +161,12 @@ export function parseTarballPath(urlPath: string): { name: string; version: stri
  * shape (`/-/readme`, `/-/` with no filename, a path with no extension) can
  * never be resolved to a specific package version, so it can never be
  * positively identified as a reviewed tarball — it is granted free, not
- * charged (CLAUDE.md invariant 4: unreviewed never returns 402; CAUTION —
+ * charged (unreviewed never returns 402; CAUTION —
  * an unresolvable path defaults to free, never to a charge). Charging only
  * ever happens once a resolved row is positively found to be reviewed.
  *
  * A resolved, reviewed row is still granted free access unless the request
- * carries `X-AuPM-Donate: 1` exactly (SPEC §10.4, ADR 0006). x402's route
+ * carries `X-AuPM-Donate: 1` exactly. x402's route
  * config is static — a matching route always demands payment — but `npm
  * install` can never pay a 402, and the seed review list (`ms`, `once`,
  * `inherits`) sits in almost every lockfile. Any other header value,

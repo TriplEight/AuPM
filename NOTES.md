@@ -3,7 +3,7 @@
 This file lists merged changes. The session log is not in this repository.
 
 ## 2026-10-11
-- #99 `e82bab7`: ADRs 0019-0027 and SPEC Part III record the trust-layer design. The target split
+- #99 `e82bab7`: the trust-layer design is recorded. The target split
   becomes 40/10/25/20/5, with a pool per package version. The live contract still pays auditor
   30% and ops 70%.
 
@@ -21,12 +21,12 @@ This file lists merged changes. The session log is not in this repository.
 
 ## 2026-10-06
 - #72 `0f17e33`: `aupm donor init` creates a donor wallet with a 0600 key file. `aupm donor optin`
-  opts it in to USDC (ADR 0016).
+  opts it in to USDC.
 - #73 `9755164`: the CLI and `aupm-mcp` build to `dist/`. A `cli-v*` tag publishes both to npm
-  through trusted publishing, with provenance (ADR 0017).
+  through trusted publishing, with provenance.
 - #74 `ba8dd77`: the empty lockfile body check runs in linear time.
 - #75 `d56e168`: `POST /v1/attest/lockfile` accepts `pnpm-lock.yaml` (lockfileVersion 9.0). The
-  YAML parse runs in a worker with a 5 s limit, a 2 MiB cap and one parse at a time (ADR 0015).
+  YAML parse runs in a worker with a 5 s limit, a 2 MiB cap and one parse at a time.
 - #76 `cacba3c`: `aupm pnpm` and `aupm npx`. The MCP server and `aupm verify` read pnpm lockfiles.
 - #77 `5e3e3ac`: donor onboarding guides without waiting: `init`, a one-check `optin`, a
   read-only `status`. The key file holds the 25 words. The CI secret is
@@ -47,7 +47,7 @@ This file lists merged changes. The session log is not in this repository.
 ## 2026-09-29
 - #38 `5e9d315`: multisig submit instructions POST to algod, not `algokit goal clerk rawsend`.
 - #39 `f803173`: `.dockerignore` excludes nested `.claude/` directories.
-- #40 `7af05bd`: ADR 0012. Unread review records are allowed on TestNet only.
+- #40 `7af05bd`: Unread review records are allowed on TestNet only.
 - #41 `1295f69`: one `credit()` call holds at most 3 entries (opcode budget 173 + 159 per entry).
   A pending batch over the limit is released and planned again.
 - #42 `6a76338`: the CLI, `aupm install --donate` and the Action report the settled amount and
@@ -64,8 +64,8 @@ This file lists merged changes. The session log is not in this repository.
 
 ## 2026-09-28
 - N0 `c11224c`: renamed the product from SPM to AuPM.
-- Wave 7: P1 `7c1f182` (ADR 0010), P7 `e62666c` `5a5e613` `8cd5b5f`, P8 contract `2416bbc`,
-  P8 docs `3e2a56d` (ADR 0011), P2 `eb7bc37`, P3 `b42cdfa`, P8a `bbe899e`, P8b `4bbffd7`,
+- Wave 7: P1 `7c1f182`, P7 `e62666c` `5a5e613` `8cd5b5f`, P8 contract `2416bbc`,
+  P8 docs `3e2a56d`, P2 `eb7bc37`, P3 `b42cdfa`, P8a `bbe899e`, P8b `4bbffd7`,
   P5 `5eb4f73`, P6 `ff64c16`.
 - Decisions: 2-of-3 multisig admin. Announce, then execute after 216,000 rounds. Sweep of
   unclaimed USDC goes to `treasury`.
@@ -82,7 +82,7 @@ This file lists merged changes. The session log is not in this repository.
 - Release `v0.1.1` (`2a963e0`). Image digest
   `sha256:348ec591889f72ccf294be315bcc3e045b85d2cb80a009564647c0e874d13f4b`.
 - F1 `68ed80d`: Compose pins `v0.1.1`.
-- N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC (ADR 0009). `GET /api/v1/health`
+- N1 `c4d07d4`: the proxy runs the nightly job at 03:17 UTC. `GET /api/v1/health`
   returns 503 after 26 h without a success.
 - N2 `b971d8a`: image workflow. N3 `61dbb8a`: Compose pins the image tag.
 - S1 `349de5c`: `@modelcontextprotocol/sdk` 1.30.1. T1 `c086ac2`: test ports.
@@ -104,10 +104,7 @@ This file lists merged changes. The session log is not in this repository.
 ## 2026-09-23
 - Waves 1 to 4 (H1, Q1, Q5, R1, R3): hardening, tests and the release tooling.
 
-## 2026-09-22
-- SPEC v6 review. Documents only.
-
 ## 2026-09-21
-- Every client opts in to donation. `SPEC.md` replaces the earlier spec file name.
+- Every client opts in to donation.
 - Contract artifacts regenerated. The toolchain moves to pnpm.
 - Launch tooling: `scripts/check-402.mjs` and `scripts/hit-rate.mjs`.

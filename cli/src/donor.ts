@@ -1,6 +1,6 @@
 // cli/src/donor.ts
 //
-// `aupm donor init|optin|status` (SPEC.md §11.4, ADR 0016). `init` creates a donor account. On a
+// `aupm donor init|optin|status`. `init` creates a donor account. On a
 // terminal it shows the 25 words once, saves the key file only after the donor types yes, then
 // guides the donor one step at a time: it waits for Enter, checks the balance once, sends the
 // opt-in, and waits for the USDC. Without a terminal, or with `--yes`, it saves the key file,
@@ -8,7 +8,7 @@
 // 0-amount USDC transfer to self straight to algod. `status` reads the state and names the
 // next step. No command uses a timer or polls. The opt-in is not an x402 payment.
 //
-// The key file and the env var hold a 25-word or a 24-word phrase (ADR 0028). `init` makes a
+// The key file and the env var hold a 25-word or a 24-word phrase. `init` makes a
 // 25-word key.
 //
 // WARNING: never print or log the mnemonic or the secret key. The one exception is the backup

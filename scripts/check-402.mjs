@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 // AuPM operator preflight — confirms a live proxy's 402 response is safe to
-// donate against, before anyone runs `--donate` (CLAUDE.md invariants 3
-// and 6; SPEC.md §11.3; docs/HANDOFF-next-session.md step 3). Read-only:
+// donate against, before anyone runs `--donate` (an explicit asset and the
+// mandatory facilitator). Read-only:
 // this script never signs or sends a transaction, so it needs no
 // --confirm-mainnet gate (scripts/network.mjs).
 //
@@ -24,7 +24,7 @@ import { createRequire } from 'node:module'
 import { caip2NetworkId, parseNetworkFlag, usdcAssetId } from './network.mjs'
 
 // Anchors a CJS `require()` at the proxy workspace's own node_modules —
-// scripts/ has no node_modules of its own (mirrors scripts/e2e.mjs:16-23).
+// scripts/ has no node_modules of its own.
 const requireFromProxy = createRequire(new URL('../proxy/package.json', import.meta.url))
 
 const FACILITATOR_URL = 'https://facilitator.goplausible.xyz'

@@ -14,7 +14,7 @@ const PAY_TO = 'J6DSQYYXYO53B7PC6MZ5M2OO7V3RM4MIWTV7KCH5IQBUXF7KMGPVFWIRAM'
 const FEE_PAYER = 'EA4DXI4WJWSSJQAAKG5ZFNVA6U26NT7DBWHUKP5C3HSVKBAQ3KGPKVEN5A'
 const RESOURCE_URL = 'http://localhost:4873/v1/attest/lockfile'
 // The default lockfile fixture below has exactly one package entry, so its
-// spend cap (SPEC.md §11.4) is 1,000 microUSDC * 1 entry.
+// spend cap is 1,000 microUSDC * 1 entry.
 const LOCKFILE_PRICE = '1000'
 
 function algodParamsResponse(): Response {

@@ -4,7 +4,7 @@
 // is 10s: Compose sends SIGTERM, waits, then SIGKILL. PID 1 here
 // (node --import tsx/esm src/index.ts) has no default SIGTERM action, and
 // without a handler the process rides out the full window doing nothing
-// before SIGKILL lands — possibly mid nightly-job SQLite write (ADR 0009).
+// before SIGKILL lands — possibly mid nightly-job SQLite write.
 //
 // This module gives the process a deadline of its own, below Docker's
 // default: it stops the nightly scheduler first (no new run starts), starts

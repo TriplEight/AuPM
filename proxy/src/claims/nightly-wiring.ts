@@ -4,7 +4,7 @@
 // indexer and algod clients, the SQLite backup step, the credit client,
 // and the R3c genesis guard. Shared by the two real callers — nightly-main.ts
 // (the operator's manual entry point) and proxy/src/index.ts (the
-// in-process scheduler, ADR 0009) — so the job is wired exactly one way,
+// in-process scheduler) — so the job is wired exactly one way,
 // not two. Reads process.env itself, the same scope nightly-main.ts held
 // before this split, but performs no network I/O at call time: every
 // network call happens later, inside the functions buildRealNightlyDeps
@@ -75,7 +75,7 @@ function portOf(url: string): string {
 
 /**
  * null when neither the variable nor its _FILE form is set — the credit step then logs why and
- * stops (SPEC.md §13.2 step 3) rather than failing to build a client.
+ * stops rather than failing to build a client.
  */
 function buildCreditClient(indexerUrl: string): CreditChainClient | null {
   const crediterMnemonic = readSecret('CREDITER_MNEMONIC')

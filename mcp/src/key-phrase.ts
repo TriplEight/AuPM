@@ -1,6 +1,6 @@
 // mcp/src/key-phrase.ts
 //
-// Turns a typed recovery phrase into an ed25519 account (ADR 0028).
+// Turns a typed recovery phrase into an ed25519 account.
 // 25 words: Algo25. 24 words: a Universal Wallet phrase (BIP-39 seed, ARC-52 Peikert derivation,
 // path m/44'/283'/n'/0/0). The word count picks the format.
 //

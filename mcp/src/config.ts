@@ -1,10 +1,10 @@
 // mcp/src/config.ts
 //
-// The "always donate" setting (SPEC.md §11.4). Precedence, highest first:
+// The "always donate" setting. Precedence, highest first:
 // the explicit choice (the CLI flag `--donate` or `--no-donate`, or the MCP call argument
 // `allowDonation`), the env var `AUPM_DONATE`, the config file
 // `$XDG_CONFIG_HOME/aupm/config.toml` (default `~/.config/aupm/config.toml`), then off.
-// The aupm CLI and the MCP server read this setting. Plain `npm install` stays free (ADR 0006).
+// The aupm CLI and the MCP server read this setting. Plain `npm install` stays free.
 //
 // The config file is a strict subset of TOML: blank lines, `#` comments and one line
 // `donate = true` or `donate = false`. Any other line is an error. No TOML library.

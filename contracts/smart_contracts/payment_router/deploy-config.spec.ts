@@ -280,7 +280,7 @@ describe('assertExistingAppSafeToReuse (chain mocked — no real algod call)', (
   })
 })
 
-// --- Multisig creator (ADR 0010, SPEC §10.2a) --------------------------
+// --- Multisig creator --------------------------
 
 describe('parseAdminMultisigAddrs', () => {
   const [a1, a2, a3] = [
@@ -424,7 +424,7 @@ describe('writeUnsignedTxnFile', () => {
   })
 })
 
-// --- Admin-call multisig builders (ADR 0010, SPEC §10.2a) -------------------------------------
+// --- Admin-call multisig builders -------------------------------------
 
 describe('parseAppId', () => {
   test('refuses an unset value', () => {
@@ -498,7 +498,7 @@ describe('assertMethodSignatureMatchesSpec', () => {
 
   test('announceRelease/executeRelease are checked automatically once the spec is rebuilt', () => {
     // The real, generated APP_SPEC is stale today: it still declares the superseded
-    // releaseAuthority(address), not announceRelease/executeRelease (ADR 0010), until a human
+    // releaseAuthority(address), not announceRelease/executeRelease, until a human
     // reruns `algokit project run build`. This call is a no-op now. Once the spec is rebuilt
     // with both methods, this same assertion starts failing loudly if either hand-written
     // signature in deploy-config.ts disagrees with the rebuilt spec.
@@ -636,11 +636,13 @@ describe('admin-call builders', () => {
   })
 })
 
-// --- Single-key deploy() refuses MainNet (ADR 0010) --------------------------------------------
+// --- Single-key deploy() refuses MainNet --------------------------------------------
 
 describe('assertSingleKeyDeployNotMainnet', () => {
   test('refuses MainNet', () => {
-    expect(() => assertSingleKeyDeployNotMainnet('mainnet')).toThrow(/ADR 0010/)
+    expect(() => assertSingleKeyDeployNotMainnet('mainnet')).toThrow(
+      /single-key deploy\(\) on MainNet/,
+    )
   })
 
   test('is a no-op on TestNet', () => {
@@ -668,7 +670,7 @@ describe('deploy() refuses MainNet before building any client or reading any mne
     process.env.NETWORK = 'mainnet'
     const fromConfigSpy = vi.spyOn(AlgorandClient, 'fromConfig')
 
-    await expect(deploy()).rejects.toThrow(/ADR 0010/)
+    await expect(deploy()).rejects.toThrow(/single-key deploy\(\) on MainNet/)
     expect(fromConfigSpy).not.toHaveBeenCalled()
   })
 
@@ -676,7 +678,7 @@ describe('deploy() refuses MainNet before building any client or reading any mne
     delete process.env.NETWORK
     const fromConfigSpy = vi.spyOn(AlgorandClient, 'fromConfig')
 
-    await expect(deploy()).rejects.toThrow(/ADR 0010/)
+    await expect(deploy()).rejects.toThrow(/single-key deploy\(\) on MainNet/)
     expect(fromConfigSpy).not.toHaveBeenCalled()
   })
 
@@ -710,7 +712,7 @@ describe('deploy() refuses MainNet before building any client or reading any mne
       caught = error
     }
     expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).not.toMatch(/ADR 0010/)
+    expect((caught as Error).message).not.toMatch(/single-key deploy\(\) on MainNet/)
     expect(fromEnvironment).toHaveBeenCalledWith('DEPLOYER')
     expect(fromEnvironment).toHaveBeenCalledWith('CREDITER')
   })

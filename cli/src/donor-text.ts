@@ -1,6 +1,6 @@
 // cli/src/donor-text.ts
 //
-// The words that `aupm donor` prints (SPEC.md §11.4, ADR 0016). Every function returns lines.
+// The words that `aupm donor` prints. Every function returns lines.
 // No function reads a key. No function prints the mnemonic.
 import { styleText } from 'node:util'
 import { EXPLORER_NETWORK, IS_TESTNET, PRICE_PER_ENTRY_MICRO, USDC_ASSET_ID } from 'aupm-mcp/donor'

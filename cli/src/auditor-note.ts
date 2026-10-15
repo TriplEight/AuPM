@@ -1,6 +1,6 @@
 // cli/src/auditor-note.ts
 //
-// The review anchor note and the scope string (SPEC §14, ADR 0007, ADR 0012). The note bytes
+// The review anchor note and the scope string. The note bytes
 // equal what scripts/review-anchor.mjs encodeReviewNote() produces for the same fields.
 
 export const NOTE_PREFIX = 'aupm:j'
@@ -51,7 +51,7 @@ export function assertNoteFits(note: Uint8Array): void {
   }
 }
 
-/** Throws for an unread review anywhere except TestNet (ADR 0012). */
+/** Throws for an unread review anywhere except TestNet. */
 export function assertReadAllowed(coverage: string, scope: string, testnet: boolean): void {
   if (!testnet && (UNREAD_SCOPE.test(coverage) || UNREAD_SCOPE.test(scope))) {
     throw new Error(

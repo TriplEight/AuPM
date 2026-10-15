@@ -102,7 +102,7 @@ describe('fetchWithDonation', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('without allowDonation, sends X-AuPM-Donate: 0 (SPEC.md §11.4)', async () => {
+  it('without allowDonation, sends X-AuPM-Donate: 0', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(requestUrl(input), init)
       expect(request.headers.get('X-AuPM-Donate')).toBe('0')
@@ -279,7 +279,7 @@ describe('fetchWithDonation', () => {
       if (request.headers.get('PAYMENT-SIGNATURE')) {
         throw new Error('must never sign a non-USDC requirement')
       }
-      // Asset '0' is ALGO, not the USDC ASA — CLAUDE.md: an omitted/wrong
+      // Asset '0' is ALGO, not the USDC ASA — an omitted/wrong
       // asset must never be paid as if it were USDC.
       return unpaid402('1000', '0')
     })

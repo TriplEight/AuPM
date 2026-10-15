@@ -1,6 +1,6 @@
 // proxy/src/claims/routes.ts
 //
-// The earnings ledger's HTTP surface (SPEC.md 5.3):
+// The earnings ledger's HTTP surface:
 //   GET  /api/v1/earnings/github/:login  — public, free
 //
 // This router uses full absolute paths and is meant to be mounted at root

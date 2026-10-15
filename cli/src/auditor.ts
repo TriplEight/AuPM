@@ -1,7 +1,7 @@
 // cli/src/auditor.ts
 //
 // `aupm auditor review|balance|claim|status`. The key is typed on a hidden prompt for each
-// command that signs (ADR 0028). No key file, no env var, no flag. The app id and the payTo
+// command that signs. No key file, no env var, no flag. The app id and the payTo
 // address come from GET /api/v1/contract. The anchor and the claim go to algod.
 import type { DerivationChoice } from 'aupm-mcp/key-phrase'
 import {
@@ -75,7 +75,7 @@ export function parsePackageSpec(spec: string): { name: string; version: string 
   return { name: spec.slice(0, at), version: spec.slice(at + 1) }
 }
 
-/** Reads --derivation and --address. Both apply to 24-word phrases only (ADR 0028). */
+/** Reads --derivation and --address. Both apply to 24-word phrases only. */
 function derivationChoice(args: string[]): DerivationChoice {
   const raw = flagValue(args, '--derivation')
   const address = flagValue(args, '--address')

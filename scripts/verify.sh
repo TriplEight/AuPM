@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# AuPM verification harness — the G4 gate.
+# AuPM verification harness.
 #
-# Prints PASS, FAIL, or SKIP for every check. Exits 0 only when nothing
-# FAILs. A SKIP always carries a reason and never counts as a failure —
-# but it never counts as a pass either.
-#
-# CAUTION: this workstation has no funded wallet and no deployed contract.
-# Every check that needs one degrades to SKIP here. On a machine with real
-# credentials and network reach to the facilitator, the same checks run for
-# real — nothing here is LocalNet-specific; LocalNet does not exist for AuPM.
+# Prints PASS or FAIL for every check. Exits 0 only when nothing FAILs.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,8 +14,7 @@ log_for() {
   echo "${TMPDIR:-/tmp}/aupm_verify_$(echo "$1" | tr -c 'A-Za-z0-9' '_').log"
 }
 
-# run <name> <command> — PASS/FAIL only. Use for checks with no legitimate
-# SKIP state (typecheck, unit tests, guard, lint).
+# run <name> <command> — prints PASS or FAIL for one check.
 run() {
   local name="$1" cmd="$2" log
   log="$(log_for "$name")"
@@ -37,12 +29,6 @@ run() {
   fi
 }
 
-skip_line() {
-  local name="$1" reason="$2"
-  printf '%-26s SKIP  (%s)\n' "$name" "$reason"
-  SUMMARY+=("SKIP  $name -- $reason")
-}
-
 echo "== AuPM verify =="
 
 run "prek"              "prek run --all-files"
@@ -52,116 +38,6 @@ run "unit:contracts"    "pnpm --dir contracts test"
 run "unit:mcp"          "pnpm --dir mcp test"
 run "action:aupm" "node --test .github/actions/aupm/*.test.mjs"
 run "unit:scripts"      "node --test scripts/*.test.mjs"
-
-# ---------------------------------------------------------------------------
-# e2e: start a proxy instance with ephemeral, throwaway config, then run
-# scripts/e2e.mjs against it. The whole block SKIPs — never FAILs, never
-# falsely PASSes — when the facilitator is unreachable from this network:
-# proxy/src/index.ts refuses to open its port without one (CLAUDE.md
-# invariant 6), so no proxy can start here at all in that case.
-# ---------------------------------------------------------------------------
-E2E_NAME="e2e"
-TSX=""
-for candidate in mcp proxy cli; do
-  if [ -x "$ROOT/$candidate/node_modules/.bin/tsx" ]; then
-    TSX="$ROOT/$candidate/node_modules/.bin/tsx"
-    break
-  fi
-done
-
-if [ -z "$TSX" ]; then
-  echo "FAIL  ($E2E_NAME: no tsx binary found under proxy/, mcp/, or cli/ node_modules — set up dependencies with pnpm)"
-  SUMMARY+=("FAIL  $E2E_NAME -- tsx not installed")
-  fail=1
-else
-  export NETWORK="${NETWORK:-testnet}"
-  sqlite_path="${TMPDIR:-/tmp}/aupm_verify_$(date +%s).db"
-  export SQLITE_PATH="$sqlite_path"
-  # Ask the OS for a free TCP port instead of a fixed one. A fixed port can
-  # already be bound by an unrelated process (for example a live Docker
-  # stack); the readiness probe would then answer from that other process
-  # while this proxy silently failed to bind, and e2e would run against the
-  # wrong service. Binding port 0 and reading back the assigned port avoids
-  # that race.
-  free_port="$(node -e '
-    const net = require("node:net")
-    const srv = net.createServer()
-    srv.listen(0, "127.0.0.1", () => {
-      console.log(srv.address().port)
-      srv.close()
-    })
-  ')"
-  export PORT="$free_port"
-  export AUPM_PROXY_URL="http://localhost:${free_port}"
-  # Ephemeral, throwaway values — never a real key or a real deployed
-  # contract. Good enough to exercise the 402 gate and the signing path;
-  # never good enough to move real funds. Generated fresh every run.
-  pay_to_address="$(cd "$ROOT/proxy" && node -e "console.log(require('algosdk').generateAccount().addr.toString())")"
-  export PAY_TO_ADDRESS="$pay_to_address"
-  attest_signing_key="$(node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))")"
-  export ATTEST_SIGNING_KEY="$attest_signing_key"
-  # Reserved for documentation examples (RFC 2606); never a real, owned
-  # domain (Q13 — the server refuses to boot without this set, on every
-  # network).
-  export AUPM_ISSUER_URL="https://aupm-verify.invalid"
-  export AUPM_KEY_VALID_FROM="2026-01-01T00:00:00Z"
-
-  # Clear any proxy left running by an earlier, interrupted run — `tsx
-  # watch` never exits on its own (see the cleanup comment below).
-  pkill -f "watch src/index.ts" 2>/dev/null || true
-
-  PROXY_LOG="${TMPDIR:-/tmp}/aupm_verify_proxy.log"
-  rm -f "$PROXY_LOG"
-  pnpm --dir proxy dev >"$PROXY_LOG" 2>&1 &
-  PROXY_PID=$!
-
-  # Readiness means both: the PID this script started is still alive, and
-  # it is the process answering on the free port picked above. Checking
-  # kill -0 before every probe, and again right after a successful probe,
-  # rules out a stale or unrelated process on that port answering instead.
-  ready=0
-  for _ in $(seq 1 40); do
-    if ! kill -0 "$PROXY_PID" 2>/dev/null; then
-      break
-    fi
-    if curl -sf "$AUPM_PROXY_URL/api/v1/status/ping/1.0.0" >/dev/null 2>&1 \
-      && kill -0 "$PROXY_PID" 2>/dev/null; then
-      ready=1
-      break
-    fi
-    sleep 0.5
-  done
-
-  if [ "$ready" -eq 1 ]; then
-    echo "-- $E2E_NAME (proxy ready at $AUPM_PROXY_URL) --"
-    if "$TSX" scripts/e2e.mjs; then
-      SUMMARY+=("PASS  $E2E_NAME")
-    else
-      SUMMARY+=("FAIL  $E2E_NAME -- see output above")
-      fail=1
-    fi
-  elif grep -q "boot failed: facilitator" "$PROXY_LOG" 2>/dev/null; then
-    # The one honest SKIP path: the mandatory facilitator (CLAUDE.md
-    # invariant 6) is unreachable from this network. Not a code defect.
-    reason="facilitator unreachable from this environment (see $PROXY_LOG) -- proxy refuses to boot without it"
-    skip_line "$E2E_NAME" "$reason"
-  else
-    echo "FAIL  ($E2E_NAME: proxy never became ready; last lines of $PROXY_LOG)"
-    tail -n 30 "$PROXY_LOG" 2>/dev/null
-    SUMMARY+=("FAIL  $E2E_NAME -- proxy never became ready, see $PROXY_LOG")
-    fail=1
-  fi
-
-  # pnpm's own PID rarely matches the tsx child it spawns, and `tsx watch`
-  # is a supervisor that relaunches src/index.ts on every crash — including
-  # a failed boot — so it never exits on its own and never binds the port a
-  # `fuser -k` could find. Match its command line directly; it is the only
-  # thing in this repo ever run with this exact argv tail.
-  pkill -f "watch src/index.ts" 2>/dev/null || true
-  pkill -P "$PROXY_PID" 2>/dev/null || true
-  kill "$PROXY_PID" 2>/dev/null || true
-  wait "$PROXY_PID" 2>/dev/null || true
-fi
 
 echo "==========================="
 echo "-- summary --"

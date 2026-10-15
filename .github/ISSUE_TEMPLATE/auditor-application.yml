@@ -8,7 +8,7 @@ body:
       value: |
         This form starts the MVP auditor process. The process will change after the auditor
         pilot starts. The steps are in the
-        [auditor section of the onboarding guide](https://github.com/TriplEight/AuPM/blob/master/docs/ONBOARDING.md#5-auditor).
+        [auditor section of the onboarding guide](https://github.com/TriplEight/AuPM/blob/main/docs/ONBOARDING.md#5-auditor).
 
         Your GitHub login is the login of the account that opens this issue. AuPM maps that
         login to the account address below.
@@ -27,8 +27,7 @@ body:
     attributes:
       label: Account type
       description: >-
-        The backup format of the account. Falcon-1024 accounts are not supported yet. See
-        [ADR 0028](https://github.com/TriplEight/AuPM/blob/master/docs/adr/0028-account-formats.md).
+        The backup format of the account. Falcon-1024 accounts are not supported yet.
       options:
         - 25-word Algo25 account (legacy Algorand mnemonic)
         - 24-word Universal Wallet (Pera)
