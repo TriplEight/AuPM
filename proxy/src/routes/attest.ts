@@ -2,7 +2,7 @@
 //
 // Handlers for the two paid attestation routes:
 //   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC per
-//                                reviewed entry (SPEC §11.2, ADR 0008), free
+//                                reviewed entry, free
 //                                when the tree has zero reviewed packages.
 //   GET  /v1/attest           — single-package attestation, $0.001 (query:
 //                                name, version). Free when the requested
@@ -57,8 +57,7 @@ import { getStatusOrUnreviewed, isReviewedWithIntegrity, reviewerIdentity } from
 type AttestContext = Context<{ Variables: AppVariables }>
 
 /**
- * Integer micro-USDC owed for one reviewed package, on every route (SPEC
- * §11.2, ADR 0008, CLAUDE.md "Canonical facts"). Used directly for the
+ * Integer micro-USDC owed for one reviewed package, on every route. Used directly for the
  * single-attest route's flat price, and multiplied by N (the reviewed-entry
  * count) for the lockfile route's DynamicPrice below.
  */
@@ -77,11 +76,11 @@ const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 export const ANALYSIS_KEY = 'aupmLockfileAnalysis' as const
 
 // Set by the lockfile pre-middleware on an empty (0-byte) body so the gate
-// can price the 402 challenge at one reviewed package (SPEC §10.5, ADR 0013).
+// can price the 402 challenge at one reviewed package.
 // The handler answers such a request with 400, so it is never settled.
 export const EMPTY_REQUEST_KEY = 'aupmEmptyRequest' as const
 
-// ADR 0013: an empty lockfile request is a body with only JSON whitespace,
+// An empty lockfile request is a body with only JSON whitespace,
 // or a body that is exactly one JSON object with no keys. The pattern equals
 // a parse to `{}` and needs no second parse. `null` and `[]` do not match.
 // CAUTION: keep the trailing whitespace inside the optional group. Two
@@ -111,7 +110,7 @@ function isTrustProxyEnabled(): boolean {
 /**
  * The real TCP peer address, via @hono/node-server's ConnInfo helper. A
  * caller cannot forge this — unlike a header — so it is the correct default
- * bucket key for the free-path rate limiter (SPEC.md §12.3).
+ * bucket key for the free-path rate limiter.
  *
  * CAUTION: `getConnInfo` reads `c.env.incoming.socket`, which only exists
  * when this app runs under `@hono/node-server`'s `serve()`. A test harness
@@ -137,7 +136,7 @@ function socketAddress(c: AttestContext): string | null {
  * input unless a known reverse proxy sits in front of this server. Trusting
  * either unconditionally lets a caller defeat the free-path rate limit —
  * the stated control against using AuPM as an unpriced signing oracle
- * (SPEC.md §12.3) — by sending a different value on every request. Only
+ * — by sending a different value on every request. Only
  * trust either header when TRUST_PROXY says so; otherwise ignore both and
  * fall back to the unspoofable socket address.
  *
@@ -178,7 +177,7 @@ function clientIp(c: AttestContext): string {
 
 /**
  * True only when the caller explicitly asked for the free partial
- * attestation on a paid-tier package (SPEC.md §11.2, §12.3, ADR 0006).
+ * attestation on a paid-tier package.
  * `X-AuPM-Donate: 0` — and only that exact value — triggers it; a missing
  * header or any other value falls through to standard x402 pricing.
  */
@@ -270,13 +269,12 @@ async function readLimitedBody(
 
 /**
  * Builds `predicate` for the lockfile statement. `partial` is true only for
- * the free `X-AuPM-Donate: 0` path (SPEC.md §11.2, §12.3): every reviewed
+ * the free `X-AuPM-Donate: 0` path: every reviewed
  * entry whose integrity matches (`integrityMatch === true`) is left out of
  * `packages[]` and counted in `withheld`. An `INTEGRITY_MISMATCH`
  * (`integrityMatch === false`) or `UNRESOLVABLE` (`integrityMatch === null`)
  * entry is never filtered — AuPM never charges for a security warning
- * (CLAUDE.md invariant 4).
- *
+ *  *
  * A full (paid, or genuinely zero-coverage) attestation always has
  * `withheld: 0`.
  */
@@ -296,7 +294,7 @@ function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record
     withheld,
     // Absence from `packages[]` means UNREVIEWED on a full attestation, or
     // UNREVIEWED-or-withheld on a partial one — never the unreviewed
-    // majority is listed either way (SPEC.md §12.3).
+    // majority is listed either way.
     absentMeans: partial ? 'UNREVIEWED_OR_WITHHELD' : 'UNREVIEWED',
   }
 }
@@ -348,7 +346,7 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
 }
 
 /**
- * DynamicPrice for `POST /v1/attest/lockfile` (SPEC §11.2, ADR 0008): 1,000
+ * DynamicPrice for `POST /v1/attest/lockfile`: 1,000
  * microUSDC × N, where N is `analysis.reviewedPackageRefs.length` — the
  * identical count `lockfileHandler` below uses to build the signed
  * attestation, so the price and the attestation can never disagree.
@@ -364,8 +362,8 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
  *
  * Returns an `AssetAmount`, never a dollar string: the amount is computed
  * with plain integer arithmetic, never a floating-point dollar
- * multiplication (CLAUDE.md invariant 7), and `asset` is explicit
- * (CLAUDE.md invariant 3 — an omitted asset can resolve to ALGO).
+ * multiplication, and `asset` is explicit
+ * (an omitted asset can resolve to ALGO).
  */
 export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
   const honoContext = honoContextFrom(context)
@@ -465,7 +463,7 @@ function buildFreeSingleStatement(name: string, version: string): Statement {
 
 /**
  * Builds the free partial statement for a paid-tier package requested with
- * `X-AuPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR 0006). SPEC.md §12.3: a
+ * `X-AuPM-Donate: 0`. A
  * partial attestation is "the same statement, with every reviewed entry
  * whose integrity matches left out of predicate.packages" — the subject is
  * not withheld. Only the one entry this route could otherwise sell (the
@@ -529,7 +527,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     // Runs before the body is read at all, paid or free path alike: a
     // caller with one reviewed entry must never spend server CPU (a parse,
     // roughly 500 status lookups, and a signature) at no cost just because
-    // the request is priced (SPEC.md §12.3).
+    // the request is priced.
     if (!lockfileRequestRateLimiter.attempt(clientIp(c))) {
       return c.json({ error: 'rate limit exceeded for the lockfile attestation route' }, 429)
     }
@@ -539,7 +537,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       return limited.response
     }
     if (isEmptyLockfileBody(limited.bytes)) {
-      // ADR 0013: a bodyless or `{}` probe gets the 402 challenge, unless the
+      // A bodyless or `{}` probe gets the 402 challenge, unless the
       // caller asked for the free path, which never returns 402.
       if (requestedPartial(c)) return c.json({ error: EMPTY_LOCKFILE_ERROR }, 400)
       c.set(EMPTY_REQUEST_KEY, true)
@@ -575,10 +573,9 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
 
     if (analysis.summary.reviewed === 0 || partial) {
       // Free path: charging for zero reviewed packages would charge for
-      // nothing (CLAUDE.md free-tier invariant), and `X-AuPM-Donate: 0`
-      // opts into the free partial attestation (SPEC.md §11.2, §12.3,
-      // ADR 0006). Both share this per-IP rate limiter so neither can be
-      // used as an unpriced signing oracle (SPEC.md §12.3).
+      // nothing, and `X-AuPM-Donate: 0`
+      // opts into the free partial attestation. Both share this per-IP rate limiter so
+      // neither can be used as an unpriced signing oracle.
       const ip = clientIp(c)
       if (!rateLimiter.attempt(ip)) {
         return c.json({ error: 'rate limit exceeded for the free lockfile path' }, 429)
@@ -629,7 +626,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     const name = c.req.query('name')
     const version = c.req.query('version')
     if (!name && !version && !requestedPartial(c)) {
-      // ADR 0013: a probe with no input gets the 402 challenge. The
+      // A probe with no input gets the 402 challenge. The
       // handler answers it with 400, so a paid retry is never settled.
       await next()
       return
@@ -643,8 +640,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       // Free tier: status < COMMUNITY_REVIEWED never returns 402 — and a
       // paid-tier row with no stored integrity, or with an integrity this
       // route cannot decode to a digest (e.g. a legacy `sha1-` value), is
-      // an incomplete review, treated the same way (CLAUDE.md free-tier
-      // invariant). Answered here,
+      // an incomplete review, treated the same way. Answered here,
       // before the x402 payment gate in app.ts runs at all: GET /v1/attest
       // is otherwise unconditionally priced, and the gate reads only the
       // path, not these query params, so it can never grant this itself.
@@ -664,9 +660,8 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
 
     if (requestedPartial(c)) {
       // Paid-tier package, but the caller opted into the free partial
-      // attestation with `X-AuPM-Donate: 0` (SPEC.md §11.2, §12.3, ADR
-      // 0006). Only `packages[]` (the reviewer, the tier, the anchor txid)
-      // is withheld — the subject digest is not (SPEC.md §12.3) — so the
+      // attestation with `X-AuPM-Donate: 0`. Only `packages[]` (the reviewer, the tier, the anchor txid)
+      // is withheld — the subject digest is not — so the
       // same fail-closed guards as the paid handler below apply here too:
       // fail closed, not open, if the store changed since
       // isPriceableSingleAttest() above was checked.

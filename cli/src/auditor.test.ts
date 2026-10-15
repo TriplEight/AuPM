@@ -578,7 +578,7 @@ describe('auditor messages', () => {
     )
   })
 
-  it('explains the unread rule without an ADR number', () => {
+  it('explains the unread rule without a reference number', () => {
     expect(() => assertReadAllowed('unread', 'unread', false)).toThrow(
       'Refused. A review that says "unread" works on TestNet only. Read the package. ' +
         'Then describe what you read.',

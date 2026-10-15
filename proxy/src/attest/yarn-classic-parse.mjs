@@ -1,7 +1,7 @@
 // proxy/src/attest/yarn-classic-parse.mjs
 //
 // Hand-written parser for the yarn classic (v1) `yarn.lock` format. Linear
-// time, no dependency. It runs in the parse worker (ADR 0018) and returns
+// time, no dependency. It runs in the parse worker and returns
 // plain data; the main thread classifies the entries. Plain JavaScript on
 // purpose, as yaml-worker.mjs is: a worker needs no TypeScript loader.
 //

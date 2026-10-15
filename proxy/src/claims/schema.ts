@@ -1,7 +1,7 @@
 // proxy/src/claims/schema.ts
 //
-// The off-chain ledger schema (SPEC.md §13.2): accruals, batches, payouts,
-// plus the nightly job's own run history and lease (ADR 0009). Uses the
+// The off-chain ledger schema: accruals, batches, payouts,
+// plus the nightly job's own run history and lease. Uses the
 // shared better-sqlite3 handle exported by proxy/src/db.ts — this module
 // never modifies db.ts, it only imports the handle it already exposes and
 // creates its own tables on it.
@@ -25,15 +25,14 @@ db.exec(`
 `)
 
 // Upgrade guard: an existing audit.db predates the `repo`, `batch_seq` and
-// `batch_app_id` columns (SPEC.md §13.2). Add them in place rather than
+// `batch_app_id` columns. Add them in place rather than
 // recreating the table, so a deployed database upgrades without losing its
 // rows. Each ALTER runs only when its column is still missing. `repo` is the
 // GitHub `owner/repo` (or `npm:<name>`) key the accrual's package was
 // reviewed under, resolved from `audit_status` at write time (see ledger.ts's
 // resolveRepoForPackage); an unassigned row (no package) carries `''`.
 // `batch_app_id` and `batch_seq` are NULL until the nightly credit step
-// assigns the row to a numbered batch of one PaymentRouter app (ADR 0005,
-// ADR 0014) — they are never set at write time.
+// assigns the row to a numbered batch of one PaymentRouter app — they are never set at write time.
 const accrualColumns = db.prepare('PRAGMA table_info(accruals)').all() as { name: string }[]
 if (!accrualColumns.some((column) => column.name === 'repo')) {
   db.exec('ALTER TABLE accruals ADD COLUMN repo TEXT')
@@ -42,8 +41,7 @@ if (!accrualColumns.some((column) => column.name === 'batch_seq')) {
   db.exec('ALTER TABLE accruals ADD COLUMN batch_seq INTEGER')
 }
 
-// One row per numbered credit() batch of one PaymentRouter app (SPEC.md
-// §13.2, ADR 0005, ADR 0014). A row with `credit_txid` still NULL means the
+// One row per numbered credit() batch of one PaymentRouter app. A row with `credit_txid` still NULL means the
 // crediter assigned accrual rows to this batch but the on-chain call has not
 // yet confirmed — a crash in that window. The nightly credit step resends
 // exactly that batch; it never opens a new one while one is pending (see
@@ -62,7 +60,7 @@ const BATCHES_DDL = `
 
 /**
  * Brings `batches` and the accrual batch columns to the per-app shape of
- * ADR 0014: batches keyed by `(app_id, batch_seq)`, accruals pointing at
+ * Batches keyed by `(app_id, batch_seq)`, accruals pointing at
  * their batch by `batch_app_id` and `batch_seq`. A database that has the old
  * shape keeps every row, and every existing batch and batched accrual goes
  * to `legacyAppId`, the one app that received every credit before this
@@ -92,7 +90,7 @@ export function upgradeBatchSchema(handle: Database.Database, legacyAppId: numbe
     const legacy = handle.prepare('SELECT COUNT(*) AS n FROM batches').get() as { n: number }
     if (legacy.n > 0 && legacyAppId === null) {
       throw new Error(
-        'upgradeBatchSchema: batches has rows from before per-app numbering (ADR 0014) but ' +
+        'upgradeBatchSchema: batches has rows from before per-app numbering but ' +
           'PAYMENT_ROUTER_APP_ID is unset. Set it to the app that received those credits, ' +
           'then boot.',
       )
@@ -118,7 +116,7 @@ export function upgradeBatchSchema(handle: Database.Database, legacyAppId: numbe
 const configuredAppId = process.env.PAYMENT_ROUTER_APP_ID
 upgradeBatchSchema(db, configuredAppId ? Number(configuredAppId) : null)
 
-// One row per manual, human-checked payout (SPEC.md 5.3 step 5). Signed
+// One row per manual, human-checked payout. Signed
 // locally from the cold pool key, never by the server.
 db.exec(`
   CREATE TABLE IF NOT EXISTS payouts (
@@ -167,7 +165,7 @@ export type PayoutRow = {
 }
 
 // ---------------------------------------------------------------------------
-// Nightly job run history and lease (ADR 0009, item N1). One row per run
+// Nightly job run history and lease (item N1). One row per run
 // attempt (`nightly_runs`) and a single-row lease (`nightly_lease`) that
 // stops two runs from overlapping — proxy/src/index.ts's in-process
 // scheduler and proxy/src/claims/nightly-main.ts's manual entry point both

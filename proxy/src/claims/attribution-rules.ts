@@ -1,6 +1,6 @@
 // proxy/src/claims/attribution-rules.ts
 //
-// Attribution rules for the off-chain claims ledger (SPEC.md section 5.2).
+// Attribution rules for the off-chain claims ledger.
 // Pure functions only — no I/O, no database access. proxy/src/claims/ledger.ts
 // calls these to turn one paid request's attribution into accrual rows.
 
@@ -14,12 +14,12 @@ import type { Attribution, AttributionEntry, Role } from '../attest/attribution.
 /** Identity used whenever a role cannot be mapped to a real contributor. */
 export const UNASSIGNED = 'unassigned'
 
-/** Identity recorded for the ops role — never `UNASSIGNED` (SPEC.md §13.2). */
+/** Identity recorded for the ops role — never `UNASSIGNED`. */
 export const OPS_IDENTITY = 'ops'
 
 /**
  * All six target roles' share of every 1,000 micro-USDC paid for one
- * reviewed package (ADR 0011) — one split on every
+ * reviewed package — one split on every
  * network. The ledger records all six roles for every payment, so Phase 2
  * can add attributed identities for contributor, treasury, and ops with no
  * data loss, even though the MVP resolves all three (plus maintainer and
@@ -35,9 +35,9 @@ export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
 }
 
 /**
- * The MVP split (CLAUDE.md invariant 8): the auditor gets its share of the
- * ledger table above (ADR 0011), and everything else — every role not yet onboarded
- * — is unclaimed ops income (ADR 0011) until those roles launch.
+ * The MVP split: the auditor gets its share of the
+ * ledger table above, and everything else — every role not yet onboarded
+ * — is unclaimed ops income until those roles launch.
  */
 export function mvpSplit(): {
   auditorPercent: number
@@ -49,7 +49,7 @@ export function mvpSplit(): {
 
 /**
  * Integer micro-USDC owed to the auditor pool out of `attributedMicro`
- * (SPEC.md §13.2, ADR 0005). Floors like the contract's own
+ * Floors like the contract's own
  * `(attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN` uint64 division
  * (contracts/smart_contracts/payment_router/contract.algo.ts) — this
  * defence-in-depth check (proxy/src/claims/credit.ts) must reject the same
@@ -71,7 +71,7 @@ export const ROLES: readonly Role[] = [
 /**
  * Integer micro-USDC owed to `role` out of the whole payment.
  *
- * CAUTION: money is always integer micro-units (CLAUDE.md). This relies on
+ * CAUTION: money is always integer micro-units. This relies on
  * the invariant that every price is a multiple of 1,000 microUSDC, so the
  * division below is always exact — no floating point, no remainder lost.
  */
@@ -93,7 +93,7 @@ export function computeRoleShareMicro(priceMicro: number, role: Role): number {
  * Canonical sort order for ledger writes: by package name, then version.
  * Deterministic so the same payment always writes its accrual rows in the
  * same order — a debugging and snapshot-testing convenience only; every
- * reviewed package now carries its own exact role shares (SPEC.md §13.2),
+ * reviewed package now carries its own exact role shares,
  * so no split ever depends on this order for correctness.
  */
 export function sortPackages(packages: AttributionEntry[]): AttributionEntry[] {
@@ -111,7 +111,7 @@ export function resolveAuditorIdentity(entry: AttributionEntry): string {
 }
 
 /**
- * maintainer -> `unassigned`, always (SPEC.md §13.2). No maintainer
+ * maintainer -> `unassigned`, always. No maintainer
  * identity is onboarded yet, so this ignores the entry entirely on purpose.
  */
 export function resolveMaintainerIdentity(_entry: AttributionEntry): string {
@@ -119,7 +119,7 @@ export function resolveMaintainerIdentity(_entry: AttributionEntry): string {
 }
 
 /**
- * contributor -> `unassigned`, always (SPEC.md §13.2). No contributor
+ * contributor -> `unassigned`, always. No contributor
  * identity is onboarded yet.
  */
 export function resolveContributorIdentity(_entry: AttributionEntry): string {
@@ -129,7 +129,7 @@ export function resolveContributorIdentity(_entry: AttributionEntry): string {
 /**
  * reviewer (the adversarial reviewer) -> `unassigned` in the MVP. No
  * adversarial review exists yet; it stays in the reviewer pool as the
- * future bounty budget (SPEC.md §13.2). This ignores the entry entirely on
+ * future bounty budget. This ignores the entry entirely on
  * purpose.
  */
 export function resolveReviewerIdentity(_entry: AttributionEntry): string {
@@ -137,7 +137,7 @@ export function resolveReviewerIdentity(_entry: AttributionEntry): string {
 }
 
 /**
- * treasury -> `unassigned`, always (SPEC.md §13.2). No treasury identity is
+ * treasury -> `unassigned`, always. No treasury identity is
  * onboarded yet.
  */
 export function resolveTreasuryIdentity(_entry: AttributionEntry): string {
@@ -145,7 +145,7 @@ export function resolveTreasuryIdentity(_entry: AttributionEntry): string {
 }
 
 /**
- * ops -> `ops`, always (SPEC.md §13.2) — the one non-`unassigned` MVP
+ * ops -> `ops`, always — the one non-`unassigned` MVP
  * identity, credited on-chain to the ops balance.
  */
 export function resolveOpsIdentity(_entry: AttributionEntry): string {
@@ -179,11 +179,11 @@ export interface AccrualInput {
  * Build every accrual row for one settled, paid request.
  *
  * Every route prices each reviewed package at exactly 1,000 microUSDC
- * (SPEC.md §11.2), so every package in `attribution.packages` gets its own
+ * so every package in `attribution.packages` gets its own
  * full set of exact role shares for `network` (defaults to the network
  * this process is configured for) — tarball and single-attest (one
  * package) the same way lockfile (N packages) does. No division, no
- * remainder, and no cross-package split (SPEC.md §13.2).
+ * remainder, and no cross-package split.
  *
  * WARNING: never call this for a free request. Returns `[]` when
  * `priceMicro` is 0 or `packages` is empty, so the ledger writer never

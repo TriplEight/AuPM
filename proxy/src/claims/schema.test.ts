@@ -1,6 +1,6 @@
 // proxy/src/claims/schema.test.ts
 //
-// The boot upgrade of the batch tables (ADR 0014). Runs on private
+// The boot upgrade of the batch tables. Runs on private
 // in-memory databases built with the pre-upgrade shape.
 import { randomUUID } from 'node:crypto'
 import os from 'node:os'

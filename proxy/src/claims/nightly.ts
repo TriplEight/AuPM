@@ -1,7 +1,6 @@
 // proxy/src/claims/nightly.ts
 //
-// The nightly job's testable orchestration (SPEC.md §13.2, ADR 0001, ADR
-// 0005), in order: genesis guard -> reconcile -> back up -> credit (R3c). A
+// The nightly job's testable orchestration, in order: genesis guard -> reconcile -> back up -> credit (R3c). A
 // failed genesis check or a failed backup stops the job before the next
 // step: `runNightly` lets `deps.assertGenesisMatches()`'s and
 // `deps.backup()`'s errors propagate uncaught, so nothing after either
@@ -9,8 +8,8 @@
 //
 // This module holds the logic; it performs no environment reads and no
 // network I/O of its own. Two real callers run it: proxy/src/index.ts's
-// in-process scheduler (daily at 03:17 UTC, plus a start-up catch-up run —
-// ADR 0009) and nightly-main.ts, the operator's manual entry point. Both
+// in-process scheduler (daily at 03:17 UTC, plus a start-up catch-up run)
+// and nightly-main.ts, the operator's manual entry point. Both
 // call runNightlyWithLease below, never runNightly directly, so the two
 // paths take the same SQLite lease and never overlap (item N1.4). This
 // split mirrors reconcile.ts/reconcile-main.ts: runNightly() is what this
@@ -34,7 +33,7 @@ export interface NightlyDeps {
    * see this module's banner comment: that throw stops the job here. */
   backup: () => string
   /** null when CREDITER_MNEMONIC is unset — the credit step then logs why
-   * and stops (SPEC.md §13.2 step 3), the same as an unset app id. */
+   * and stops, the same as an unset app id. */
   creditClient: CreditChainClient | null
   /**
    * Throws when NETWORK does not match the connected algod's or indexer's
@@ -59,7 +58,7 @@ export interface NightlyDeps {
 
 /**
  * Runs the nightly job once: genesis guard, then reconcile, then back up,
- * then credit — always in that order (SPEC.md §13.2, R3c).
+ * then credit — always in that order (R3c).
  */
 export async function runNightly(deps: NightlyDeps): Promise<void> {
   const log = deps.log ?? console.log
@@ -114,8 +113,8 @@ export type NightlyLeaseOutcome =
   | { status: 'failed'; error: string }
 
 /**
- * Runs the nightly job once, under the single SQLite lease (item N1.4, ADR
- * 0009): acquires it first, records the run's start and end in
+ * Runs the nightly job once, under the single SQLite lease (item N1.4):
+ * acquires it first, records the run's start and end in
  * `nightly_runs` (item N1.5) regardless of outcome, and always releases
  * the lease in a `finally` block. `now` is the caller's own clock reading,
  * so a test never depends on a real wait.

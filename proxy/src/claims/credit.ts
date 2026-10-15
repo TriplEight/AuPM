@@ -1,6 +1,6 @@
 // proxy/src/claims/credit.ts
 //
-// Nightly credit step (SPEC.md §13.2 step 3, ADR 0005). Batches every
+// Nightly credit step. Batches every
 // still-uncredited accrual row and calls PaymentRouter.credit() with the
 // crediter key. The on-chain call itself lives behind an injectable
 // CreditChainClient — production code builds a real algosdk one
@@ -9,8 +9,7 @@
 //
 // WARNING: credit() is the only mutating on-chain call this module ever
 // makes. It never submits a payment group directly — that is the
-// facilitator's job, and only the facilitator's (see SPEC.md, CLAUDE.md
-// invariant 6). This module never touches x402 settlement at all.
+// facilitator's job, and only the facilitator's. This module never touches x402 settlement at all.
 
 import algosdk from 'algosdk'
 import { auditorShareMicro } from './attribution-rules.js'
@@ -30,7 +29,7 @@ import type { AccrualRow } from './schema.js'
 /**
  * The exact `credit` method signature from
  * contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json
- * (ADR 0005): `credit(batchSeq, attributedTotal, unattributedTotal,
+ *: `credit(batchSeq, attributedTotal, unattributedTotal,
  * entries)`, `entries` a `(repo, identity, amount)[]`. The proxy Docker
  * image never copies the contracts workspace's build artifacts
  * (proxy/Dockerfile installs only the proxy project's own dependency
@@ -54,7 +53,7 @@ const CREDIT_METHOD_SIGNATURE = 'credit(uint64,uint64,uint64,(string,string,uint
 const OPS_IDENTITY = 'ops'
 
 /**
- * The note every credit() call carries (SPEC.md §13.2): lets the recovery
+ * The note every credit() call carries: lets the recovery
  * path in `runCreditStep` find a confirmed credit() transaction by
  * `(appId, batchSeq)` through the indexer when the local batch row never
  * got its txid recorded.
@@ -201,7 +200,7 @@ export function planCreditChunk(rows: AccrualRow[]): AccrualRow[] {
 /** Chain access the credit step needs, injectable for tests. */
 export interface CreditChainClient {
   /** True when `payTo`'s algod `auth-addr` is the PaymentRouter app address
-   * — the rekey SPEC.md §10.2 requires before the first credit(). */
+   * — the rekey that is required before the first credit(). */
   isPayToRekeyed(appId: bigint, payTo: string): Promise<boolean>
   /** Submits one credit() call; resolves to the confirmed transaction id. */
   submitCredit(
@@ -232,7 +231,7 @@ export type CreditOutcome =
 /**
  * Asserts `entries` sum to exactly `auditorShareMicro(attributedMicro)` —
  * the same check the contract itself makes, for the one split every network
- * uses (ADR 0005, ADR 0011). Defence in depth: a ledger
+ * uses. Defence in depth: a ledger
  * bug here must fail loudly before it ever reaches the chain, not surface
  * only as a rejected transaction.
  */
@@ -248,7 +247,7 @@ function assertEntriesMatchAuditorShare(attributedMicro: number, entries: Credit
 }
 
 /**
- * Run the credit step (SPEC.md §13.2 step 3). Reads `PAYMENT_ROUTER_APP_ID`
+ * Run the credit step. Reads `PAYMENT_ROUTER_APP_ID`
  * from `env`; a missing value stops here with `{ ran: false, reason:
  * 'app-id-unset' }` rather than throwing — an unconfigured PaymentRouter is
  * an expected pre-launch state, not a failure. `payTo` not yet rekeyed to

@@ -2,7 +2,7 @@
 //
 // Formats an integer microUSDC amount as a dollar string for user-facing
 // text (CLI and MCP output). Money math itself always
-// stays in integer micro-units (CLAUDE.md invariant 7) — this only formats
+// stays in integer micro-units — this only formats
 // an already-computed amount for display, never the other way round.
 
 const MICRO_PER_DOLLAR = 1_000_000

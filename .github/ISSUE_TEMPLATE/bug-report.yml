@@ -1,0 +1,50 @@
+name: Bug report
+description: Report a defect in the proxy, the CLI, the MCP server, the GitHub Action or the contract.
+title: "Bug: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        WARNING: this issue is public. Never write a recovery phrase, a private key or a token
+        here. Remove secrets from logs before you paste them.
+
+        To report a security problem, do not use this form. See
+        [CONTRIBUTING.md](https://github.com/TriplEight/AuPM/blob/main/CONTRIBUTING.md).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: The output of `aupm --version`, the image version, or a full commit SHA.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The commands or requests, in order.
+      placeholder: |
+        1. Run ...
+        2. Run ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant output, with secrets removed.
+      render: text
+    validations:
+      required: false

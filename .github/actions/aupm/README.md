@@ -268,8 +268,8 @@ network call. The Action never sends a bare mnemonic to any endpoint.
 CAUTION: never configure `donor-secret` for an account you cannot afford
 to spend from. The CLI enforces two limits:
 
-- It refuses to sign above 1,000 microUSDC per lockfile entry (SPEC.md
-  §11.4). There is no fixed cap.
+- It refuses to sign above 1,000 microUSDC per lockfile entry.
+  There is no fixed cap.
 - It refuses any asset other than the USDC ASA of the network.
 
 A compromised `endpoint` input can still misdirect a donated payment.

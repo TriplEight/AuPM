@@ -1,0 +1,40 @@
+name: Protocol or product suggestion
+description: Suggest a change to how AuPM or the protocol behaves.
+title: "Suggestion: "
+labels: ["suggestion"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for a change to the behavior of the protocol or the product. For a defect,
+        use the bug report form.
+
+        WARNING: this issue is public. Never write a recovery phrase or a private key here.
+  - type: input
+    id: summary
+    attributes:
+      label: Summary
+      description: One sentence that states the change.
+    validations:
+      required: true
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: The problem that the change solves, and who has the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: proposed
+    attributes:
+      label: Proposed behavior
+      description: What AuPM does after the change. Name the route, command or contract method if you can.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to solve the problem, and why you did not choose them.
+    validations:
+      required: false

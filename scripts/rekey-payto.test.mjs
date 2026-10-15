@@ -53,7 +53,7 @@ test('assertPayToReadyForRekey refuses when payTo is already rekeyed', () => {
 })
 
 test('assertPayToReadyForRekey proceeds with a zero USDC balance once opted in', () => {
-  // SPEC §10.2 requires only the opt-in before the rekey, not a balance.
+  // The rekey requires only the opt-in before the rekey, not a balance.
   assert.doesNotThrow(() =>
     assertPayToReadyForRekey({ holdsAsset: true, authAddr: undefined, payToAddress: PAYTO }),
   )

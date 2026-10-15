@@ -38,7 +38,7 @@ export type AppVariables = {
   // to the paid handler once payment clears, so the request body — already
   // consumed while computing this — is never re-read or re-parsed.
   aupmLockfileAnalysis?: LockfileAnalysis
-  // Internal: set on an empty lockfile body so the gate prices the 402 (ADR 0013).
+  // Internal: set on an empty lockfile body so the gate prices the 402.
   aupmEmptyRequest?: boolean
 }
 
@@ -88,7 +88,7 @@ export function createApp(
   app.route('/api/v1/status', statusRouter)
 
   // Free, unauthenticated, never gated — the nightly job's own health
-  // (item N1.6, ADR 0009). Registered before the payment gate for the same
+  // (item N1.6). Registered before the payment gate for the same
   // reason as statusRouter above; absent from the x402 route table, so the
   // gate would no-op on it anyway.
   app.route('/api/v1/health', healthRouter)
@@ -100,11 +100,11 @@ export function createApp(
   app.route('/api/v1/reviews', reviewsRouter)
 
   // Free, unauthenticated, never gated — the published attestation public
-  // keys (SPEC.md 6.2). A verifier needs this to check a DSSE envelope
+  // keys. A verifier needs this to check a DSSE envelope
   // offline; without it, offline verification only works for someone who
   // already holds the key out of band. WARNING: this route must never
   // return 402 — a verifier fetching a public key must never pay
-  // (CLAUDE.md). Registered before the payment gate for that reason.
+  // Registered before the payment gate for that reason.
   app.get('/.well-known/aupm-keys.json', async (c) => {
     const getSigningKey = options.getSigningKey ?? getAttestationSigningKey
     // Throws when no signing key is configured; app.onError above turns
@@ -156,7 +156,7 @@ export function createApp(
     return c.body(llmsTxt, 200, { 'content-type': 'text/markdown; charset=utf-8' })
   })
 
-  // Claims ledger write path (SPEC.md 5.2), registered *before* the
+  // Claims ledger write path, registered *before* the
   // payment middleware below so it wraps that middleware's next() call and
   // can read PAYMENT-RESPONSE off the settled response on the way out.
   // CAUTION: order matters — after the payment middleware it never sees the
@@ -164,7 +164,7 @@ export function createApp(
   app.use('*', claimsLedgerMiddleware)
 
   // Earnings read API — free, never gated. An unpaid contributor must
-  // always be able to see what they are owed (CLAUDE.md). Mounted before
+  // always be able to see what they are owed. Mounted before
   // the payment gate, alongside /api/v1/status above.
   app.route('/', createClaimsRouter())
 
@@ -172,7 +172,7 @@ export function createApp(
   // path. Both run — and can fully answer the request — *before* the x402
   // payment gate below, so a malformed lockfile (400) or a zero-coverage
   // lockfile (free 200) never reaches, and is never charged by, the
-  // facilitator (CLAUDE.md: unreviewed never returns 402; a caller must
+  // facilitator (unreviewed never returns 402; a caller must
   // never pay for a malformed lockfile).
   app.post('/v1/attest/lockfile', attest.lockfilePreMiddleware)
   app.get('/v1/attest', attest.singleAttestPreMiddleware)
@@ -205,7 +205,7 @@ export function createApp(
         error: 'method not allowed',
         message:
           'POST a package-lock.json, pnpm-lock.yaml or yarn.lock (v1) body to this route. It returns one signed attestation ' +
-          'for every package in the lockfile. See SPEC.md section 11.2.',
+          'for every package in the lockfile.',
       },
       405,
     )
@@ -225,7 +225,7 @@ export function createApp(
   // never an unpaid request that opted in; the x402 gate above never calls
   // next() for that case. Set attribution here so claimsLedgerMiddleware,
   // which wraps the gate's next() call, can write the tarball route's
-  // accruals (CLAUDE.md: every paid request is ledgered; the free path sets
+  // accruals (every paid request is ledgered; the free path sets
   // priceMicro: 0, per the Attribution contract in
   // proxy/src/attest/attribution.ts).
   app.all('*', async (c) => {
@@ -258,7 +258,7 @@ export function createApp(
     // and donate-hint headers are added here, to the actual returned
     // Response, not via c.header() — a call before this point would be
     // silently discarded once this handler returns a different Response
-    // object (SPEC §10.4: every tarball response carries X-AuPM-Tier).
+    // object.
     const upstream = await proxyToNpm(c)
     const headers = new Headers(upstream.headers)
     headers.set('X-AuPM-Tier', status.status)

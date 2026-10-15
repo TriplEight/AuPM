@@ -1,6 +1,6 @@
 // proxy/src/claims/reconcile.ts
 //
-// Nightly reconciliation (SPEC.md 5.2). Lists USDC transfers into payTo
+// Nightly reconciliation. Lists USDC transfers into payTo
 // via the indexer and compares them with ledger settle_txid values.
 // Unmatched inflows — a crash between settle and write, or a direct
 // deposit — are ledgered as `unassigned` so the ledger total never falls
@@ -70,8 +70,8 @@ export interface SkippedInflow {
 
 /**
  * Ledger one unmatched inflow as `unassigned` across all six ledgered
- * roles (SPEC.md §13.2), using the same integer role-share split as a
- * normal payment (CLAUDE.md: money is always integer micro-units). route is
+ * roles, using the same integer role-share split as a
+ * normal payment (money is always integer micro-units). route is
  * recorded as "unassigned" since no attribution data exists for a direct
  * deposit or a crash between settle and write.
  *

@@ -269,7 +269,7 @@ describe('analyzeLockfile — classification', () => {
 })
 
 describe('analyzeLockfile — same package at more than one node_modules depth', () => {
-  // SPEC.md §11.2, ADR 0008: 1,000 microUSDC per reviewed entry, no flat
+  // 1,000 microUSDC per reviewed entry, no flat
   // rate — buildAccrualInputs enforces this exactly (attribution-rules.ts).
   function toAttribution(
     refs: { pkg: string; version: string; auditor: string | null }[],
@@ -378,7 +378,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     if (!result.ok) throw new Error('unreachable')
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    expect(rows).toHaveLength(6) // one row per ledgered role: all six of SPEC.md §13.2
+    expect(rows).toHaveLength(6) // one row per ledgered role: all six roles
 
     const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
     expect(auditorRow?.amountMicro).toBe(300) // the one package's whole 300 auditor share (MainNet)

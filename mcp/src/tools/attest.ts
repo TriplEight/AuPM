@@ -38,7 +38,7 @@ export type AttestLockfileOutcome =
       priceMicro: number
       resourceUrl: string
       asset: string
-      /** Set only when the server already answered with a partial attestation (SPEC.md §12.3). */
+      /** Set only when the server already answered with a partial attestation. */
       withheld?: number
       summary?: unknown
       attestation?: unknown
@@ -171,8 +171,7 @@ async function outcomeFromResult(
     throw new Error('Lockfile attest failed: malformed response body')
   }
 
-  // Without the opt-in, the server already answered free (SPEC.md
-  // §11.4, §12.3): X-AuPM-Donate: 0 gets a 200 with a partial attestation
+  // Without the opt-in, the server already answered free: X-AuPM-Donate: 0 gets a 200 with a partial attestation
   // whenever any reviewed entry was withheld. `withheld: 0` still means
   // a genuinely full attestation (e.g. zero-coverage lockfiles), so only
   // a positive count is reported back as donation_required.

@@ -15,7 +15,7 @@ import { parseYamlInWorker, type YamlParseOutcome, type YamlParser } from './yam
 import type { YarnClassicEntry } from './yarn-classic-parse.mjs'
 
 export const LOCKFILE_MAX_BYTES = 5 * 1024 * 1024
-/** Byte cap for a pnpm-lock.yaml or yarn.lock body. Text parsing is slower than JSON (ADR 0015). */
+/** Byte cap for a pnpm-lock.yaml or yarn.lock body. Text parsing is slower than JSON. */
 export const LOCKFILE_MAX_YAML_BYTES = 2 * 1024 * 1024
 export const LOCKFILE_MAX_ENTRIES = 10_000
 
@@ -237,8 +237,7 @@ function classifyEntries(
       continue
     }
     // Compared on the parsed sha512 digest, never on the raw SSRI string —
-    // a lockfile entry may list more than one hash space-separated (SPEC.md
-    // §6.3), and a differing hash order or an extra weaker hash must never
+    // a lockfile entry may list more than one hash space-separated, and a differing hash order or an extra weaker hash must never
     // turn a genuine match into a reported INTEGRITY_MISMATCH.
     const integrityMatch = integrity !== null && sha512Matches(knownIntegrity, integrity)
 
@@ -273,7 +272,7 @@ function classifyEntries(
         // second unit in the total either. Every bucket below is a subset
         // of `total`; if this collapsed entry stayed counted in `total`
         // without landing in any bucket, the buckets would never sum to
-        // `total` — an inconsistent signed statement (SPEC.md §12.3).
+        // `total` — an inconsistent signed statement.
         summary.total -= 1
         continue
       }
@@ -576,7 +575,7 @@ function hasYarnClassicHeader(text: string): boolean {
 export type FormatDetection = { ok: true; format: LockfileFormat } | { ok: false; message: string }
 
 /**
- * Selects the parser from the Content-Type and the body (SPEC.md section 11.1).
+ * Selects the parser from the Content-Type and the body.
  * YAML selects pnpm. `text/plain` selects yarn classic only with the exact
  * header in the initial comment block. A yarn berry marker is refused. Any
  * other body keeps the JSON path. The body is not decoded for YAML.
@@ -633,7 +632,7 @@ function isYarnRegistryResolved(resolved: string | null): boolean {
  * grouped selectors are one entry. Limits, classification and the digest
  * match `analyzePnpmLockfile`. A missing, sha1-only or mismatching integrity
  * on a reviewed entry is INTEGRITY_MISMATCH: the server never replaces it
- * with a registry or a stored digest (ADR 0018).
+ * with a registry or a stored digest.
  */
 export async function analyzeYarnClassicLockfile(
   rawBody: Uint8Array,

@@ -1,7 +1,7 @@
 // proxy/src/attest/yaml-parse.ts
 //
 // Parses a pnpm-lock.yaml or yarn classic yarn.lock body in a worker thread, so a slow or hostile body
-// never blocks the event loop of a free public route (ADR 0015). At most one
+// never blocks the event loop of a free public route. At most one
 // parse runs in the process at a time. A parse that exceeds the time limit
 // is terminated.
 

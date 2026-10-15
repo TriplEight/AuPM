@@ -48,7 +48,7 @@ const LOCKFILE_ATTRIBUTION: Attribution = {
 }
 
 describe('writeAccruals', () => {
-  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 900 / 300 / 600 / 750 / 300 / 150 across the six roles (MainNet, ADR 0011)', () => {
+  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 900 / 300 / 600 / 750 / 300 / 150 across the six roles (MainNet)', () => {
     writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1')
     const rows = getAccrualsForTxid('TXID-1')
 
@@ -105,7 +105,7 @@ describe('writeAccruals', () => {
   })
 })
 
-describe('writeAccruals: repo column (SPEC.md §13.2)', () => {
+describe('writeAccruals: repo column', () => {
   test('every row of a reviewed package carries its stored repo key', () => {
     setStatus(
       'ms',
@@ -165,7 +165,7 @@ describe('getEarningsForLogin', () => {
     expect(bobAuditor).toBeGreaterThan(0)
     expect(aliceAuditor).not.toBe(bobAuditor)
     // 2 packages x 300 (alice) + 1 package x 300 (bob) = the full 900
-    // auditor share of this 3-package, 3,000-microUSDC payment (MainNet, ADR 0011).
+    // auditor share of this 3-package, 3,000-microUSDC payment (MainNet).
     expect(aliceAuditor + bobAuditor).toBe(900)
   })
 

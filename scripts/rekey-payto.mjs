@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Rekeys payTo to the PaymentRouter app address (R2, SPEC §10.2). This is
+// Rekeys payTo to the PaymentRouter app address (R2). This is
 // the payTo key's second and last signing action: after this call the key
 // has no signing power over payTo. Order is not reversible — payTo must
 // already be opted into USDC (scripts/optin-usdc.mjs) before this runs. On
@@ -24,7 +24,7 @@ const algosdk = require('algosdk')
 /**
  * Loads the root `.env` into `process.env`, without overwriting a variable
  * already set. Called only from the CLI entry path below, never at module
- * import time — an importer (claim.mjs, scripts/e2e.mjs, and this module's
+ * import time — an importer (claim.mjs and this module's
  * own test file) must never gain a real mnemonic just by importing this
  * file (R3a Result 2: the former top-level load made scripts/verify.sh
  * inherit a real donor key through this module's own import chain).
@@ -59,8 +59,8 @@ function printUsage() {
  * Refuses to rekey payTo when it is not ready. Pure: no network access, so
  * scripts/rekey-payto.test.mjs covers every refusal with no algod call.
  *
- * Order matches SPEC §10.2: opt-in before rekey, and a rekey is one-shot
- * (a rekeyed payTo cannot sign a second rekey with its own key). SPEC §10.2
+ * Order: opt-in before rekey, and a rekey is one-shot
+ * (a rekeyed payTo cannot sign a second rekey with its own key). The rekey
  * does not require a USDC balance before the rekey, only the opt-in, so
  * this checks the opt-in and the auth-addr only.
  *
@@ -73,13 +73,13 @@ export function assertPayToReadyForRekey({ holdsAsset, authAddr, payToAddress })
   if (authAddr && authAddr !== payToAddress) {
     throw new Error(
       `payTo is already rekeyed (auth-addr ${authAddr}); refusing a second rekey ` +
-        '(SPEC §10.2: after the rekey the key has no signing power)',
+        '(after the rekey the key has no signing power)',
     )
   }
   if (!holdsAsset) {
     throw new Error(
       'payTo is not opted into USDC; opt in first with scripts/optin-usdc.mjs ' +
-        '(order is not reversible, SPEC §10.2)',
+        '(order is not reversible)',
     )
   }
 }
@@ -176,7 +176,7 @@ export function deriveAdminMultisigAddress(addrsEnv, algosdkImpl) {
   if (addrs.length !== 3) {
     throw new Error(
       `AUPM_ADMIN_MSIG_ADDRS must list exactly 3 addresses, got ${addrs.length} ` +
-        '(ADR 0010: the app creator is a 2-of-3 multisig)',
+        '(the app creator is a 2-of-3 multisig)',
     )
   }
   for (const addr of addrs) {
@@ -388,7 +388,7 @@ async function main() {
     expectedCreator,
   })
   console.log(`payTo rekeyed to PaymentRouter. txid: ${txid}`)
-  console.log('The payTo key has no signing power from here on (SPEC §10.2).')
+  console.log('The payTo key has no signing power from here on.')
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

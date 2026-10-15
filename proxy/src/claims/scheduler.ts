@@ -1,6 +1,6 @@
 // proxy/src/claims/scheduler.ts
 //
-// The in-process nightly scheduler (SPEC.md §13.2, ADR 0009, item N1).
+// The in-process nightly scheduler (item N1).
 // Computes the next 03:17 UTC run time, times a repeating call to
 // runNightlyWithLease (nightly.ts), and decides whether a start-up
 // catch-up run is due. Pure orchestration: every clock and timer call is
@@ -85,7 +85,7 @@ export interface SchedulerHandle {
  * Starts the daily 03:17 UTC schedule and, when due, a single start-up
  * catch-up run (items N1.1–N1.2). Both call runNightlyWithLease
  * (nightly.ts), so a catch-up run, the daily timer, and a concurrent
- * manual `nightly-main.ts` run never overlap (item N1.4, ADR 0009).
+ * manual `nightly-main.ts` run never overlap (item N1.4).
  * Neither call is awaited here: a slow or failing run must never delay the
  * timer that reschedules the next one, and runNightlyWithLease itself
  * never throws (item N1.3), so there is no unhandled rejection to await

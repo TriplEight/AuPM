@@ -26,7 +26,7 @@ type NightlyMode = 'on' | 'off'
 
 /**
  * Boot guard (pure function, no I/O). AUPM_NIGHTLY controls only the
- * in-process nightly scheduler (item N1, ADR 0009) — unset or "on" runs
+ * in-process nightly scheduler (item N1) — unset or "on" runs
  * it, "off" disables it and logs one line instead. Any other value refuses
  * to boot, the same fail-fast style as assertValidPayTo and the other
  * guards below: a typo here must never silently disable the schedule.
@@ -42,9 +42,8 @@ function resolveNightlyMode(value: string | undefined): NightlyMode {
 
 async function main(): Promise<void> {
   // Local boot guards: cheap, no I/O — checked before the facilitator boot
-  // guard's network call. payTo is the leaderboard key (CLAUDE.md invariant
-  // 1); AUPM_ISSUER_URL and AUPM_KEY_VALID_FROM are published on every signed
-  // attestation and cannot be corrected after the fact (SPEC.md 12).
+  // guard's network call. payTo is the leaderboard key; AUPM_ISSUER_URL and AUPM_KEY_VALID_FROM are published on every signed
+  // attestation and cannot be corrected after the fact.
   // A missing or malformed value must stop boot here, not surface as an
   // unpayable 402 or a bad attestation to a real caller. A separate
   // try/catch keeps this failure's log free of the facilitator, which was
@@ -77,7 +76,7 @@ async function main(): Promise<void> {
       )
     })
 
-    // The in-process nightly scheduler (item N1, ADR 0009): daily at 03:17
+    // The in-process nightly scheduler (item N1): daily at 03:17
     // UTC, plus a start-up catch-up run when the last successful run is
     // more than 24 hours old or none exists. Never awaited — a slow or
     // failing run must never delay the port opening above, and

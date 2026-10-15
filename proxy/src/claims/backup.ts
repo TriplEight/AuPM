@@ -1,6 +1,6 @@
 // proxy/src/claims/backup.ts
 //
-// Nightly backup step (SPEC.md §13.2 step 2). `VACUUM INTO` a dated copy
+// Nightly backup step. `VACUUM INTO` a dated copy
 // of the SQLite file, then move it into BACKUP_DIR. The host's own backup
 // ships BACKUP_DIR off the host after the job. A failed backup must stop the nightly job
 // before it credits anything: nightly.ts lets any error from
@@ -20,7 +20,7 @@ import type BetterSqlite3 from 'better-sqlite3'
  *
  * WARNING: throws on any failure — an unset or unwritable `backupDir`, a
  * `VACUUM INTO` error, or a failed rename. The caller must treat a thrown
- * error here as "stop before credit, exit non-zero" (SPEC.md §13.2).
+ * error here as "stop before credit, exit non-zero".
  */
 export function backupDatabase(
   db: BetterSqlite3.Database,

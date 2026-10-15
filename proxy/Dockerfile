@@ -39,7 +39,7 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-# Workspace membership files only (SPEC.md 10.3; pnpm-workspace.yaml lists
+# Workspace membership files only (pnpm-workspace.yaml lists
 # contracts, proxy, mcp, cli). `--filter ./proxy...` then installs only
 # the proxy project's own dependency tree, not the other three.
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
@@ -53,7 +53,7 @@ COPY proxy/tsconfig.json proxy/tsconfig.json
 # mcp/src, minus its tests (excluded via .dockerignore): the runtime image
 # needs aupm-mcp's source since it ships without a build step, same as proxy.
 COPY mcp/src mcp/src
-# scripts/record-review.mjs (SPEC §14) is the operator's `docker compose run`
+# scripts/record-review.mjs is the operator's `docker compose run`
 # entry point. It imports ./network.mjs, ./review-anchor.mjs and
 # ./router-boxes.mjs by relative path, and dynamically imports
 # ../proxy/src/status.js, so scripts/ must sit next to proxy/ in the image

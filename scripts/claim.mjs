@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Claims one identity's PaymentRouter balance (SPEC §13.3, ADR 0005). The
+// Claims one identity's PaymentRouter balance. The
 // address the admin mapped to `identity` (via setIdentity, an admin-only,
 // out-of-band step this script never performs) signs claim(identity); the
 // contract pays the whole balances[identity] box to the sender and deletes
@@ -30,7 +30,7 @@ const algosdk = require('algosdk')
 /**
  * Loads the root `.env` into `process.env`, without overwriting a variable
  * already set. Called only from the CLI entry path below, never at module
- * import time — an importer (scripts/e2e.mjs and this module's own test
+ * import time — an importer (operator scripts and this module's own test
  * file) must never gain a real mnemonic just by importing this file (R3a
  * Result 2: the former top-level load made scripts/verify.sh inherit a
  * real donor key through this module's own import chain).

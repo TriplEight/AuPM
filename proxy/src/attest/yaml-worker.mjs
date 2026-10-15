@@ -2,14 +2,14 @@
 //
 // Worker thread entry: parses one pnpm-lock.yaml or yarn classic yarn.lock body
 // and posts the result. workerData is { format, text }.
-// The main thread never calls `yaml` for a request body (ADR 0015). This file
+// The main thread never calls `yaml` for a request body. This file
 // is plain JavaScript on purpose: a worker needs no TypeScript loader, in
 // production (tsx) or in tests (vitest).
 //
 // Posts { ok: true, value } on success. Posts { ok: false } for a syntax
 // error or a duplicate key in the root or in `packages` (pnpm rejects both).
 // For yarn classic it posts { ok: true, value: entries } or
-// { ok: false, message } with the line number of the fault (ADR 0018).
+// { ok: false, message } with the line number of the fault.
 //
 // CAUTION: `uniqueKeys: false` is deliberate. The library's duplicate-key
 // check is quadratic in the number of keys. `hasDuplicateKey` does the same

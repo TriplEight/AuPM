@@ -28,7 +28,7 @@ function canonicalizeIdentity(identity: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The repo-pool key for one reviewed package (SPEC.md §13.1, §13.2):
+ * The repo-pool key for one reviewed package:
  * `audit_status.repo`, resolved and stored only by `scripts/record-review.mjs`
  * at review time. Never fetched here. Falls back to `''` when the row (or
  * its repo) is unknown, so a payment can never fail to accrue for a missing
@@ -40,9 +40,8 @@ function resolveRepoForPackage(pkg: string, version: string): string {
 
 // ON CONFLICT DO NOTHING makes a replayed settle_txid a no-op: the primary
 // key (settle_txid, role, pkg, version) already exists, so the row already
-// written wins and no second accrual is written (SPEC.md 5.2, CLAUDE.md
-// invariant "idempotent"). batch_seq is never set here — NULL until the
-// nightly credit step assigns this row to a batch (ADR 0005).
+// written wins and no second accrual is written. batch_seq is never set here — NULL until the
+// nightly credit step assigns this row to a batch.
 const insertAccrual = db.prepare<
   [string, string, string, string, string, string, string, number, number]
 >(
@@ -129,7 +128,7 @@ export interface Earnings {
 
 /**
  * Accrued and claimed (paid out) totals per role for one GitHub login.
- * Public and free (SPEC.md 5.3 step 1) — reports only this identity's
+ * Public and free — reports only this identity's
  * own data, never another identity's.
  */
 export function getEarningsForLogin(login: string): Earnings {
@@ -156,7 +155,7 @@ export function getEarningsForLogin(login: string): Earnings {
 }
 
 // ---------------------------------------------------------------------------
-// Batches (nightly credit step, SPEC.md §13.2, ADR 0005)
+// Batches (nightly credit step)
 // ---------------------------------------------------------------------------
 
 /** One `(repo, identity)` amount for `credit()`'s `entries` argument. */
@@ -176,9 +175,9 @@ export interface UncreditedTotals {
 }
 
 /**
- * Groups accrual rows into the shape `credit()` needs (ADR 0005):
+ * Groups accrual rows into the shape `credit()` needs:
  * `attributedMicro` sums every row from a real payment; `unattributedMicro`
- * sums every `unassigned` row (an unmatched inflow, SPEC.md §13.2);
+ * sums every `unassigned` row (an unmatched inflow);
  * `entries` are the auditor-role rows of a real payment, summed per
  * `(repo, identity)` — never split per payment, and never per package
  * within the same `(repo, identity)` pair.
@@ -252,7 +251,7 @@ const getPendingBatchRow = db.prepare<[number], BatchRow>(
  * The one batch row of `appId` with an assigned `batch_seq` but no recorded
  * credit txid — a crash between "assign rows to a batch" and "record the
  * credit txid". Resend exactly this batch; never open a new one while it
- * exists (SPEC.md §13.2).
+ * exists.
  */
 export function getPendingBatch(appId: number): BatchRow | null {
   return getPendingBatchRow.get(appId) ?? null
@@ -327,7 +326,7 @@ const recordCreditTxidStmt = db.prepare<[string, number, number]>(
 )
 
 /** Records the confirmed credit() txid on batch `batchSeq` of `appId`. A
- * batch row whose txid is recorded is never sent again (SPEC.md §13.2). */
+ * batch row whose txid is recorded is never sent again. */
 export function recordBatchCreditTxid(appId: number, batchSeq: number, txid: string): void {
   recordCreditTxidStmt.run(txid, appId, batchSeq)
 }
@@ -343,7 +342,7 @@ const insertPayout = db.prepare<[string, string, number, string, number]>(
 )
 
 /**
- * Record a manual, human-checked payout (SPEC.md 5.3 step 5).
+ * Record a manual, human-checked payout.
  *
  * CAUTION: canonicalises `identity` on the way in, same as every other
  * write in this module, so a manually-typed mixed-case identity still joins

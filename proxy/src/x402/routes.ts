@@ -17,17 +17,17 @@ export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 
 // Dollar text for the description strings below, derived from the one
 // integer micro-unit price (never a second hand-typed "$0.001" to drift
-// out of sync — CLAUDE.md invariant 7). The `accepts`
+// out of sync). The `accepts`
 // price field stays a literal dollar string: that one is x402 protocol
 // data the facilitator parses, not display text.
 export const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
 
-// SPEC §6.2 disclosure rule: every public text (README, `og:description`,
+// Disclosure rule: every public text (README, `og:description`,
 // Bazaar descriptions) shows both the target split and the MVP split.
-// The target split (ADR 0019) is a literal: the ledger still uses the ADR 0011
+// The target split is a literal: the ledger still uses the
 // table until the new contract ships (L32). The MVP split comes from the ledger,
 // because the live contract pays it.
-// Never claim a share goes to a role that is not onboarded (CLAUDE.md invariant 8).
+// Never claim a share goes to a role that is not onboarded.
 const { auditorPercent: MVP_AUDITOR_PERCENT, opsPercent: MVP_OPS_PERCENT } = mvpSplit()
 export const SPLIT_DISCLOSURE =
   'Target split 40/10/25/20/5: treasury 20% and ops 5% off the top, 75% to a pool per ' +
@@ -35,7 +35,7 @@ export const SPLIT_DISCLOSURE =
   `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
 
 // The canonical text for the `og:description` meta tag on the front page
-// at `GET /` (SPEC §6.2, §11.2, proxy/src/front-page.ts). The app serves it
+// at `GET /` (proxy/src/front-page.ts). The app serves it
 // for the Bazaar merchant card. This constant is the one place
 // that text is authored, so the disclosure rule and the price stay in sync
 // with the Bazaar route descriptions below.

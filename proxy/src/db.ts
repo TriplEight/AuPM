@@ -32,7 +32,7 @@ if (!existingColumns.some((column) => column.name === 'integrity')) {
 // in place, same pattern as `integrity` above. `reviewer` is the human
 // reviewer's bare GitHub login (e.g. "alice") — never "github:alice" and
 // never an Algorand address. `auditor_addr` records a different fact (the
-// on-chain attesting address) and stays untouched (CLAUDE.md). Without this
+// on-chain attesting address) and stays untouched. Without this
 // column, the auditor revenue share has no GitHub identity to accrue
 // against and is stranded.
 if (!existingColumns.some((column) => column.name === 'reviewer')) {
@@ -42,7 +42,7 @@ if (!existingColumns.some((column) => column.name === 'reviewer')) {
 // Upgrade guard: an existing audit.db predates the `review_scope` and `repo`
 // columns. Add them in place, same pattern as `integrity`/`reviewer` above.
 // `record-review.mjs` (scripts/record-review.mjs) is the only writer of
-// both (SPEC §14, §13.1): `review_scope` is the auditor's free-text review
+// both: `review_scope` is the auditor's free-text review
 // scope from the anchor note, and `repo` is the GitHub `owner/repo` (or
 // `npm:<name>`) key the repo pool accrues under.
 if (!existingColumns.some((column) => column.name === 'review_scope')) {
@@ -67,10 +67,10 @@ export type StatusRow = {
    * unknown. Never "github:alice" here — status.ts's reviewerIdentity()
    * applies that prefix. Never an Algorand address; see auditor_addr. */
   reviewer: string | null
-  /** The auditor's free-text review scope from the anchor note (SPEC §14),
+  /** The auditor's free-text review scope from the anchor note,
    * or null when unknown. Set only by scripts/record-review.mjs. */
   review_scope: string | null
-  /** The repo-pool key: GitHub `owner/repo`, or `npm:<name>` (SPEC §13.1).
+  /** The repo-pool key: GitHub `owner/repo`, or `npm:<name>`.
    * Resolved and stored only by scripts/record-review.mjs at review time —
    * never fetched at payment time. */
   repo: string | null
