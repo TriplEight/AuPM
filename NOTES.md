@@ -2,6 +2,14 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-16
+- #133 `d6ca46e`: a new PaymentRouter with a pool per package version, a rolling hold and
+  freeze state per share. `credit()` checks the fixed ops and treasury shares per batch and the
+  pool shares on running totals. Its `executeRelease` moves no USDC. The nightly job keys
+  batches by app id. The live contract does not change until the release.
+- #134 `bf52ede`: the `setIdentity` builder names the `id:`, `bal:`, `pa:` and `pr:` boxes.
+  The new contract rejected a call that named only `id:`.
+
 ## 2026-10-11
 - #99 `e82bab7`: the trust-layer design is recorded. The target split
   becomes 40/10/25/20/5, with a pool per package version. The live contract still pays auditor
