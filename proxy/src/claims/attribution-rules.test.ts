@@ -2,42 +2,25 @@
 import { describe, expect, test } from 'vitest'
 import {
   type Attribution,
-  auditorShareMicro,
   buildAccrualInputs,
-  computeRoleShareMicro,
+  CUT_PER_1000,
+  DEFAULT_HOLD_DAYS,
+  holdMsFromEnv,
   mvpSplit,
-  OPS_IDENTITY,
-  ROLE_SHARE_PER_1000,
-  ROLES,
-  resolveAuditorIdentity,
-  resolveContributorIdentity,
-  resolveMaintainerIdentity,
-  resolveOpsIdentity,
-  resolveReviewerIdentity,
-  resolveTreasuryIdentity,
+  OPS_PER_1000,
+  POOL_ROLES,
+  POOL_SHARE_PER_1000,
   sortPackages,
-  UNASSIGNED,
+  splitPoolShare,
 } from './attribution-rules.js'
 
-// One split on every network.
-describe('role shares', () => {
-  test('300/100/200/250/100/50 of 20000 microUSDC scale exactly', () => {
-    expect(computeRoleShareMicro(20000, 'auditor')).toBe(6000)
-    expect(computeRoleShareMicro(20000, 'contributor')).toBe(2000)
-    expect(computeRoleShareMicro(20000, 'maintainer')).toBe(4000)
-    expect(computeRoleShareMicro(20000, 'reviewer')).toBe(5000)
-    expect(computeRoleShareMicro(20000, 'treasury')).toBe(2000)
-    expect(computeRoleShareMicro(20000, 'ops')).toBe(1000)
-  })
+const DAY_MS = 24 * 60 * 60 * 1000
 
-  test('all six ledgered role shares sum to 1,000', () => {
-    const sum = ROLES.reduce((s, r) => s + ROLE_SHARE_PER_1000[r], 0)
-    expect(sum).toBe(1000)
-    expect(ROLES).toHaveLength(6)
-  })
-
-  test('throws on a price that is not a multiple of 1,000 microUSDC', () => {
-    expect(() => computeRoleShareMicro(1500, 'auditor')).toThrow()
+describe('split constants', () => {
+  test('cut 200, ops 50, pool 400/100/250 sum to 1,000', () => {
+    const pool = POOL_ROLES.reduce((sum, role) => sum + POOL_SHARE_PER_1000[role], 0)
+    expect(pool).toBe(750)
+    expect(CUT_PER_1000 + OPS_PER_1000 + pool).toBe(1000)
   })
 })
 
@@ -47,24 +30,19 @@ describe('mvpSplit', () => {
   })
 })
 
-describe('auditorShareMicro rounds like the contract', () => {
-  // contract.algo.ts: auditorShare = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN,
-  // uint64 (floor) division. An attributedMicro that is not a multiple of 1,000
-  // never occurs in production (every price is a multiple of 1,000), but this
-  // defence-in-depth check must floor exactly like the contract, not merely
-  // when the division happens to be exact.
-  test('floors 1,001 x 300 / 1000, like the contract', () => {
-    expect(auditorShareMicro(1001)).toBe(Math.floor((1001 * 300) / 1000))
-    expect(auditorShareMicro(1001)).toBe(300)
+describe('holdMsFromEnv', () => {
+  test('unset or empty: 30 days', () => {
+    expect(DEFAULT_HOLD_DAYS).toBe(30)
+    expect(holdMsFromEnv({})).toBe(30 * DAY_MS)
+    expect(holdMsFromEnv({ POOL_HOLD_DAYS: '  ' })).toBe(30 * DAY_MS)
   })
 
-  test('floors 999 x 300 / 1000, like the contract', () => {
-    expect(auditorShareMicro(999)).toBe(Math.floor((999 * 300) / 1000))
-    expect(auditorShareMicro(999)).toBe(299)
+  test('a whole number of days is read', () => {
+    expect(holdMsFromEnv({ POOL_HOLD_DAYS: '45' })).toBe(45 * DAY_MS)
   })
 
-  test('exact multiples of 1,000 never lose a remainder', () => {
-    expect(auditorShareMicro(2000)).toBe(600)
+  test.each(['0', '-3', '1.5', 'abc', '3651', '1e2', '0x10'])('rejects %s', (value) => {
+    expect(() => holdMsFromEnv({ POOL_HOLD_DAYS: value })).toThrow(/POOL_HOLD_DAYS/)
   })
 })
 
@@ -83,69 +61,34 @@ describe('sortPackages', () => {
   })
 })
 
-describe('identity resolution', () => {
-  test('auditor identity is the review record reviewer', () => {
-    expect(
-      resolveAuditorIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: 'github:alice',
-      }),
-    ).toBe('github:alice')
+describe('splitPoolShare', () => {
+  test('one payee gets the whole share', () => {
+    expect(splitPoolShare(400, ['github:a'])).toEqual([
+      { identity: 'github:a', amountMicro: 400, treasuryKind: null },
+    ])
   })
 
-  test('missing auditor maps to unassigned', () => {
-    expect(resolveAuditorIdentity({ pkg: 'ms', version: '2.1.3', auditor: null })).toBe(UNASSIGNED)
+  test('no payee: the whole share is treasury unallocated', () => {
+    expect(splitPoolShare(250, [])).toEqual([
+      { identity: 'treasury', amountMicro: 250, treasuryKind: 'unallocated' },
+    ])
   })
 
-  test('maintainer identity is always unassigned', () => {
-    expect(
-      resolveMaintainerIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: null,
-      }),
-    ).toBe(UNASSIGNED)
+  test('three payees share 400 equally; the remainder 1 goes to treasury unallocated', () => {
+    const shares = splitPoolShare(400, ['github:a', 'github:b', 'github:c'])
+    expect(shares.map((s) => s.amountMicro)).toEqual([133, 133, 133, 1])
+    expect(shares[3]).toEqual({ identity: 'treasury', amountMicro: 1, treasuryKind: 'unallocated' })
+    expect(shares.reduce((sum, s) => sum + s.amountMicro, 0)).toBe(400)
   })
 
-  test('contributor identity is always unassigned', () => {
-    expect(
-      resolveContributorIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: 'github:alice',
-      }),
-    ).toBe(UNASSIGNED)
+  test('an even split leaves no remainder row', () => {
+    const shares = splitPoolShare(400, ['github:a', 'github:b'])
+    expect(shares.map((s) => s.amountMicro)).toEqual([200, 200])
   })
 
-  test('reviewer (adversarial) always maps to unassigned, ignoring the entry', () => {
-    expect(
-      resolveReviewerIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: 'github:alice',
-      }),
-    ).toBe(UNASSIGNED)
-  })
-
-  test('treasury identity is always unassigned', () => {
-    expect(
-      resolveTreasuryIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: 'github:alice',
-      }),
-    ).toBe(UNASSIGNED)
-  })
-
-  test('ops identity is always "ops", never unassigned', () => {
-    expect(
-      resolveOpsIdentity({
-        pkg: 'ms',
-        version: '2.1.3',
-        auditor: 'github:alice',
-      }),
-    ).toBe(OPS_IDENTITY)
+  test('more payees than micro-units: all of it is unallocated, no zero row', () => {
+    const shares = splitPoolShare(2, ['a', 'b', 'c'])
+    expect(shares).toEqual([{ identity: 'treasury', amountMicro: 2, treasuryKind: 'unallocated' }])
   })
 })
 
@@ -159,25 +102,46 @@ describe('buildAccrualInputs', () => {
     expect(buildAccrualInputs(attribution)).toEqual([])
   })
 
-  test('tarball route: the one package gets its own full 300/100/200/250/100/50 shares', () => {
+  test('tarball route with a reviewer: cut 200, ops 50, reviewer 400, rest unallocated', () => {
     const attribution: Attribution = {
       route: 'tarball',
       priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:Alice' }],
     }
     const rows = buildAccrualInputs(attribution)
-    expect(rows).toHaveLength(6)
-    const byRole = Object.fromEntries(rows.map((r) => [r.role, r.amountMicro]))
-    expect(byRole.auditor).toBe(300)
-    expect(byRole.contributor).toBe(100)
-    expect(byRole.maintainer).toBe(200)
-    expect(byRole.reviewer).toBe(250)
-    expect(byRole.treasury).toBe(100)
-    expect(byRole.ops).toBe(50)
+    expect(rows.map((r) => [r.role, r.identity, r.amountMicro, r.treasuryKind, r.held])).toEqual([
+      ['treasury', 'treasury', 200, 'cut', false],
+      ['ops', 'ops', 50, null, false],
+      ['reviewer', 'github:alice', 400, null, true],
+      ['contributor', 'treasury', 100, 'unallocated', true],
+      ['maintainer', 'treasury', 250, 'unallocated', true],
+    ])
     expect(rows.reduce((s, r) => s + r.amountMicro, 0)).toBe(1000)
   })
 
-  test('lockfile route: each of 3 reviewed packages carries its own exact 1,000 microUSDC, no split', () => {
+  test('a package with no reviewer: the reviewer line is unallocated too', () => {
+    const rows = buildAccrualInputs({
+      route: 'tarball',
+      priceMicro: 1000,
+      packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
+    })
+    const reviewer = rows.find((r) => r.role === 'reviewer')
+    expect(reviewer).toMatchObject({ identity: 'treasury', amountMicro: 400 })
+    expect(reviewer?.treasuryKind).toBe('unallocated')
+  })
+
+  test('a reviewer named ops or treasury is never a payee', () => {
+    for (const name of ['ops', 'TREASURY']) {
+      const rows = buildAccrualInputs({
+        route: 'tarball',
+        priceMicro: 1000,
+        packages: [{ pkg: 'ms', version: '2.1.3', auditor: name }],
+      })
+      expect(rows.find((r) => r.role === 'reviewer')?.treasuryKind).toBe('unallocated')
+    }
+  })
+
+  test('lockfile route: each reviewed package carries its own exact 1,000 microUSDC', () => {
     const attribution: Attribution = {
       route: 'lockfile',
       priceMicro: 3000,
@@ -188,20 +152,12 @@ describe('buildAccrualInputs', () => {
       ],
     }
     const rows = buildAccrualInputs(attribution)
-    expect(rows).toHaveLength(18) // 6 roles x 3 packages
-
+    expect(rows).toHaveLength(15) // 5 rows x 3 packages
+    expect(rows[0]?.pkg).toBe('alpha')
     for (const pkg of ['zeta', 'alpha', 'mid']) {
       const pkgRows = rows.filter((r) => r.pkg === pkg)
-      const byRole = Object.fromEntries(pkgRows.map((r) => [r.role, r.amountMicro]))
-      expect(byRole.auditor).toBe(300)
-      expect(byRole.contributor).toBe(100)
-      expect(byRole.maintainer).toBe(200)
-      expect(byRole.reviewer).toBe(250)
-      expect(byRole.treasury).toBe(100)
-      expect(byRole.ops).toBe(50)
       expect(pkgRows.reduce((s, r) => s + r.amountMicro, 0)).toBe(1000)
     }
-
     expect(rows.reduce((s, r) => s + r.amountMicro, 0)).toBe(3000)
   })
 

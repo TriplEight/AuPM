@@ -58,7 +58,7 @@ describe('findUnmatchedInflows', () => {
 })
 
 describe('reconcile', () => {
-  test('ledgers an unmatched inflow as unassigned across all six roles', async () => {
+  test('ledgers an unmatched inflow as one treasury row of route unassigned', async () => {
     const indexer = stubIndexerClient([
       { txid: 'TXID-UNMATCHED-1', amountMicro: 20000, confirmedAt: OLD_ENOUGH },
     ])
@@ -67,23 +67,22 @@ describe('reconcile', () => {
     expect(result.unmatchedLedgered).toBe(1)
 
     const rows = db
-      .prepare('SELECT role, identity, amount_micro, repo FROM accruals WHERE settle_txid = ?')
-      .all('TXID-UNMATCHED-1') as Array<{
-      role: string
-      identity: string
-      amount_micro: number
-      repo: string
-    }>
-    expect(rows).toHaveLength(6)
-    // Every role, including ops, is "unassigned" here — an unmatched
-    // inflow carries no attribution data at all (unlike a normal payment,
-    // where ops always resolves to the fixed "ops" identity).
-    for (const row of rows) expect(row.identity).toBe('unassigned')
-    // No package, so no repo-pool key — the credit step's attributedTotal
-    // grouping (ledger.ts) relies on this being '', never null.
-    for (const row of rows) expect(row.repo).toBe('')
-    const total = rows.reduce((s, r) => s + r.amount_micro, 0)
-    expect(total).toBe(20000)
+      .prepare(
+        'SELECT route, role, identity, amount_micro, repo, treasury_kind FROM accruals WHERE settle_txid = ?',
+      )
+      .all('TXID-UNMATCHED-1')
+    // The whole inflow goes to treasury through unattributedTotal, never to ops.
+    // No package, so no repo-pool key: it is '', never null.
+    expect(rows).toEqual([
+      {
+        route: 'unassigned',
+        role: 'treasury',
+        identity: 'treasury',
+        amount_micro: 20000,
+        repo: '',
+        treasury_kind: null,
+      },
+    ])
   })
 
   test('re-running reconcile over the same inflow ledgers nothing new (idempotent)', async () => {
@@ -157,15 +156,11 @@ describe('reconcile', () => {
     const result = await reconcileNow('PAYTOADDR', indexer)
 
     expect(result.unmatchedLedgered).toBe(0)
-    // Exactly the 6 rows writeAccruals wrote above — reconcile added none.
-    // (The reviewer role's identity is legitimately "unassigned" even on a
-    // normal payment — AuPM has no adversarial review yet — so the row
-    // count and route/pkg are what distinguish "no second write" here, not
-    // identity alone.)
+    // Exactly the 5 rows writeAccruals wrote above — reconcile added none.
     const rows = db
       .prepare('SELECT route, pkg, identity FROM accruals WHERE settle_txid = ?')
       .all('TXID-ALREADY-LEDGERED') as Array<{ route: string; pkg: string; identity: string }>
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(5)
     for (const row of rows) {
       expect(row.route).toBe('single-attest')
       expect(row.pkg).toBe('left-pad')

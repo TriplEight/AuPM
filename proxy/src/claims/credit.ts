@@ -12,26 +12,30 @@
 // facilitator's job, and only the facilitator's. This module never touches x402 settlement at all.
 
 import algosdk from 'algosdk'
-import { auditorShareMicro } from './attribution-rules.js'
+import { OPS_IDENTITY, TREASURY_IDENTITY } from './attribution-rules.js'
 import {
+  type BatchPlan,
   type CreditEntry,
+  type CreditTotals,
   getLastBatchSeq,
   getPendingBatch,
   groupForCredit,
-  listUncreditedAccruals,
+  isPoolShare,
+  listCreditCandidates,
   openBatch,
   recordBatchCreditTxid,
   releaseBatch,
   summarizeBatch,
 } from './ledger.js'
-import type { AccrualRow } from './schema.js'
+import type { AccrualRow, BatchRow } from './schema.js'
 
 /**
  * The exact `credit` method signature from
- * contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json
- *: `credit(batchSeq, attributedTotal, unattributedTotal,
- * entries)`, `entries` a `(repo, identity, amount)[]`. The proxy Docker
- * image never copies the contracts workspace's build artifacts
+ * contracts/smart_contracts/artifacts/payment_router/PaymentRouter.arc56.json:
+ * `credit(batchSeq, newTotal, unattributedTotal, treasuryExtra, entries)`,
+ * `entries` a `(repo, identity, amount)[]`. The contract computes the ops and
+ * cut shares of `newTotal` itself, so this code never passes them. The proxy
+ * Docker image never copies the contracts workspace's build artifacts
  * (proxy/Dockerfile installs only the proxy project's own dependency
  * tree, and does not depend on @algorandfoundation/algokit-utils), so this
  * reproduces the signature as a constant rather than reading the ARC-56
@@ -39,18 +43,8 @@ import type { AccrualRow } from './schema.js'
  * contract's credit() signature ever changes — contracts/ is out of scope
  * for this module.
  */
-const CREDIT_METHOD_SIGNATURE = 'credit(uint64,uint64,uint64,(string,string,uint64)[])void'
-
-/**
- * Fixed identity for the ops pool
- * (contracts/smart_contracts/payment_router/contract.algo.ts,
- * `OPS_IDENTITY`). Kept as a literal copy, not an import: credit.ts must not
- * depend on contracts/ (out of scope here, and the proxy Docker image never
- * installs that workspace's dependency tree — see the comment above
- * CREDIT_METHOD_SIGNATURE). Keep this in sync by hand if the contract's
- * OPS_IDENTITY ever changes.
- */
-const OPS_IDENTITY = 'ops'
+export const CREDIT_METHOD_SIGNATURE =
+  'credit(uint64,uint64,uint64,uint64,(string,string,uint64)[])void'
 
 /**
  * The note every credit() call carries: lets the recovery
@@ -69,11 +63,12 @@ const MAX_TOTAL_REFERENCES = 8
 /**
  * The most `(repo, identity)` entries one credit() call can hold. One app
  * call has an opcode budget of 700. credit() loops over `entries` twice, and
- * a simulate of the deployed PaymentRouter (TestNet app 772851922,
+ * a simulate of the previous PaymentRouter (TestNet app 772851922,
  * 2026-09-29) measured its cost as 173 + 159 per entry: 3 entries cost 650,
  * 4 entries cost 809. The cost does not depend on string lengths (the loops
- * use constant-cost opcodes). Re-measure this if contract.algo.ts's credit()
- * changes.
+ * use constant-cost opcodes). The current credit() also writes the treasury
+ * balance and checks running totals: re-measure this with a simulate of the
+ * deployed contract before MainNet.
  */
 export const MAX_CREDIT_ENTRIES = 3
 
@@ -87,7 +82,7 @@ export interface CreditCallRefs {
 /**
  * Builds the resource references credit() needs (contract.algo.ts's
  * `credit()` body): one box per distinct identity it writes a balance to
- * (`bal:<identity>`, always including `bal:ops`), one account reference for
+ * (`bal:<identity>`, always including `bal:ops` and `bal:treasury`), one account reference for
  * `payTo` (its USDC holding is read via `asset.balance(payToAcct)`), and
  * one asset reference for the USDC ASA.
  *
@@ -109,7 +104,11 @@ export function buildCreditCallRefs(
   payTo: string,
   assetId: bigint,
 ): CreditCallRefs {
-  const identities = new Set<string>([OPS_IDENTITY, ...entries.map((e) => e.identity)])
+  const identities = new Set<string>([
+    OPS_IDENTITY,
+    TREASURY_IDENTITY,
+    ...entries.map((e) => e.identity),
+  ])
   const boxes = [...identities].map((identity) => ({
     appIndex: 0,
     name: new TextEncoder().encode(`bal:${identity}`),
@@ -124,7 +123,7 @@ export function buildCreditCallRefs(
       `buildCreditCallRefs: this batch needs ${total} foreign references ` +
         `(${boxes.length} identity box(es), ${accounts.length} account, ${assets.length} asset) — ` +
         `over the AVM's per-transaction limit of ${MAX_TOTAL_REFERENCES}. At most ${maxIdentityBoxes} ` +
-        'distinct identities (including "ops") fit in one credit() call; split this batch into ' +
+        'distinct identities (including "ops" and "treasury") fit in one credit() call; split this batch into ' +
         'smaller ones before running the nightly job again.',
     )
   }
@@ -132,69 +131,48 @@ export function buildCreditCallRefs(
 }
 
 // credit() references one payTo account and one asset; every other
-// reference slot holds one `bal:<identity>` box, "ops" included. A batch of
-// MAX_CREDIT_ENTRIES entries names at most that many auditor identities
-// plus "ops", so the entry limit keeps every batch inside the box limit too.
-// buildCreditCallRefs still checks the references before any network call.
+// reference slot holds one `bal:<identity>` box, "ops" and "treasury"
+// included. A batch of MAX_CREDIT_ENTRIES entries names at most that many
+// payee identities plus those two, so the entry limit keeps every batch inside
+// the box limit too. buildCreditCallRefs still checks the references before
+// any network call.
 const MAX_IDENTITY_BOXES = MAX_TOTAL_REFERENCES - 2
-if (MAX_CREDIT_ENTRIES + 1 > MAX_IDENTITY_BOXES) {
-  throw new Error('credit.ts: MAX_CREDIT_ENTRIES plus "ops" must fit in MAX_IDENTITY_BOXES')
-}
-
-/** `keys` plus the `(repo, identity)` entry keys of the auditor rows in `unit`. */
-function withEntryKeys(keys: Set<string>, unit: AccrualRow[]): Set<string> {
-  const merged = new Set(keys)
-  for (const row of unit) {
-    if (row.role === 'auditor') merged.add(`${row.repo ?? ''}\u0000${row.identity}`)
-  }
-  return merged
+if (MAX_CREDIT_ENTRIES + 2 > MAX_IDENTITY_BOXES) {
+  throw new Error(
+    'credit.ts: MAX_CREDIT_ENTRIES plus "ops" and "treasury" must fit in MAX_IDENTITY_BOXES',
+  )
 }
 
 /**
- * Picks the uncredited rows for the next credit() batch so that its distinct
- * `(repo, identity)` entries fit in MAX_CREDIT_ENTRIES (the opcode budget,
- * which also bounds the identity boxes). The unit is one paid package: every
- * role row of one `(settle_txid, pkg, version)` goes into the same batch, so
- * a batch's auditor entries always sum to exactly
- * `auditorShareMicro(attributedMicro)`. Every `unassigned` row goes into the
- * batch too: it adds no entry. Units that would push the batch past the
- * limit wait for the next batch; the nightly job credits batches until none
- * is left. Pure: no database or network access.
+ * Plans the next credit() batch. The batch counts every payment that no batch
+ * counted yet (`counted`; its sum is `newTotal`). It credits every matured,
+ * unfrozen `unallocated`, `slash` and `forfeit` share (`treasuryExtra`) and
+ * the matured, unfrozen payee shares of the first MAX_CREDIT_ENTRIES
+ * `(repo, identity)` groups (`entries`). A group is never split between two
+ * batches. The groups that do not fit wait for the next batch, which counts
+ * nothing: the first batch carries `newTotal`, `unattributedTotal` and
+ * `treasuryExtra`, and the later batches carry 0 of each. Pure: no database
+ * or network access.
  *
- * @param rows - uncredited rows, oldest payment first (listUncreditedAccruals).
- * @returns the rows of the next batch; empty only when `rows` is empty.
+ * @param candidates - rows from `listCreditCandidates`, oldest payment first.
+ * @param now - the clock in ms; a share with `unlock_at` after it has not matured.
  */
-export function planCreditChunk(rows: AccrualRow[]): AccrualRow[] {
-  const units = new Map<string, AccrualRow[]>()
-  const chunk: AccrualRow[] = []
-  for (const row of rows) {
-    if (row.route === 'unassigned') {
-      chunk.push(row)
-      continue
-    }
-    const key = `${row.settle_txid}\u0000${row.pkg}\u0000${row.version}`
-    const unit = units.get(key)
-    if (unit) unit.push(row)
-    else units.set(key, [row])
+export function planCreditBatch(candidates: AccrualRow[], now: number): BatchPlan {
+  const counted = candidates.filter((row) => row.batch_seq === null)
+  const matured = candidates.filter(
+    (row) => row.paid_seq === null && isPoolShare(row) && row.frozen === 0 && row.unlock_at <= now,
+  )
+  const paid = matured.filter((row) => row.treasury_kind !== null)
+  const groups = new Map<string, AccrualRow[]>()
+  for (const row of matured) {
+    if (row.treasury_kind !== null) continue
+    const key = `${row.repo ?? ''}\u0000${row.identity}`
+    const group = groups.get(key)
+    if (group) group.push(row)
+    else groups.set(key, [row])
   }
-
-  let entryKeys = new Set<string>()
-  for (const [key, unit] of units) {
-    const merged = withEntryKeys(entryKeys, unit)
-    if (merged.size > MAX_CREDIT_ENTRIES) {
-      if (entryKeys.size === 0) {
-        throw new Error(
-          `planCreditChunk: package unit "${key.replaceAll('\u0000', ' ')}" (settlement, ` +
-            `package, version) alone needs ${merged.size} entries, over the limit of ` +
-            `${MAX_CREDIT_ENTRIES}; it can never fit in one credit() call`,
-        )
-      }
-      continue
-    }
-    entryKeys = merged
-    chunk.push(...unit)
-  }
-  return chunk
+  for (const group of [...groups.values()].slice(0, MAX_CREDIT_ENTRIES)) paid.push(...group)
+  return { counted, paid }
 }
 
 /** Chain access the credit step needs, injectable for tests. */
@@ -203,13 +181,7 @@ export interface CreditChainClient {
    * — the rekey that is required before the first credit(). */
   isPayToRekeyed(appId: bigint, payTo: string): Promise<boolean>
   /** Submits one credit() call; resolves to the confirmed transaction id. */
-  submitCredit(
-    appId: bigint,
-    batchSeq: number,
-    attributedMicro: number,
-    unattributedMicro: number,
-    entries: CreditEntry[],
-  ): Promise<string>
+  submitCredit(appId: bigint, batchSeq: number, totals: CreditTotals): Promise<string>
   /** The app's on-chain `lastBatchSeq` global (0 before the first credit()
    * call ever confirms). Read before resending a pending batch, so a batch
    * that already confirmed on-chain (crash before `recordBatchCreditTxid`)
@@ -229,21 +201,95 @@ export type CreditOutcome =
   | { ran: true; batchSeq: number; creditTxid: string }
 
 /**
- * Asserts `entries` sum to exactly `auditorShareMicro(attributedMicro)` —
- * the same check the contract itself makes, for the one split every network
- * uses. Defence in depth: a ledger
+ * Asserts every entry has an amount above 0 and names neither `ops` nor
+ * `treasury` — the same checks the contract makes. Defence in depth: a ledger
  * bug here must fail loudly before it ever reaches the chain, not surface
  * only as a rejected transaction.
  */
-function assertEntriesMatchAuditorShare(attributedMicro: number, entries: CreditEntry[]): void {
-  const entriesTotal = entries.reduce((sum, e) => sum + e.amountMicro, 0)
-  const auditorShare = auditorShareMicro(attributedMicro)
-  if (entriesTotal !== auditorShare) {
-    throw new Error(
-      `runCreditStep: entries sum to ${entriesTotal}, expected auditorShareMicro(attributedMicro) ` +
-        `= ${auditorShare} (attributedMicro=${attributedMicro})`,
-    )
+function assertEntriesValid(entries: CreditEntry[]): void {
+  for (const entry of entries) {
+    const reserved = entry.identity === OPS_IDENTITY || entry.identity === TREASURY_IDENTITY
+    if (entry.amountMicro <= 0 || reserved) {
+      throw new Error(
+        `runCreditStep: invalid entry (${entry.repo}, ${entry.identity}, ${entry.amountMicro}): ` +
+          'an amount must be above 0 and the identity must not be "ops" or "treasury"',
+      )
+    }
   }
+}
+
+/**
+ * The arguments of one credit() call, in ABI order: `batchSeq`, `newTotal`,
+ * `unattributedTotal`, `treasuryExtra`, `entries`. The ops and cut shares are
+ * not an argument: the contract computes them from `newTotal`.
+ */
+export function creditMethodArgs(
+  batchSeq: number,
+  totals: CreditTotals,
+): [bigint, bigint, bigint, bigint, [string, string, bigint][]] {
+  return [
+    BigInt(batchSeq),
+    BigInt(totals.newTotalMicro),
+    BigInt(totals.unattributedMicro),
+    BigInt(totals.treasuryExtraMicro),
+    totals.entries.map((e) => [e.repo, e.identity, BigInt(e.amountMicro)]),
+  ]
+}
+
+/** The amounts of a batch row, as `credit()` takes them, with its entries. */
+function pendingTotals(pending: BatchRow, entries: CreditEntry[]): CreditTotals {
+  return {
+    newTotalMicro: pending.new_total_micro,
+    unattributedMicro: pending.unattributed_micro,
+    treasuryExtraMicro: pending.treasury_extra_micro,
+    entries,
+  }
+}
+
+/**
+ * Handles the pending batch of `appId`: a batch row with no credit txid.
+ * Returns the outcome when it recovered or resent the batch, or null when it
+ * released an unsendable batch and the caller must plan a new one.
+ */
+async function settlePendingBatch(
+  client: CreditChainClient,
+  appId: bigint,
+  pending: BatchRow,
+): Promise<CreditOutcome | null> {
+  const ledgerApp = Number(appId)
+  const onChainLastBatchSeq = await client.getOnChainLastBatchSeq(appId)
+  if (onChainLastBatchSeq >= pending.batch_seq) {
+    const creditTxid = await client.findCreditTxidByNote(appId, pending.batch_seq)
+    if (!creditTxid) {
+      throw new Error(
+        `runCreditStep: batch ${pending.batch_seq} is already credited on-chain ` +
+          `(app ${appId}'s lastBatchSeq is ${onChainLastBatchSeq}), but no local credit_txid ` +
+          `is recorded and the indexer found no confirmed credit() transaction noted ` +
+          `"aupm:credit:${pending.batch_seq}". Check the indexer is caught up and reachable; ` +
+          'if it is, find the credit() transaction manually (by app id and note) and record ' +
+          'its txid with recordBatchCreditTxid before the next nightly run.',
+      )
+    }
+    recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
+    return { ran: true, batchSeq: pending.batch_seq, creditTxid }
+  }
+
+  const entries = summarizeBatch(ledgerApp, pending.batch_seq)
+  if (entries.length > MAX_CREDIT_ENTRIES) {
+    // The chain has not credited this batch (checked above), and a credit()
+    // call with this many entries exceeds the opcode budget, so no earlier
+    // attempt can ever confirm. Release its rows and plan within the limit.
+    releaseBatch(ledgerApp, pending.batch_seq)
+    return null
+  }
+  assertEntriesValid(entries)
+  const creditTxid = await client.submitCredit(
+    appId,
+    pending.batch_seq,
+    pendingTotals(pending, entries),
+  )
+  recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
+  return { ran: true, batchSeq: pending.batch_seq, creditTxid }
 }
 
 /**
@@ -252,6 +298,11 @@ function assertEntriesMatchAuditorShare(attributedMicro: number, entries: Credit
  * 'app-id-unset' }` rather than throwing — an unconfigured PaymentRouter is
  * an expected pre-launch state, not a failure. `payTo` not yet rekeyed to
  * the app address stops the same way.
+ *
+ * One call opens one batch (see `planCreditBatch`). The first batch after a
+ * settlement carries `newTotal`, `unattributedTotal` and `treasuryExtra`; the
+ * batches of a backlog that needs more entries carry 0 of each. A share
+ * that has not matured at `now`, or that is frozen, is never credited.
  *
  * A batch row that already exists with no credit_txid (a crash between
  * "assign rows to a batch" and "record the credit txid") is resent as-is,
@@ -269,6 +320,7 @@ function assertEntriesMatchAuditorShare(attributedMicro: number, entries: Credit
 export async function runCreditStep(
   client: CreditChainClient,
   env: NodeJS.ProcessEnv = process.env,
+  now: number = Date.now(),
 ): Promise<CreditOutcome> {
   const appIdRaw = env.PAYMENT_ROUTER_APP_ID
   if (!appIdRaw) return { ran: false, reason: 'app-id-unset' }
@@ -282,62 +334,19 @@ export async function runCreditStep(
 
   const pending = getPendingBatch(ledgerApp)
   if (pending) {
-    const onChainLastBatchSeq = await client.getOnChainLastBatchSeq(appId)
-    if (onChainLastBatchSeq >= pending.batch_seq) {
-      const creditTxid = await client.findCreditTxidByNote(appId, pending.batch_seq)
-      if (!creditTxid) {
-        throw new Error(
-          `runCreditStep: batch ${pending.batch_seq} is already credited on-chain ` +
-            `(app ${appId}'s lastBatchSeq is ${onChainLastBatchSeq}), but no local credit_txid ` +
-            `is recorded and the indexer found no confirmed credit() transaction noted ` +
-            `"aupm:credit:${pending.batch_seq}". Check the indexer is caught up and reachable; ` +
-            'if it is, find the credit() transaction manually (by app id and note) and record ' +
-            'its txid with recordBatchCreditTxid before the next nightly run.',
-        )
-      }
-      recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
-      return { ran: true, batchSeq: pending.batch_seq, creditTxid }
-    }
-
-    const { entries } = summarizeBatch(ledgerApp, pending.batch_seq)
-    if (entries.length > MAX_CREDIT_ENTRIES) {
-      // The chain has not credited this batch (checked above), and a credit()
-      // call with this many entries exceeds the opcode budget, so no earlier
-      // attempt can ever confirm. Release its rows and plan within the limit.
-      releaseBatch(ledgerApp, pending.batch_seq)
-    } else {
-      assertEntriesMatchAuditorShare(pending.attributed_micro, entries)
-      const creditTxid = await client.submitCredit(
-        appId,
-        pending.batch_seq,
-        pending.attributed_micro,
-        pending.unattributed_micro,
-        entries,
-      )
-      recordBatchCreditTxid(ledgerApp, pending.batch_seq, creditTxid)
-      return { ran: true, batchSeq: pending.batch_seq, creditTxid }
-    }
+    const outcome = await settlePendingBatch(client, appId, pending)
+    if (outcome) return outcome
   }
 
-  const uncredited = listUncreditedAccruals()
-  const all = groupForCredit(uncredited)
-  if (all.attributedMicro === 0 && all.unattributedMicro === 0) {
+  const plan = planCreditBatch(listCreditCandidates(), now)
+  if (plan.counted.length === 0 && plan.paid.length === 0) {
     return { ran: false, reason: 'nothing-to-credit' }
   }
-  const chunk = planCreditChunk(uncredited)
-  const planned = groupForCredit(chunk)
-  assertEntriesMatchAuditorShare(planned.attributedMicro, planned.entries)
+  assertEntriesValid(groupForCredit(plan).entries)
 
   const batchSeq = getLastBatchSeq(ledgerApp) + 1
-  const totals = openBatch(ledgerApp, batchSeq, chunk)
-
-  const creditTxid = await client.submitCredit(
-    appId,
-    batchSeq,
-    totals.attributedMicro,
-    totals.unattributedMicro,
-    totals.entries,
-  )
+  const totals = openBatch(ledgerApp, batchSeq, plan)
+  const creditTxid = await client.submitCredit(appId, batchSeq, totals)
   recordBatchCreditTxid(ledgerApp, batchSeq, creditTxid)
   return { ran: true, batchSeq, creditTxid }
 }
@@ -404,19 +413,14 @@ export function buildAlgodCreditClient(
       return match?.id ?? null
     },
 
-    async submitCredit(appId, batchSeq, attributedMicro, unattributedMicro, entries) {
-      const refs = buildCreditCallRefs(entries, payTo, assetId)
+    async submitCredit(appId, batchSeq, totals) {
+      const refs = buildCreditCallRefs(totals.entries, payTo, assetId)
       const suggestedParams = await algod.getTransactionParams().do()
       const atc = new algosdk.AtomicTransactionComposer()
       atc.addMethodCall({
         appID: appId,
         method,
-        methodArgs: [
-          BigInt(batchSeq),
-          BigInt(attributedMicro),
-          BigInt(unattributedMicro),
-          entries.map((e) => [e.repo, e.identity, BigInt(e.amountMicro)]),
-        ],
+        methodArgs: creditMethodArgs(batchSeq, totals),
         sender: account.addr,
         suggestedParams,
         signer,

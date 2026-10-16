@@ -5,7 +5,13 @@
 // creation in schema.ts.
 
 import { getStatusOrUnreviewed } from '../status.js'
-import { type Attribution, buildAccrualInputs } from './attribution-rules.js'
+import {
+  type Attribution,
+  buildAccrualInputs,
+  holdMsFromEnv,
+  POOL_ROLES,
+  type PoolRole,
+} from './attribution-rules.js'
 import db, { type AccrualRow, type BatchRow, type PayoutRow } from './schema.js'
 
 // ---------------------------------------------------------------------------
@@ -39,26 +45,31 @@ function resolveRepoForPackage(pkg: string, version: string): string {
 }
 
 // ON CONFLICT DO NOTHING makes a replayed settle_txid a no-op: the primary
-// key (settle_txid, role, pkg, version) already exists, so the row already
-// written wins and no second accrual is written. batch_seq is never set here — NULL until the
-// nightly credit step assigns this row to a batch.
+// key (settle_txid, role, pkg, version, identity) already exists, so the row
+// already written wins and no second accrual is written. The batch pointers
+// stay NULL until the nightly credit step assigns the row.
 const insertAccrual = db.prepare<
-  [string, string, string, string, string, string, string, number, number]
+  [string, string, string, string, string, string, string, number, number, number, string | null]
 >(
   `INSERT INTO accruals
-     (settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at)
-   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-   ON CONFLICT (settle_txid, role, pkg, version) DO NOTHING`,
+     (settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at,
+      unlock_at, treasury_kind)
+   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+   ON CONFLICT (settle_txid, role, pkg, version, identity) DO NOTHING`,
 )
 
 const countAccrualsForTxid = db.prepare<[string], { n: number }>(
   'SELECT COUNT(*) as n FROM accruals WHERE settle_txid = ?',
 )
 
+/** How long a pool share stays locked after its settlement. Read once at boot. */
+const HOLD_MS = holdMsFromEnv(process.env)
+
 /**
  * Write every accrual row for one settled, paid request. Idempotent on
- * (settle_txid, role, pkg, version): replaying the same settle_txid writes
- * no second accrual and leaves the ledger total unchanged.
+ * (settle_txid, role, pkg, version, identity): replaying the same settle_txid
+ * writes no second accrual and leaves the ledger total unchanged. A pool share
+ * unlocks `holdMs` after `now`. Cut and ops rows are not held.
  *
  * WARNING: never call this when `attribution.priceMicro` is 0 — the ledger
  * must not accrue against an unpaid request. `buildAccrualInputs` already
@@ -67,11 +78,15 @@ const countAccrualsForTxid = db.prepare<[string], { n: number }>(
  *
  * Returns the number of rows this call newly wrote (0 on a pure replay).
  */
-export function writeAccruals(attribution: Attribution, settleTxid: string): number {
+export function writeAccruals(
+  attribution: Attribution,
+  settleTxid: string,
+  now: number = Date.now(),
+  holdMs: number = HOLD_MS,
+): number {
   const inputs = buildAccrualInputs(attribution)
   if (inputs.length === 0) return 0
 
-  const createdAt = Date.now()
   let written = 0
   const runAll = db.transaction((rows: typeof inputs) => {
     for (const row of rows) {
@@ -84,7 +99,9 @@ export function writeAccruals(attribution: Attribution, settleTxid: string): num
         row.role,
         canonicalizeIdentity(row.identity),
         row.amountMicro,
-        createdAt,
+        now,
+        row.held ? now + holdMs : 0,
+        row.treasuryKind,
       )
       written += result.changes
     }
@@ -106,7 +123,8 @@ export function getAccrualsForTxid(settleTxid: string): AccrualRow[] {
 }
 
 const sumAccrualsByIdentityAndRole = db.prepare<[string], { role: string; total: number }>(
-  'SELECT role, SUM(amount_micro) as total FROM accruals WHERE identity = ? GROUP BY role',
+  'SELECT role, SUM(amount_micro) as total FROM accruals ' +
+    'WHERE identity = ? AND treasury_kind IS NULL GROUP BY role',
 )
 
 const sumPaidByIdentityAndRole = db.prepare<[string], { role: string; total: number }>(
@@ -155,6 +173,81 @@ export function getEarningsForLogin(login: string): Earnings {
 }
 
 // ---------------------------------------------------------------------------
+// Freeze, release, slash, forfeit
+// ---------------------------------------------------------------------------
+
+/**
+ * Selects the uncredited payee shares of one role of one package version.
+ * `identity` narrows the selection to one payee, for example one reviewer.
+ */
+export interface ShareFilter {
+  pkg: string
+  version: string
+  role: PoolRole
+  identity?: string
+}
+
+function assertPoolRole(fn: string, role: string): void {
+  if (!(POOL_ROLES as readonly string[]).includes(role)) {
+    throw new Error(`${fn}: role must be one of ${POOL_ROLES.join(', ')}, got "${role}"`)
+  }
+}
+
+// Every event touches only uncredited payee shares: `paid_seq IS NULL` leaves
+// a credited share alone, and `treasury_kind IS NULL` leaves treasury income alone.
+const SHARE_SCOPE =
+  'pkg = ? AND version = ? AND role = ? AND (? IS NULL OR identity = ?) ' +
+  'AND treasury_kind IS NULL AND paid_seq IS NULL'
+
+function shareArgs(filter: ShareFilter): [string, string, string, string | null, string | null] {
+  const identity = filter.identity === undefined ? null : canonicalizeIdentity(filter.identity)
+  return [filter.pkg, filter.version, filter.role, identity, identity]
+}
+
+const freezeStmt = db.prepare(`UPDATE accruals SET frozen = 1 WHERE ${SHARE_SCOPE} AND frozen = 0`)
+const releaseStmt = db.prepare(`UPDATE accruals SET frozen = 0 WHERE ${SHARE_SCOPE} AND frozen = 1`)
+const convertStmt = db.prepare(
+  `UPDATE accruals SET treasury_kind = ?, frozen = 0, unlock_at = 0
+   WHERE ${SHARE_SCOPE} AND frozen = 1`,
+)
+
+/**
+ * Freezes the uncredited payee shares that `filter` selects. A frozen share
+ * is never credited. Returns the number of shares frozen.
+ */
+export function freezeShares(filter: ShareFilter): number {
+  assertPoolRole('freezeShares', filter.role)
+  return freezeStmt.run(...shareArgs(filter)).changes
+}
+
+/**
+ * Releases the frozen shares that `filter` selects. A released share keeps its
+ * unlock time and is credited once it has matured. Returns the number released.
+ */
+export function releaseShares(filter: ShareFilter): number {
+  assertPoolRole('releaseShares', filter.role)
+  return releaseStmt.run(...shareArgs(filter)).changes
+}
+
+/**
+ * Slashes the frozen reviewer shares of `pkg@version`: each becomes treasury
+ * income of kind `slash`, credited in the next batch with no hold. Returns the
+ * number of shares slashed.
+ */
+export function slashShares(filter: Omit<ShareFilter, 'role'>): number {
+  return convertStmt.run('slash', ...shareArgs({ ...filter, role: 'reviewer' })).changes
+}
+
+/**
+ * Forfeits the frozen maintainer shares of `pkg@version`: each becomes
+ * treasury income of kind `forfeit`, credited in the next batch with no hold.
+ * Returns the number of shares forfeited.
+ */
+export function forfeitShares(filter: Omit<ShareFilter, 'role'>): number {
+  return convertStmt.run('forfeit', ...shareArgs({ ...filter, role: 'maintainer' })).changes
+}
+
+// ---------------------------------------------------------------------------
 // Batches (nightly credit step)
 // ---------------------------------------------------------------------------
 
@@ -165,72 +258,96 @@ export interface CreditEntry {
   amountMicro: number
 }
 
-export interface UncreditedTotals {
-  /** Sum of every non-`unassigned` row: `credit()`'s `attributedTotal`. */
-  attributedMicro: number
-  /** Sum of every `unassigned` row: `credit()`'s `unattributedTotal`. */
+/** The amounts one `credit()` call carries. */
+export interface CreditTotals {
+  /** Payments for reviewed resources that this batch counts. */
+  newTotalMicro: number
+  /** Inflows with no attribution. They go to treasury. */
   unattributedMicro: number
-  /** Auditor-role, non-`unassigned` rows, summed per `(repo, identity)`. */
+  /** Matured `unallocated`, `slash` and `forfeit` treasury income. */
+  treasuryExtraMicro: number
+  /** Payee shares, summed per `(repo, identity)`. */
   entries: CreditEntry[]
 }
 
+/** The rows one batch counts (`counted`) and credits (`paid`). */
+export interface BatchPlan {
+  counted: AccrualRow[]
+  paid: AccrualRow[]
+}
+
+/** True for a share of a pool role, whether it has a payee or not. */
+export function isPoolShare(row: AccrualRow): boolean {
+  return (POOL_ROLES as readonly string[]).includes(row.role)
+}
+
+function addEntry(entries: Map<string, CreditEntry>, row: AccrualRow): void {
+  const repo = row.repo ?? ''
+  const key = `${repo}\u0000${row.identity}`
+  const existing = entries.get(key)
+  if (existing) existing.amountMicro += row.amount_micro
+  else entries.set(key, { repo, identity: row.identity, amountMicro: row.amount_micro })
+}
+
 /**
- * Groups accrual rows into the shape `credit()` needs:
- * `attributedMicro` sums every row from a real payment; `unattributedMicro`
- * sums every `unassigned` row (an unmatched inflow);
- * `entries` are the auditor-role rows of a real payment, summed per
- * `(repo, identity)` — never split per payment, and never per package
- * within the same `(repo, identity)` pair.
+ * Groups the rows of a batch into the shape `credit()` needs. `counted` rows
+ * add to `newTotalMicro`, or to `unattributedMicro` when the row is an
+ * unmatched inflow. `paid` rows add to `treasuryExtraMicro` when they carry a
+ * treasury kind, and to `entries` otherwise. Entries sum per `(repo,
+ * identity)`, never per payment.
  */
-export function groupForCredit(rows: AccrualRow[]): UncreditedTotals {
-  let attributedMicro = 0
+export function groupForCredit(plan: BatchPlan): CreditTotals {
+  let newTotalMicro = 0
   let unattributedMicro = 0
-  const entryTotals = new Map<string, CreditEntry>()
-
-  for (const row of rows) {
-    if (row.route === 'unassigned') {
-      unattributedMicro += row.amount_micro
-      continue
-    }
-    attributedMicro += row.amount_micro
-    if (row.role !== 'auditor') continue
-    const repo = row.repo ?? ''
-    const key = `${repo}\u0000${row.identity}`
-    const existing = entryTotals.get(key)
-    if (existing) existing.amountMicro += row.amount_micro
-    else entryTotals.set(key, { repo, identity: row.identity, amountMicro: row.amount_micro })
+  let treasuryExtraMicro = 0
+  const entries = new Map<string, CreditEntry>()
+  for (const row of plan.counted) {
+    if (row.route === 'unassigned') unattributedMicro += row.amount_micro
+    else newTotalMicro += row.amount_micro
   }
-
-  return { attributedMicro, unattributedMicro, entries: [...entryTotals.values()] }
+  for (const row of plan.paid) {
+    if (row.treasury_kind !== null) treasuryExtraMicro += row.amount_micro
+    else addEntry(entries, row)
+  }
+  return { newTotalMicro, unattributedMicro, treasuryExtraMicro, entries: [...entries.values()] }
 }
 
-const listUncreditedRows = db.prepare<[], AccrualRow>(
-  'SELECT * FROM accruals WHERE batch_seq IS NULL ' +
-    'ORDER BY created_at, settle_txid, pkg, version, role',
-)
-
-/** Every accrual row not yet assigned to a batch, oldest payment first. */
-export function listUncreditedAccruals(): AccrualRow[] {
-  return listUncreditedRows.all()
-}
-
-const listRowsForBatch = db.prepare<[number, number], AccrualRow>(
-  'SELECT * FROM accruals WHERE batch_app_id = ? AND batch_seq = ?',
+const listCandidateRows = db.prepare<[], AccrualRow>(
+  `SELECT * FROM accruals
+   WHERE batch_seq IS NULL
+      OR (paid_seq IS NULL AND role IN ('reviewer', 'contributor', 'maintainer'))
+   ORDER BY created_at, settle_txid, pkg, version, role, identity`,
 )
 
 /**
- * Rebuilds the same `entries` for a batch's already-assigned rows — used to
- * resend a batch that crashed before its credit txid was recorded, so the
- * resend uses exactly the rows the first attempt assigned (see
- * `getPendingBatch`), never a fresh snapshot of "uncredited".
+ * Every row that still needs a batch: a payment no batch counted yet, or a
+ * pool share no batch credited yet. Oldest payment first. The caller decides
+ * which of them have matured.
  */
-export function summarizeBatch(appId: number, batchSeq: number): UncreditedTotals {
-  return groupForCredit(listRowsForBatch.all(appId, batchSeq))
+export function listCreditCandidates(): AccrualRow[] {
+  return listCandidateRows.all()
 }
 
-const assignRowBatch = db.prepare<[number, number, string, string, string, string]>(
-  'UPDATE accruals SET batch_app_id = ?, batch_seq = ? ' +
-    'WHERE settle_txid = ? AND role = ? AND pkg = ? AND version = ? AND batch_seq IS NULL',
+const listPaidRowsForBatch = db.prepare<[number, number], AccrualRow>(
+  'SELECT * FROM accruals WHERE paid_app_id = ? AND paid_seq = ? ORDER BY created_at, settle_txid',
+)
+
+/**
+ * Rebuilds the `entries` of a batch from the rows it credited. A resend of a
+ * batch that crashed before its credit txid was recorded uses exactly these
+ * rows, never a fresh snapshot (see `getPendingBatch`).
+ */
+export function summarizeBatch(appId: number, batchSeq: number): CreditEntry[] {
+  return groupForCredit({ counted: [], paid: listPaidRowsForBatch.all(appId, batchSeq) }).entries
+}
+
+const ROW_KEY = 'settle_txid = ? AND role = ? AND pkg = ? AND version = ? AND identity = ?'
+const assignCounted = db.prepare(
+  `UPDATE accruals SET batch_app_id = ?, batch_seq = ? WHERE ${ROW_KEY} AND batch_seq IS NULL`,
+)
+const assignPaid = db.prepare(
+  `UPDATE accruals SET paid_app_id = ?, paid_seq = ?
+   WHERE ${ROW_KEY} AND paid_seq IS NULL AND frozen = 0`,
 )
 
 const getLastBatchRow = db.prepare<[number], { batch_seq: number }>(
@@ -257,47 +374,62 @@ export function getPendingBatch(appId: number): BatchRow | null {
   return getPendingBatchRow.get(appId) ?? null
 }
 
-const insertBatch = db.prepare<[number, number, number, number, number]>(
-  `INSERT INTO batches (app_id, batch_seq, attributed_micro, unattributed_micro, created_at)
-   VALUES (?, ?, ?, ?, ?)`,
+const insertBatch = db.prepare<[number, number, number, number, number, number]>(
+  `INSERT INTO batches
+     (app_id, batch_seq, new_total_micro, unattributed_micro, treasury_extra_micro, created_at)
+   VALUES (?, ?, ?, ?, ?, ?)`,
 )
 
+function assignRows(
+  stmt: typeof assignCounted,
+  what: string,
+  appId: number,
+  batchSeq: number,
+  rows: AccrualRow[],
+): void {
+  for (const row of rows) {
+    const key = [row.settle_txid, row.role, row.pkg, row.version, row.identity]
+    if (stmt.run(appId, batchSeq, ...key).changes !== 1) {
+      throw new Error(
+        `openBatch: accrual (${key.join(', ')}) is missing, frozen or already ${what}; ` +
+          `batch ${batchSeq} was not opened (app ${appId})`,
+      )
+    }
+  }
+}
+
 /**
- * Opens batch `batchSeq` of `appId` for exactly `rows` (still uncredited),
- * before `credit()` is called: inserts the batch row with the totals of
- * `rows` and stamps each row with the batch, in one SQLite transaction.
+ * Opens batch `batchSeq` of `appId` for `plan`, before `credit()` is called:
+ * inserts the batch row with the totals of the plan, counts each `counted`
+ * row and credits each `paid` row to the batch, in one SQLite transaction.
  * `credit_txid` starts NULL. Throws, and writes nothing, when a row is
- * missing or already in a batch.
+ * missing, frozen, or already in a batch.
  *
- * @returns the totals and entries of `rows` — what `credit()` must send.
+ * @returns the totals and entries of the plan — what `credit()` must send.
  */
 export const openBatch = db.transaction(
-  (appId: number, batchSeq: number, rows: AccrualRow[]): UncreditedTotals => {
-    const totals = groupForCredit(rows)
-    insertBatch.run(appId, batchSeq, totals.attributedMicro, totals.unattributedMicro, Date.now())
-    for (const row of rows) {
-      const { changes } = assignRowBatch.run(
-        appId,
-        batchSeq,
-        row.settle_txid,
-        row.role,
-        row.pkg,
-        row.version,
-      )
-      if (changes !== 1) {
-        throw new Error(
-          `openBatch: accrual (${row.settle_txid}, ${row.role}, ${row.pkg}@${row.version}) ` +
-            `is missing or already in a batch; batch ${batchSeq} was not opened (app ${appId})`,
-        )
-      }
-    }
+  (appId: number, batchSeq: number, plan: BatchPlan): CreditTotals => {
+    const totals = groupForCredit(plan)
+    insertBatch.run(
+      appId,
+      batchSeq,
+      totals.newTotalMicro,
+      totals.unattributedMicro,
+      totals.treasuryExtraMicro,
+      Date.now(),
+    )
+    assignRows(assignCounted, 'counted', appId, batchSeq, plan.counted)
+    assignRows(assignPaid, 'credited', appId, batchSeq, plan.paid)
     return totals
   },
 )
 
-const unassignRowsFromBatch = db.prepare<[number, number]>(
+const unassignCounted = db.prepare<[number, number]>(
   'UPDATE accruals SET batch_app_id = NULL, batch_seq = NULL ' +
     'WHERE batch_app_id = ? AND batch_seq = ?',
+)
+const unassignPaid = db.prepare<[number, number]>(
+  'UPDATE accruals SET paid_app_id = NULL, paid_seq = NULL WHERE paid_app_id = ? AND paid_seq = ?',
 )
 const deletePendingBatchRow = db.prepare<[number, number]>(
   'DELETE FROM batches WHERE app_id = ? AND batch_seq = ? AND credit_txid IS NULL',
@@ -305,13 +437,14 @@ const deletePendingBatchRow = db.prepare<[number, number]>(
 
 /**
  * Undoes `openBatch` for a pending batch whose credit() call can never
- * confirm: returns its rows to uncredited and deletes its batch row, in one
- * SQLite transaction. The caller proves first that the chain never credited
- * this batch (see `runCreditStep`). Throws, and writes nothing, when the
- * batch is missing or already has a credit txid.
+ * confirm: returns its rows to uncounted and uncredited and deletes its batch
+ * row, in one SQLite transaction. The caller proves first that the chain never
+ * credited this batch (see `runCreditStep`). Throws, and writes nothing, when
+ * the batch is missing or already has a credit txid.
  */
 export const releaseBatch = db.transaction((appId: number, batchSeq: number): void => {
-  unassignRowsFromBatch.run(appId, batchSeq)
+  unassignCounted.run(appId, batchSeq)
+  unassignPaid.run(appId, batchSeq)
   const { changes } = deletePendingBatchRow.run(appId, batchSeq)
   if (changes !== 1) {
     throw new Error(

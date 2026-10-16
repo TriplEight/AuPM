@@ -16,19 +16,28 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-ledger-test-${rand
 const { default: db } = await import('./schema.js')
 const {
   accrualCountForTxid,
+  forfeitShares,
+  freezeShares,
   getAccrualsForTxid,
   getEarningsForLogin,
-  listUncreditedAccruals,
+  groupForCredit,
+  listCreditCandidates,
   openBatch,
   recordBatchCreditTxid,
   recordPayout,
   releaseBatch,
+  releaseShares,
+  slashShares,
+  summarizeBatch,
   writeAccruals,
 } = await import('./ledger.js')
 const { setStatus } = await import('../status.js')
 type Attribution = import('./attribution-rules.js').Attribution
+type AccrualRow = import('./schema.js').AccrualRow
 
 const APP = 5
+const NOW = 1_000_000
+const HOLD = 5_000
 
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
@@ -47,61 +56,80 @@ const LOCKFILE_ATTRIBUTION: Attribution = {
   ],
 }
 
+const SINGLE_ALICE: Attribution = {
+  route: 'single-attest',
+  priceMicro: 1000,
+  packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
+}
+
+function sumByRole(rows: AccrualRow[]): Map<string, number> {
+  const byRole = new Map<string, number>()
+  for (const row of rows) byRole.set(row.role, (byRole.get(row.role) ?? 0) + row.amount_micro)
+  return byRole
+}
+
 describe('writeAccruals', () => {
-  test('a paid lockfile call of 3,000 microUSDC (3 packages) accrues 900 / 300 / 600 / 750 / 300 / 150 across the six roles (MainNet)', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1')
+  test('3 packages of 1,000 accrue cut 600, ops 150, reviewer 1,200, contributor 300, maintainer 750', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-1', NOW, HOLD)
     const rows = getAccrualsForTxid('TXID-1')
+    const byRole = sumByRole(rows)
 
-    const byRole = new Map<string, number>()
-    for (const row of rows) byRole.set(row.role, (byRole.get(row.role) ?? 0) + row.amount_micro)
-
-    expect(byRole.get('auditor')).toBe(900)
-    expect(byRole.get('contributor')).toBe(300)
-    expect(byRole.get('maintainer')).toBe(600)
-    expect(byRole.get('reviewer')).toBe(750)
-    expect(byRole.get('treasury')).toBe(300)
+    expect(byRole.get('treasury')).toBe(600)
     expect(byRole.get('ops')).toBe(150)
+    expect(byRole.get('reviewer')).toBe(1200)
+    expect(byRole.get('contributor')).toBe(300)
+    expect(byRole.get('maintainer')).toBe(750)
+    expect(rows.reduce((s, r) => s + r.amount_micro, 0)).toBe(3000)
+  })
 
-    const total = rows.reduce((s, r) => s + r.amount_micro, 0)
-    expect(total).toBe(3000) // every reviewed package's full 1,000 microUSDC is ledgered
+  test('contributor and maintainer shares are treasury unallocated; cut is treasury cut', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-KINDS', NOW, HOLD)
+    const kinds = getAccrualsForTxid('TXID-KINDS').map((r) => [r.role, r.identity, r.treasury_kind])
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        ['treasury', 'treasury', 'cut'],
+        ['ops', 'ops', null],
+        ['reviewer', 'github:alice', null],
+        ['contributor', 'treasury', 'unallocated'],
+        ['maintainer', 'treasury', 'unallocated'],
+      ]),
+    )
+  })
+
+  test('pool shares unlock after the hold; cut and ops are not held', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-HOLD', NOW, HOLD)
+    for (const row of getAccrualsForTxid('TXID-HOLD')) {
+      const held = ['reviewer', 'contributor', 'maintainer'].includes(row.role)
+      expect(row.unlock_at).toBe(held ? NOW + HOLD : 0)
+      expect(row.frozen).toBe(0)
+    }
   })
 
   test('replaying the same settle_txid writes no second accrual: row count and total unchanged', () => {
-    const firstWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
-    expect(firstWritten).toBe(18) // 6 roles x 3 packages
+    const firstWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY', NOW, HOLD)
+    expect(firstWritten).toBe(15) // 5 rows x 3 packages
 
     const before = getAccrualsForTxid('TXID-REPLAY')
     const totalBefore = before.reduce((s, r) => s + r.amount_micro, 0)
-    expect(before).toHaveLength(18)
 
-    const secondWritten = writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY')
-    expect(secondWritten).toBe(0)
+    expect(writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-REPLAY', NOW, HOLD)).toBe(0)
 
     const after = getAccrualsForTxid('TXID-REPLAY')
-    const totalAfter = after.reduce((s, r) => s + r.amount_micro, 0)
-    expect(after).toHaveLength(18)
-    expect(totalAfter).toBe(totalBefore)
-    expect(accrualCountForTxid('TXID-REPLAY')).toBe(18)
+    expect(after).toHaveLength(15)
+    expect(after.reduce((s, r) => s + r.amount_micro, 0)).toBe(totalBefore)
+    expect(accrualCountForTxid('TXID-REPLAY')).toBe(15)
   })
 
   test('a free request (priceMicro 0) writes no accrual at all', () => {
     const freeAttribution: Attribution = { route: 'lockfile', priceMicro: 0, packages: [] }
-    const written = writeAccruals(freeAttribution, 'TXID-FREE')
-    expect(written).toBe(0)
+    expect(writeAccruals(freeAttribution, 'TXID-FREE')).toBe(0)
     expect(getAccrualsForTxid('TXID-FREE')).toHaveLength(0)
   })
 
-  test('single-attest route: 100% goes to that one package, identity github:alice for auditor', () => {
-    const attribution: Attribution = {
-      route: 'single-attest',
-      priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
-    }
-    writeAccruals(attribution, 'TXID-SINGLE')
-    const rows = getAccrualsForTxid('TXID-SINGLE')
-    const auditorRow = rows.find((r) => r.role === 'auditor')
-    expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(300)
+  test('the default hold is 30 days', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-DEFAULT', NOW)
+    const reviewer = getAccrualsForTxid('TXID-DEFAULT').find((r) => r.role === 'reviewer')
+    expect(reviewer?.unlock_at).toBe(NOW + 30 * 24 * 60 * 60 * 1000)
   })
 })
 
@@ -118,14 +146,9 @@ describe('writeAccruals: repo column', () => {
       'scope',
       'acme/ms',
     )
-    const attribution: Attribution = {
-      route: 'single-attest',
-      priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
-    }
-    writeAccruals(attribution, 'TXID-REPO-1')
+    writeAccruals(SINGLE_ALICE, 'TXID-REPO-1', NOW, HOLD)
     const rows = getAccrualsForTxid('TXID-REPO-1')
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(5)
     for (const row of rows) expect(row.repo).toBe('acme/ms')
   })
 
@@ -135,148 +158,217 @@ describe('writeAccruals: repo column', () => {
       priceMicro: 1000,
       packages: [{ pkg: 'unknown-pkg', version: '1.0.0', auditor: 'github:alice' }],
     }
-    writeAccruals(attribution, 'TXID-REPO-2')
+    writeAccruals(attribution, 'TXID-REPO-2', NOW, HOLD)
     const rows = getAccrualsForTxid('TXID-REPO-2')
-    expect(rows).toHaveLength(6)
+    expect(rows).toHaveLength(5)
     for (const row of rows) expect(row.repo).toBe('')
   })
 })
 
 describe('getEarningsForLogin', () => {
   test('reports accrued totals per role for a login', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN')
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN', NOW, HOLD)
     const earnings = getEarningsForLogin('alice')
     expect(earnings.identity).toBe('github:alice')
-    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
-    // alice audited ms and chalk: 2 of the 3 packages' auditor shares
-    expect(auditorRole?.accruedMicro).toBeGreaterThan(0)
-    expect(earnings.totalAccruedMicro).toBe(auditorRole?.accruedMicro)
+    // alice reviewed ms and chalk: 2 reviewer lines of 400
+    expect(earnings.roles).toEqual([{ role: 'reviewer', accruedMicro: 800, claimedMicro: 0 }])
+    expect(earnings.totalAccruedMicro).toBe(800)
     expect(earnings.totalClaimedMicro).toBe(0)
   })
 
-  test("never exposes another identity's data: querying alice does not return bob's accrual", () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-2')
-    // alice audited 2 of the 3 packages (ms, chalk); bob audited 1 (lodash).
-    const alice = getEarningsForLogin('alice')
-    const bob = getEarningsForLogin('bob')
-    const aliceAuditor = alice.roles.find((r) => r.role === 'auditor')?.accruedMicro ?? 0
-    const bobAuditor = bob.roles.find((r) => r.role === 'auditor')?.accruedMicro ?? 0
-    expect(aliceAuditor).toBeGreaterThan(0)
-    expect(bobAuditor).toBeGreaterThan(0)
-    expect(aliceAuditor).not.toBe(bobAuditor)
-    // 2 packages x 300 (alice) + 1 package x 300 (bob) = the full 900
-    // auditor share of this 3-package, 3,000-microUSDC payment (MainNet).
-    expect(aliceAuditor + bobAuditor).toBe(900)
+  test("never exposes another identity's data", () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-2', NOW, HOLD)
+    expect(getEarningsForLogin('alice').totalAccruedMicro).toBe(800)
+    expect(getEarningsForLogin('bob').totalAccruedMicro).toBe(400)
   })
 
   test('claimed totals reflect recorded payouts', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-3')
-    recordPayout('github:alice', 'auditor', 1000, 'PAYOUT-TX-1')
-    const earnings = getEarningsForLogin('alice')
-    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorRole?.claimedMicro).toBe(1000)
-  })
-})
-
-describe('identity canonicalisation', () => {
-  const MIXED_CASE_ATTRIBUTION: Attribution = {
-    route: 'single-attest',
-    priceMicro: 1000,
-    packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
-  }
-
-  test('an accrual for reviewer alice resolves to github:alice; earnings reports the exact accrued amount', () => {
-    // The accrual identity is built from a reviewer login stored elsewhere
-    // as `github:alice` — lower-case, as `resolveAuditorIdentity` resolves it.
-    writeAccruals(MIXED_CASE_ATTRIBUTION, 'TXID-CANON-1')
-
-    const earnings = getEarningsForLogin('Alice')
-    expect(earnings.identity).toBe('github:alice')
-    const auditorRole = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorRole?.accruedMicro).toBe(300)
-    expect(earnings.totalAccruedMicro).toBe(300)
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-3', NOW, HOLD)
+    recordPayout('github:alice', 'reviewer', 1000, 'PAYOUT-TX-1')
+    const role = getEarningsForLogin('alice').roles.find((r) => r.role === 'reviewer')
+    expect(role?.claimedMicro).toBe(1000)
   })
 
-  test('getEarningsForLogin is case-insensitive: an accrual for github:Alice is found under both alice and ALICE', () => {
-    const attribution: Attribution = {
-      route: 'single-attest',
-      priceMicro: 1000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:Alice' }],
-    }
-    writeAccruals(attribution, 'TXID-CANON-2')
-
-    const lower = getEarningsForLogin('alice')
-    const upper = getEarningsForLogin('ALICE')
-
-    expect(lower.identity).toBe('github:alice')
-    expect(upper.identity).toBe('github:alice')
-    expect(lower.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(300)
-    expect(upper.roles.find((r) => r.role === 'auditor')?.accruedMicro).toBe(300)
-    expect(lower.totalAccruedMicro).toBe(300)
-    expect(upper.totalAccruedMicro).toBe(300)
+  test('is case-insensitive and skips a slashed share', () => {
+    writeAccruals(
+      { ...SINGLE_ALICE, packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:Alice' }] },
+      'TXID-CANON',
+      NOW,
+      HOLD,
+    )
+    expect(getEarningsForLogin('ALICE').totalAccruedMicro).toBe(400)
+    freezeShares({ pkg: 'ms', version: '2.1.3', role: 'reviewer' })
+    slashShares({ pkg: 'ms', version: '2.1.3' })
+    expect(getEarningsForLogin('alice').totalAccruedMicro).toBe(0)
   })
 })
 
 describe('openBatch', () => {
   const countBatches = () => db.prepare('SELECT COUNT(*) AS n FROM batches').get()
 
-  test('stamps exactly the given rows and stores their totals', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-OPEN')
-    const rows = listUncreditedAccruals()
+  test('counts payments and credits shares, and stores the totals', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-OPEN', NOW, HOLD)
+    const rows = listCreditCandidates()
     const msRows = rows.filter((r) => r.pkg === 'ms')
 
-    const totals = openBatch(APP, 1, msRows)
-
-    expect(totals.attributedMicro).toBe(1000)
-    expect(totals.entries).toEqual([{ repo: '', identity: 'github:alice', amountMicro: 300 }])
-    expect(listUncreditedAccruals()).toHaveLength(rows.length - msRows.length)
-    expect(
-      db.prepare('SELECT attributed_micro FROM batches WHERE app_id = 5 AND batch_seq = 1').get(),
-    ).toEqual({
-      attributed_micro: 1000,
+    const totals = openBatch(APP, 1, {
+      counted: msRows,
+      paid: msRows.filter((r) => r.role === 'reviewer'),
     })
+
+    expect(totals.newTotalMicro).toBe(1000)
+    expect(totals.unattributedMicro).toBe(0)
+    expect(totals.treasuryExtraMicro).toBe(0)
+    expect(totals.entries).toEqual([{ repo: '', identity: 'github:alice', amountMicro: 400 }])
+    expect(summarizeBatch(APP, 1)).toEqual(totals.entries)
+    expect(
+      db
+        .prepare(
+          'SELECT new_total_micro, treasury_extra_micro FROM batches WHERE app_id = 5 AND batch_seq = 1',
+        )
+        .get(),
+    ).toEqual({ new_total_micro: 1000, treasury_extra_micro: 0 })
   })
 
-  test('a row already in a batch: throws and writes nothing (no batch row, no stamped rows)', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-TWICE')
-    const rows = listUncreditedAccruals()
-    openBatch(
-      APP,
-      1,
-      rows.filter((r) => r.pkg === 'ms'),
-    )
+  test('a counted row is not counted twice: throws and writes nothing', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-TWICE', NOW, HOLD)
+    const rows = listCreditCandidates()
+    const msRows = rows.filter((r) => r.pkg === 'ms')
+    openBatch(APP, 1, { counted: msRows, paid: [] })
 
-    expect(() => openBatch(APP, 2, rows)).toThrow(/already in a batch; batch 2 was not opened/)
+    expect(() => openBatch(APP, 2, { counted: rows, paid: [] })).toThrow(
+      /already counted; batch 2 was not opened/,
+    )
     expect(countBatches()).toEqual({ n: 1 })
-    expect(listUncreditedAccruals()).toHaveLength(rows.filter((r) => r.pkg !== 'ms').length)
+    expect(listCreditCandidates().filter((r) => r.batch_seq === null)).toHaveLength(
+      rows.length - msRows.length,
+    )
+  })
+
+  test('a frozen share cannot be credited', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-FROZEN', NOW, HOLD)
+    freezeShares({ pkg: 'ms', version: '2.1.3', role: 'reviewer' })
+    const reviewer = listCreditCandidates().filter((r) => r.role === 'reviewer')
+    expect(() => openBatch(APP, 1, { counted: [], paid: reviewer })).toThrow(/frozen/)
+    expect(countBatches()).toEqual({ n: 0 })
   })
 })
 
 describe('releaseBatch', () => {
   const countBatches = () => db.prepare('SELECT COUNT(*) AS n FROM batches').get()
 
-  test('a pending batch: its rows return to uncredited and its batch row is deleted', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-RELEASE')
-    const rows = listUncreditedAccruals()
-    openBatch(APP, 1, rows)
+  test('a pending batch: its rows return to uncounted and uncredited, its batch row is deleted', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-RELEASE', NOW, HOLD)
+    const rows = listCreditCandidates()
+    openBatch(APP, 1, { counted: rows, paid: rows.filter((r) => r.role === 'reviewer') })
 
     releaseBatch(APP, 1)
 
     expect(countBatches()).toEqual({ n: 0 })
-    expect(listUncreditedAccruals()).toHaveLength(rows.length)
+    const after = listCreditCandidates()
+    expect(after.every((r) => r.batch_seq === null && r.paid_seq === null)).toBe(true)
+    expect(after).toHaveLength(rows.length)
   })
 
   test('a credited batch: throws and changes nothing', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-CREDITED')
-    openBatch(APP, 1, listUncreditedAccruals())
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-CREDITED', NOW, HOLD)
+    openBatch(APP, 1, { counted: listCreditCandidates(), paid: [] })
     recordBatchCreditTxid(APP, 1, 'CREDIT-TXID')
 
     expect(() => releaseBatch(APP, 1)).toThrow(/batch 1 is missing or already credited/)
     expect(countBatches()).toEqual({ n: 1 })
-    expect(listUncreditedAccruals()).toHaveLength(0)
   })
 
   test('a missing batch: throws', () => {
     expect(() => releaseBatch(APP, 7)).toThrow(/batch 7 is missing or already credited/)
+  })
+})
+
+describe('groupForCredit', () => {
+  test('sums entries per (repo, identity) and keeps treasury kinds out of entries', () => {
+    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-GROUP', NOW, HOLD)
+    const rows = listCreditCandidates()
+    const totals = groupForCredit({
+      counted: rows,
+      paid: rows.filter((r) => ['reviewer', 'contributor', 'maintainer'].includes(r.role)),
+    })
+    expect(totals.newTotalMicro).toBe(3000)
+    expect(totals.treasuryExtraMicro).toBe(3 * (100 + 250))
+    expect(totals.entries).toEqual(
+      expect.arrayContaining([
+        { repo: '', identity: 'github:alice', amountMicro: 800 },
+        { repo: '', identity: 'github:bob', amountMicro: 400 },
+      ]),
+    )
+    expect(totals.entries).toHaveLength(2)
+  })
+})
+
+describe('freeze, release, slash, forfeit', () => {
+  const MS = { pkg: 'ms', version: '2.1.3' }
+  const stateOf = (role: string) =>
+    getAccrualsForTxid('TXID-EVT')
+      .filter((r) => r.role === role)
+      .map((r) => [r.frozen, r.treasury_kind, r.unlock_at])
+
+  beforeEach(() => {
+    writeAccruals(SINGLE_ALICE, 'TXID-EVT', NOW, HOLD)
+  })
+
+  test('freeze marks only the uncredited payee shares of that role', () => {
+    expect(freezeShares({ ...MS, role: 'reviewer' })).toBe(1)
+    expect(stateOf('reviewer')).toEqual([[1, null, NOW + HOLD]])
+    expect(stateOf('ops')).toEqual([[0, null, 0]])
+    expect(stateOf('maintainer')).toEqual([[0, 'unallocated', NOW + HOLD]])
+    expect(freezeShares({ ...MS, role: 'reviewer' })).toBe(0)
+  })
+
+  test('freeze can target one identity', () => {
+    expect(freezeShares({ ...MS, role: 'reviewer', identity: 'github:bob' })).toBe(0)
+    expect(freezeShares({ ...MS, role: 'reviewer', identity: 'GitHub:Alice' })).toBe(1)
+  })
+
+  test('freeze of another version touches nothing', () => {
+    expect(freezeShares({ pkg: 'ms', version: '9.9.9', role: 'reviewer' })).toBe(0)
+  })
+
+  test('release unfreezes and keeps the unlock time', () => {
+    freezeShares({ ...MS, role: 'reviewer' })
+    expect(releaseShares({ ...MS, role: 'reviewer' })).toBe(1)
+    expect(stateOf('reviewer')).toEqual([[0, null, NOW + HOLD]])
+    expect(releaseShares({ ...MS, role: 'reviewer' })).toBe(0)
+  })
+
+  test('slash moves a frozen reviewer share to treasury kind slash, with no hold', () => {
+    freezeShares({ ...MS, role: 'reviewer' })
+    expect(slashShares(MS)).toBe(1)
+    expect(stateOf('reviewer')).toEqual([[0, 'slash', 0]])
+  })
+
+  test('forfeit moves a frozen maintainer share to treasury kind forfeit, with no hold', () => {
+    // The maintainer share has no payee today, so give it one.
+    db.prepare(
+      "UPDATE accruals SET identity = 'github:carol', treasury_kind = NULL WHERE role = 'maintainer'",
+    ).run()
+    freezeShares({ ...MS, role: 'maintainer' })
+    expect(forfeitShares(MS)).toBe(1)
+    expect(stateOf('maintainer')).toEqual([[0, 'forfeit', 0]])
+  })
+
+  test('slash and forfeit never touch a share that is not frozen', () => {
+    expect(slashShares(MS)).toBe(0)
+    expect(forfeitShares(MS)).toBe(0)
+    expect(stateOf('reviewer')).toEqual([[0, null, NOW + HOLD]])
+  })
+
+  test('a credited share is out of reach of every event', () => {
+    const reviewer = listCreditCandidates().filter((r) => r.role === 'reviewer')
+    openBatch(APP, 1, { counted: [], paid: reviewer })
+    expect(freezeShares({ ...MS, role: 'reviewer' })).toBe(0)
+    expect(slashShares(MS)).toBe(0)
+  })
+
+  test('freeze rejects a role that has no pool share', () => {
+    expect(() => freezeShares({ ...MS, role: 'ops' as never })).toThrow(/role must be one of/)
   })
 })

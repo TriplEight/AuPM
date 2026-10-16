@@ -153,7 +153,7 @@ describe('runNightly: order and stop conditions', () => {
 })
 
 describe('runNightly: credits every batch a large backlog needs (audit L2)', () => {
-  test('7 auditors: three credit() batches in one run, onCredited once per batch', async () => {
+  test('7 reviewers: three credit() batches in one run, onCredited once per batch', async () => {
     writeAccruals(
       {
         route: 'lockfile',
@@ -165,6 +165,8 @@ describe('runNightly: credits every batch a large backlog needs (audit L2)', () 
         })),
       },
       'TXID-NIGHTLY-SEVEN',
+      0, // settled long ago: every pool share has matured
+      1000,
     )
     const creditClient: CreditChainClient = {
       isPayToRekeyed: vi.fn().mockResolvedValue(true),

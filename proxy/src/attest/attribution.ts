@@ -9,12 +9,11 @@
 // unpaid request.
 
 /**
- * A revenue-share role. All six target roles are ledgered for
- * every payment, so Phase 2 can add attributed identities for contributor,
- * treasury, and ops with no data loss — even though the MVP resolves all
- * three to the `unassigned` identity today (proxy/src/claims/attribution-rules.ts).
+ * A role of the revenue split. Treasury and ops take their shares off the top.
+ * The reviewer line, the contributor and the maintainer share the package pool.
+ * A pool role with no payee pays its share to treasury as `unallocated`.
  */
-export type Role = 'auditor' | 'contributor' | 'maintainer' | 'reviewer' | 'treasury' | 'ops'
+export type Role = 'reviewer' | 'contributor' | 'maintainer' | 'treasury' | 'ops'
 
 /** One reviewed package's identity data for a paid attest response. */
 export interface AttributionEntry {

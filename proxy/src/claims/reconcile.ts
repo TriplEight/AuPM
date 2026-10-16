@@ -10,7 +10,7 @@
 // real client, tests pass a stub, so no test in this directory performs a
 // network call.
 
-import { computeRoleShareMicro, ROLES, UNASSIGNED } from './attribution-rules.js'
+import { TREASURY_IDENTITY } from './attribution-rules.js'
 import db from './schema.js'
 
 export interface UsdcInflow {
@@ -47,7 +47,7 @@ const insertUnassignedAccrual = db.prepare<
   `INSERT INTO accruals
      (settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at)
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-   ON CONFLICT (settle_txid, role, pkg, version) DO NOTHING`,
+   ON CONFLICT (settle_txid, role, pkg, version, identity) DO NOTHING`,
 )
 
 /**
@@ -69,11 +69,10 @@ export interface SkippedInflow {
 }
 
 /**
- * Ledger one unmatched inflow as `unassigned` across all six ledgered
- * roles, using the same integer role-share split as a
- * normal payment (money is always integer micro-units). route is
- * recorded as "unassigned" since no attribution data exists for a direct
- * deposit or a crash between settle and write.
+ * Ledger one unmatched inflow as one `treasury` row of route `unassigned`.
+ * The nightly job sends it as `unattributedTotal`, so it goes to treasury,
+ * never to ops. Money is integer micro-units. A direct deposit or a crash
+ * between settle and write leaves no attribution data.
  *
  * Returns the skip reason when the inflow was not ledgered (so the caller
  * can report it), or null when it was ledgered.
@@ -81,24 +80,17 @@ export interface SkippedInflow {
 function ledgerUnassignedInflow(inflow: UsdcInflow): SkipReason | null {
   if (inflow.amountMicro <= 0) return 'non-positive-amount'
   if (inflow.amountMicro % 1000 !== 0) return 'not-a-multiple-of-1000-microusdc'
-  const createdAt = Date.now()
-  const runAll = db.transaction(() => {
-    for (const role of ROLES) {
-      const amountMicro = computeRoleShareMicro(inflow.amountMicro, role)
-      insertUnassignedAccrual.run(
-        inflow.txid,
-        'unassigned',
-        '(unassigned)',
-        '',
-        '', // repo: no package, so no repo-pool key
-        role,
-        UNASSIGNED,
-        amountMicro,
-        createdAt,
-      )
-    }
-  })
-  runAll()
+  insertUnassignedAccrual.run(
+    inflow.txid,
+    'unassigned',
+    '(unassigned)',
+    '',
+    '', // repo: no package, so no repo-pool key
+    'treasury',
+    TREASURY_IDENTITY,
+    inflow.amountMicro,
+    Date.now(),
+  )
   return null
 }
 
