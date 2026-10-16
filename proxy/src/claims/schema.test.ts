@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-schema-test-${randomUUID()}.db`)
 
-const { upgradeBatchSchema } = await import('./schema.js')
+const { upgradeBatchSchema, upgradePoolSchema } = await import('./schema.js')
 
 const APP = 4242
 
@@ -120,5 +120,112 @@ describe('upgradeBatchSchema', () => {
     upgradeBatchSchema(handle, null)
 
     expect(snapshot(handle)).toEqual({ batches: [], accruals: [] })
+  })
+})
+
+describe('upgradePoolSchema', () => {
+  let handle: Database.Database
+  beforeEach(() => {
+    handle = oldShapeDb()
+    upgradeBatchSchema(handle, APP)
+  })
+
+  const columns = (table: string) =>
+    (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+
+  test('an accrual that no batch credited yet: throws and changes nothing', () => {
+    expect(() => upgradePoolSchema(handle)).toThrow(/1 accrual row\(s\) are not credited yet/)
+    expect(columns('accruals')).not.toContain('unlock_at')
+    expect(columns('batches')).toContain('attributed_micro')
+    expect(handle.prepare('SELECT COUNT(*) AS n FROM accruals').get()).toEqual({ n: 4 })
+  })
+
+  test('keeps every row; the old credit becomes the payout pointer; new columns take defaults', () => {
+    handle.exec('DELETE FROM accruals WHERE batch_seq IS NULL')
+    upgradePoolSchema(handle)
+
+    const rows = handle
+      .prepare(
+        `SELECT settle_txid, role, identity, amount_micro, batch_app_id, batch_seq,
+                paid_app_id, paid_seq, unlock_at, frozen, treasury_kind
+         FROM accruals ORDER BY 1, 2`,
+      )
+      .all()
+    const base = { unlock_at: 0, frozen: 0, treasury_kind: null }
+    expect(rows).toEqual([
+      {
+        settle_txid: 'S1',
+        role: 'auditor',
+        identity: 'github:x',
+        amount_micro: 300,
+        batch_app_id: APP,
+        batch_seq: 1,
+        paid_app_id: APP,
+        paid_seq: 1,
+        ...base,
+      },
+      {
+        settle_txid: 'S1',
+        role: 'ops',
+        identity: 'ops',
+        amount_micro: 700,
+        batch_app_id: APP,
+        batch_seq: 1,
+        paid_app_id: APP,
+        paid_seq: 1,
+        ...base,
+      },
+      {
+        settle_txid: 'S2',
+        role: 'auditor',
+        identity: 'github:y',
+        amount_micro: 300,
+        batch_app_id: APP,
+        batch_seq: 2,
+        paid_app_id: APP,
+        paid_seq: 2,
+        ...base,
+      },
+    ])
+  })
+
+  test('batches: attributed_micro becomes new_total_micro, treasury_extra_micro is added with 0', () => {
+    handle.exec('DELETE FROM accruals WHERE batch_seq IS NULL')
+    upgradePoolSchema(handle)
+
+    expect(columns('batches')).toContain('new_total_micro')
+    expect(columns('batches')).not.toContain('attributed_micro')
+    expect(
+      handle
+        .prepare('SELECT batch_seq, new_total_micro, treasury_extra_micro FROM batches ORDER BY 1')
+        .all(),
+    ).toEqual([
+      { batch_seq: 1, new_total_micro: 1000, treasury_extra_micro: 0 },
+      { batch_seq: 2, new_total_micro: 2000, treasury_extra_micro: 0 },
+    ])
+  })
+
+  test('the new primary key allows two reviewers on one payment; a second run changes nothing', () => {
+    handle.exec('DELETE FROM accruals WHERE batch_seq IS NULL')
+    upgradePoolSchema(handle)
+    const before = handle.prepare('SELECT * FROM accruals ORDER BY 1, 2, 5').all()
+
+    upgradePoolSchema(handle)
+
+    expect(handle.prepare('SELECT * FROM accruals ORDER BY 1, 2, 5').all()).toEqual(before)
+    const insert = handle.prepare(
+      `INSERT INTO accruals (settle_txid, route, pkg, version, repo, role, identity,
+                            amount_micro, created_at)
+       VALUES ('S9', 'single', 'a', '1.0.0', 'o/a', 'reviewer', ?, 200, 9)`,
+    )
+    expect(() => insert.run('github:a')).not.toThrow()
+    expect(() => insert.run('github:b')).not.toThrow()
+    expect(() => insert.run('github:b')).toThrow(/UNIQUE|PRIMARY/)
+  })
+
+  test('an empty database upgrades', () => {
+    handle.exec('DELETE FROM batches; DELETE FROM accruals')
+    expect(() => upgradePoolSchema(handle)).not.toThrow()
+    expect(columns('accruals')).toContain('paid_seq')
   })
 })

@@ -802,24 +802,24 @@ describe('claims ledger, wired into the real app', () => {
     expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()
 
     const accruals = getAccrualsForTxid('INTEGRATION-TX-1')
-    const auditorRow = accruals.find((row) => row.role === 'auditor')
-    expect(auditorRow?.identity).toBe('github:alice')
-    expect(auditorRow?.amount_micro).toBe(300)
+    const reviewerRow = accruals.find((row) => row.role === 'reviewer')
+    expect(reviewerRow?.identity).toBe('github:alice')
+    expect(reviewerRow?.amount_micro).toBe(400)
 
     const earningsRes = await paidApp.request('/api/v1/earnings/github/alice')
     expect(earningsRes.status).toBe(200)
     const earnings = (await earningsRes.json()) as {
       roles: Array<{ role: string; accruedMicro: number }>
     }
-    const auditorEarnings = earnings.roles.find((r) => r.role === 'auditor')
-    expect(auditorEarnings?.accruedMicro).toBeGreaterThanOrEqual(300)
+    const reviewerEarnings = earnings.roles.find((r) => r.role === 'reviewer')
+    expect(reviewerEarnings?.accruedMicro).toBeGreaterThanOrEqual(400)
   })
 
   // A settled lockfile payment for N
-  // reviewed packages ledgers each package's own full 300/100/200/250/100/50
+  // reviewed packages ledgers each package's own full 200/50/400/100/250
   // role shares (MainNet) — never a cross-package split — and the accrual
   // sum across all packages equals the exact amount charged.
-  test('a settled paid lockfile request accrues 300/100/200/250/100/50 per reviewed package', async () => {
+  test('a settled paid lockfile request accrues 200/50/400/100/250 per reviewed package', async () => {
     setStatus('pkg-a', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_A', null, REVIEWED_INTEGRITY, 'alice')
     setStatus('pkg-b', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_B', null, REVIEWED_INTEGRITY, 'bob')
     setStatus('pkg-c', '1.0.0', 'COMMUNITY_REVIEWED', 'ADDR_C', null, REVIEWED_INTEGRITY, 'carol')
@@ -882,7 +882,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(paidRes.headers.get('PAYMENT-RESPONSE')).toBeTruthy()
 
     const accruals = getAccrualsForTxid('INTEGRATION-TX-LOCKFILE')
-    expect(accruals).toHaveLength(18) // 6 roles x 3 packages
+    expect(accruals).toHaveLength(15) // 5 rows x 3 packages
     expect(accruals.reduce((sum, row) => sum + row.amount_micro, 0)).toBe(3000)
 
     for (const [pkg, login] of [
@@ -892,16 +892,14 @@ describe('claims ledger, wired into the real app', () => {
     ] as const) {
       const pkgRows = accruals.filter((row) => row.pkg === pkg)
       const byRole = Object.fromEntries(pkgRows.map((row) => [row.role, row]))
-      expect(byRole.auditor?.amount_micro).toBe(300)
-      expect(byRole.auditor?.identity).toBe(`github:${login}`)
+      expect(byRole.reviewer?.amount_micro).toBe(400)
+      expect(byRole.reviewer?.identity).toBe(`github:${login}`)
       expect(byRole.contributor?.amount_micro).toBe(100)
-      expect(byRole.contributor?.identity).toBe('unassigned')
-      expect(byRole.maintainer?.amount_micro).toBe(200)
-      expect(byRole.maintainer?.identity).toBe('unassigned')
-      expect(byRole.reviewer?.amount_micro).toBe(250)
-      expect(byRole.reviewer?.identity).toBe('unassigned')
-      expect(byRole.treasury?.amount_micro).toBe(100)
-      expect(byRole.treasury?.identity).toBe('unassigned')
+      expect(byRole.contributor?.identity).toBe('treasury')
+      expect(byRole.maintainer?.amount_micro).toBe(250)
+      expect(byRole.maintainer?.identity).toBe('treasury')
+      expect(byRole.treasury?.amount_micro).toBe(200)
+      expect(byRole.treasury?.treasury_kind).toBe('cut')
       expect(byRole.ops?.amount_micro).toBe(50)
       expect(byRole.ops?.identity).toBe('ops')
     }
@@ -957,9 +955,9 @@ describe('claims ledger, wired into the real app', () => {
     const accruals = getAccrualsForTxid('INTEGRATION-TX-TARBALL')
     expect(accruals.length).toBeGreaterThan(0)
     expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
-    const auditorRow = accruals.find((row) => row.role === 'auditor')
-    expect(auditorRow?.identity).toBe('github:carol')
-    expect(auditorRow?.amount_micro).toBe(300)
+    const reviewerRow = accruals.find((row) => row.role === 'reviewer')
+    expect(reviewerRow?.identity).toBe('github:carol')
+    expect(reviewerRow?.amount_micro).toBe(400)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {

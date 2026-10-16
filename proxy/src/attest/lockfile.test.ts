@@ -363,7 +363,7 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     expect(result.analysis.packages[0]?.tier).toBe('COMMUNITY_REVIEWED')
   })
 
-  test('the auditor accrues the full per-package share, not half, once depth duplicates are collapsed', () => {
+  test('the reviewer accrues the full per-package line, not half, once depth duplicates are collapsed', () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID123', 'sha512-abc', 'alice')
     const result = analyzeLockfile(
       lockfileBytes({
@@ -378,10 +378,10 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     if (!result.ok) throw new Error('unreachable')
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    expect(rows).toHaveLength(6) // one row per ledgered role: all six roles
+    expect(rows).toHaveLength(5) // cut, ops, reviewer, contributor, maintainer
 
-    const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(300) // the one package's whole 300 auditor share (MainNet)
+    const reviewerRow = rows.find((r) => r.role === 'reviewer' && r.pkg === 'ms')
+    expect(reviewerRow?.amountMicro).toBe(400) // the one package's whole 400 reviewer line
 
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(1_000) // the one reviewed package's full 1,000 microUSDC
@@ -408,8 +408,8 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     ])
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([300, 300])
+    const reviewerRows = rows.filter((r) => r.role === 'reviewer')
+    expect(reviewerRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(2_000)
   })
@@ -432,13 +432,13 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     ])
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    const auditorRow = rows.find((r) => r.role === 'auditor' && r.pkg === 'ms')
-    expect(auditorRow?.amountMicro).toBe(300)
+    const reviewerRow = rows.find((r) => r.role === 'reviewer' && r.pkg === 'ms')
+    expect(reviewerRow?.amountMicro).toBe(400)
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(1_000)
   })
 
-  test('several distinct reviewed packages each keep their own ref and each accrue their own full auditor share', () => {
+  test('several distinct reviewed packages each keep their own ref and each accrue their own full reviewer line', () => {
     setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc', 'alice')
     setStatus(
       'lodash',
@@ -464,8 +464,8 @@ describe('analyzeLockfile — same package at more than one node_modules depth',
     expect(result.analysis.reviewedPackageRefs).toHaveLength(2)
 
     const rows = buildAccrualInputs(toAttribution(result.analysis.reviewedPackageRefs))
-    const auditorRows = rows.filter((r) => r.role === 'auditor')
-    expect(auditorRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([300, 300])
+    const reviewerRows = rows.filter((r) => r.role === 'reviewer')
+    expect(reviewerRows.map((r) => r.amountMicro).sort((a, b) => a - b)).toEqual([400, 400])
     const totalMicro = rows.reduce((sum, r) => sum + r.amountMicro, 0)
     expect(totalMicro).toBe(2_000)
   })

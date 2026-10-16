@@ -25,7 +25,7 @@ describe('PaymentRouter', () => {
     return ctx.txn.createScope([txn], 0).execute(fn)
   }
 
-  const setup = (payToBalance = 0n) => {
+  const setup = (payToBalance = 0n, carryIn = 0n) => {
     const contract = ctx.contract.create(PaymentRouter)
     const admin = ctx.defaultSender
     const crediter = ctx.any.account()
@@ -33,166 +33,234 @@ describe('PaymentRouter', () => {
     const mockUsdc = ctx.any.asset()
     const auditor = ctx.any.account()
     const auditor2 = ctx.any.account()
-    const auditor3 = ctx.any.account()
     const ops = ctx.any.account()
+    const treasury = ctx.any.account()
 
-    callInScope(contract, () => contract.createApplication(payTo, mockUsdc))
+    callInScope(contract, () => contract.createApplication(payTo, mockUsdc, carryIn))
     callInScope(contract, () => contract.setCrediter(crediter))
     callInScope(contract, () => contract.setIdentity('github:alice', auditor))
     callInScope(contract, () => contract.setIdentity('github:bob', auditor2))
-    callInScope(contract, () => contract.setIdentity('github:carol', auditor3))
     callInScope(contract, () => contract.setIdentity('ops', ops))
+    callInScope(contract, () => contract.setIdentity('treasury', treasury))
 
     if (payToBalance > 0n) {
       ctx.ledger.updateAssetHolding(payTo, mockUsdc, payToBalance)
     }
 
-    return { contract, admin, crediter, payTo, mockUsdc, auditor, auditor2, auditor3, ops }
+    return { contract, admin, crediter, payTo, mockUsdc, auditor, auditor2, ops, treasury }
   }
 
-  const balanceOf = (contract: PaymentRouter, identity: string) => contract.balances(identity).value
+  const balanceOf = (contract: PaymentRouter, identity: string) =>
+    contract.balances(identity).exists ? contract.balances(identity).value : 0n
 
-  test('credit(): one tarball payment (1,000) credits auditor 300, ops 700', () => {
-    const { contract, crediter, mockUsdc } = setup(1_000n)
-    void mockUsdc
-
+  const credit = (
+    contract: PaymentRouter,
+    crediter: ReturnType<typeof ctx.any.account>,
+    args: {
+      seq?: bigint
+      newTotal?: bigint
+      unattributed?: bigint
+      extra?: bigint
+      entries?: Array<{ repo: string; identity: string; amount: bigint }>
+    },
+  ) =>
     callInScope(
       contract,
       () =>
-        contract.credit(1n, 1000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
-        ]),
+        contract.credit(
+          args.seq ?? 1n,
+          args.newTotal ?? 0n,
+          args.unattributed ?? 0n,
+          args.extra ?? 0n,
+          args.entries ?? [],
+        ),
       { sender: crediter },
     )
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
-    expect(balanceOf(contract, 'ops')).toEqual(700n)
-  })
+  const entry = (identity: string, amount: bigint) => ({ repo: 'octo/repo', identity, amount })
 
-  test('credit(): one lockfile payment (3,000, 3 reviewed packages) sums exactly', () => {
-    const { contract, crediter } = setup(3_000n)
+  describe('credit()', () => {
+    test('computes ops and the treasury cut, and credits entries, extra and unattributed', () => {
+      const { contract, crediter } = setup(2_000n)
 
-    callInScope(
-      contract,
-      () =>
-        contract.credit(1n, 3000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
-          { repo: 'octo/repo', identity: 'github:bob', amount: 300n },
-          { repo: 'octo/repo', identity: 'github:carol', amount: 300n },
-        ]),
-      { sender: crediter },
-    )
+      credit(contract, crediter, {
+        newTotal: 1_000n,
+        unattributed: 7n,
+        extra: 50n,
+        entries: [entry('github:alice', 300n), entry('github:bob', 100n)],
+      })
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
-    expect(balanceOf(contract, 'github:bob')).toEqual(300n)
-    expect(balanceOf(contract, 'github:carol')).toEqual(300n)
-    expect(balanceOf(contract, 'ops')).toEqual(2_100n)
-  })
+      expect(balanceOf(contract, 'ops')).toEqual(50n)
+      expect(balanceOf(contract, 'treasury')).toEqual(200n + 50n + 7n)
+      expect(balanceOf(contract, 'github:alice')).toEqual(300n)
+      expect(balanceOf(contract, 'github:bob')).toEqual(100n)
+      expect(contract.creditedUnclaimed.value).toEqual(50n + 257n + 400n)
+      expect(contract.lastBatchSeq.value).toEqual(1n)
+      expect(contract.poolIn.value).toEqual(750n)
+      expect(contract.poolOut.value).toEqual(450n)
+      expect(contract.declaredTotal.value).toEqual(1_007n)
+    })
 
-  test('credit(): two payments for the same (repo, identity) collapse into one 600 entry', () => {
-    const { contract, crediter } = setup(2_000n)
+    test('rounds ops and the treasury cut down', () => {
+      const { contract, crediter } = setup(1_019n)
 
-    callInScope(
-      contract,
-      () =>
-        contract.credit(1n, 2000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 600n },
-        ]),
-      { sender: crediter },
-    )
+      credit(contract, crediter, { newTotal: 1_019n })
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(600n)
-    expect(balanceOf(contract, 'ops')).toEqual(1_400n)
-  })
+      expect(balanceOf(contract, 'ops')).toEqual(50n)
+      expect(balanceOf(contract, 'treasury')).toEqual(203n)
+      expect(contract.poolIn.value).toEqual(1_019n - 50n - 203n)
+    })
 
-  test('credit(): an odd attributedTotal (1,003) rounds the auditor share down', () => {
-    // 1,003 x 300 / 1000 = 300.9 -> integer division floors to 300; ops
-    // gets the remainder (703), never a fraction (invariant 7).
-    const { contract, crediter } = setup(1_003n)
+    test('unattributedTotal alone credits treasury, never ops', () => {
+      const { contract, crediter } = setup(5_123n)
 
-    callInScope(
-      contract,
-      () =>
-        contract.credit(1n, 1003n, 0n, [
-          { repo: 'octo/repo', identity: 'github:alice', amount: 300n },
-        ]),
-      { sender: crediter },
-    )
+      credit(contract, crediter, { unattributed: 5_123n })
 
-    expect(balanceOf(contract, 'github:alice')).toEqual(300n)
-    expect(balanceOf(contract, 'ops')).toEqual(703n)
-  })
+      expect(balanceOf(contract, 'treasury')).toEqual(5_123n)
+      expect(balanceOf(contract, 'ops')).toEqual(0n)
+    })
 
-  test('credit(): unattributedTotal 5,123 with attributedTotal 0 credits ops only', () => {
-    const { contract, crediter } = setup(5_123n)
+    test('carryIn starts poolIn and declaredTotal', () => {
+      const { contract, crediter } = setup(500n, 500n)
 
-    callInScope(contract, () => contract.credit(1n, 0n, 5123n, []), { sender: crediter })
+      expect(contract.poolIn.value).toEqual(500n)
+      expect(contract.declaredTotal.value).toEqual(500n)
 
-    expect(balanceOf(contract, 'ops')).toEqual(5_123n)
-  })
+      credit(contract, crediter, { extra: 100n, entries: [entry('github:alice', 400n)] })
 
-  test('credit(): entries not summing to attributedTotal x 300 / 1000 fails', () => {
-    const { contract, crediter } = setup(1_000n)
+      expect(balanceOf(contract, 'github:alice')).toEqual(400n)
+      expect(balanceOf(contract, 'treasury')).toEqual(100n)
+    })
 
-    expect(() =>
-      callInScope(
-        contract,
-        () =>
-          contract.credit(1n, 1000n, 0n, [
-            { repo: 'octo/repo', identity: 'github:alice', amount: 200n },
-          ]),
-        { sender: crediter },
-      ),
-    ).toThrow()
-  })
+    test('an unmapped identity still accrues a balance', () => {
+      const { contract, crediter } = setup(1_000n)
 
-  test('credit(): batchSeq that is not last + 1 fails (gap)', () => {
-    const { contract, crediter } = setup(1_000n)
+      credit(contract, crediter, { newTotal: 1_000n, entries: [entry('github:dave', 300n)] })
 
-    expect(() =>
-      callInScope(contract, () => contract.credit(2n, 0n, 0n, []), { sender: crediter }),
-    ).toThrow()
-  })
+      expect(balanceOf(contract, 'github:dave')).toEqual(300n)
+    })
 
-  test('credit(): batchSeq that is not last + 1 fails (repeat)', () => {
-    const { contract, crediter } = setup(2_000n)
+    test('rejects a non-crediter sender', () => {
+      const { contract, admin } = setup(1_000n)
 
-    callInScope(contract, () => contract.credit(1n, 0n, 1000n, []), { sender: crediter })
+      expect(() => credit(contract, admin, {})).toThrow('not crediter')
+    })
 
-    expect(() =>
-      callInScope(contract, () => contract.credit(1n, 0n, 1000n, []), { sender: crediter }),
-    ).toThrow()
-  })
+    test('poolOut above poolIn fails, by entries and by treasuryExtra', () => {
+      const { contract, crediter } = setup(2_000n)
 
-  test('credit(): attributedTotal + unattributedTotal above the unallocated balance fails', () => {
-    const { contract, crediter } = setup(500n)
+      expect(() =>
+        credit(contract, crediter, { newTotal: 1_000n, entries: [entry('github:alice', 751n)] }),
+      ).toThrow('pool payouts exceed the pool part')
+      expect(() =>
+        credit(contract, crediter, {
+          newTotal: 1_000n,
+          extra: 51n,
+          entries: [entry('github:alice', 700n)],
+        }),
+      ).toThrow('pool payouts exceed the pool part')
 
-    expect(() =>
-      callInScope(contract, () => contract.credit(1n, 0n, 1000n, []), { sender: crediter }),
-    ).toThrow()
-  })
+      credit(contract, crediter, { newTotal: 1_000n, entries: [entry('github:alice', 750n)] })
+      expect(balanceOf(contract, 'github:alice')).toEqual(750n)
+    })
 
-  test('credit(): rejects a non-crediter sender', () => {
-    const { contract, admin } = setup(1_000n)
+    test('poolOut accumulates over batches against the running poolIn', () => {
+      const { contract, crediter } = setup(2_000n)
 
-    expect(() =>
-      callInScope(contract, () => contract.credit(1n, 0n, 0n, []), { sender: admin }),
-    ).toThrow()
-  })
+      credit(contract, crediter, { newTotal: 1_000n, entries: [entry('github:alice', 750n)] })
 
-  test('credit(): an unmapped identity still accrues a balance', () => {
-    const { contract, crediter } = setup(1_000n)
+      expect(() =>
+        credit(contract, crediter, { seq: 2n, entries: [entry('github:bob', 1n)] }),
+      ).toThrow('pool payouts exceed the pool part')
+    })
 
-    callInScope(
-      contract,
-      () =>
-        contract.credit(1n, 1000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:dave', amount: 300n },
-        ]),
-      { sender: crediter },
-    )
+    test('declaredTotal above the arrived USDC fails, and money is never declared twice', () => {
+      const { contract, crediter } = setup(1_000n)
 
-    expect(balanceOf(contract, 'github:dave')).toEqual(300n)
+      expect(() => credit(contract, crediter, { newTotal: 1_001n })).toThrow(
+        'declared total exceeds the USDC that arrived',
+      )
+
+      credit(contract, crediter, { newTotal: 1_000n })
+      expect(() => credit(contract, crediter, { seq: 2n, newTotal: 1n })).toThrow(
+        'declared total exceeds the USDC that arrived',
+      )
+      expect(() => credit(contract, crediter, { seq: 2n, unattributed: 1n })).toThrow(
+        'declared total exceeds the USDC that arrived',
+      )
+    })
+
+    test('claimedTotal lets the declared total follow USDC that left payTo', () => {
+      const { contract, crediter, payTo, mockUsdc, treasury } = setup(100_000n)
+
+      credit(contract, crediter, { unattributed: 100_000n })
+      callInScope(contract, () => contract.claim('treasury'), { sender: treasury, fee: 2_000n })
+      expect(contract.claimedTotal.value).toEqual(100_000n)
+
+      // The harness does not move USDC for inner transactions: mirror the claim by hand.
+      ctx.ledger.updateAssetHolding(payTo, mockUsdc, 0n)
+      expect(() => credit(contract, crediter, { seq: 2n, newTotal: 1n })).toThrow(
+        'declared total exceeds the USDC that arrived',
+      )
+
+      ctx.ledger.updateAssetHolding(payTo, mockUsdc, 1_000n)
+      credit(contract, crediter, { seq: 2n, newTotal: 1_000n })
+      expect(balanceOf(contract, 'ops')).toEqual(50n)
+    })
+
+    test('an entry with amount 0 fails', () => {
+      const { contract, crediter } = setup(1_000n)
+
+      expect(() =>
+        credit(contract, crediter, { newTotal: 1_000n, entries: [entry('github:alice', 0n)] }),
+      ).toThrow('entry amount must be above 0')
+    })
+
+    test('an entry naming ops or treasury fails', () => {
+      const { contract, crediter } = setup(1_000n)
+
+      for (const identity of ['ops', 'treasury']) {
+        expect(() =>
+          credit(contract, crediter, { newTotal: 1_000n, entries: [entry(identity, 10n)] }),
+        ).toThrow('entry must not name ops or treasury')
+      }
+    })
+
+    test('batchSeq that is not last + 1 fails (gap and repeat)', () => {
+      const { contract, crediter } = setup(2_000n)
+
+      expect(() => credit(contract, crediter, { seq: 2n })).toThrow('batchSeq must follow')
+      credit(contract, crediter, { seq: 1n, unattributed: 1_000n })
+      expect(() => credit(contract, crediter, { seq: 1n })).toThrow('batchSeq must follow')
+      credit(contract, crediter, { seq: 2n })
+    })
+
+    test('a batch total above payTo USDC minus creditedUnclaimed fails', () => {
+      const { contract, crediter } = setup(1_000n)
+
+      // Totals alone would pass. A creditedUnclaimed above the safe level
+      // leaves too little unallocated USDC for this batch.
+      callInScope(contract, () => {
+        contract.creditedUnclaimed.value = 900n
+      })
+
+      expect(() => credit(contract, crediter, { unattributed: 200n })).toThrow(
+        'batch total exceeds the unallocated balance',
+      )
+      credit(contract, crediter, { unattributed: 100n })
+    })
+
+    test('credit() fails once the app is retired', () => {
+      const { contract, admin, crediter } = setup(1_000n)
+      const releaseTo = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      expect(() => credit(contract, crediter, {})).toThrow('app is retired')
+    })
   })
 
   test('admin methods reject a non-admin sender', () => {
@@ -214,88 +282,241 @@ describe('PaymentRouter', () => {
     ).toThrow('admin only')
   })
 
-  test('claim(): a balance of 99,999 fails', () => {
-    const { contract, crediter, ops } = setup(99_999n)
+  describe('claim()', () => {
+    // newTotal 1,999,999 gives ops 99,999; newTotal 2,000,000 gives ops 100,000.
+    test('a balance of 99,999 fails', () => {
+      const { contract, crediter, ops } = setup(1_999_999n)
 
-    callInScope(contract, () => contract.credit(1n, 0n, 99999n, []), { sender: crediter })
+      credit(contract, crediter, { newTotal: 1_999_999n })
+      expect(balanceOf(contract, 'ops')).toEqual(99_999n)
 
-    expect(() =>
-      callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2000n }),
-    ).toThrow()
+      expect(() =>
+        callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2_000n }),
+      ).toThrow('balance below MIN_CLAIM')
+    })
+
+    test('a balance of 100,000 succeeds, pays the mapped address and counts the payout', () => {
+      const { contract, crediter, payTo, ops } = setup(2_000_000n)
+
+      credit(contract, crediter, { newTotal: 2_000_000n })
+      callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2_000n })
+
+      const group = ctx.txn.lastGroup
+      expect(group.itxnGroups).toHaveLength(1)
+      const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
+      expect(inner.sender).toEqual(payTo)
+      expect(inner.assetReceiver).toEqual(ops)
+      expect(inner.assetAmount).toEqual(100_000n)
+      expect(contract.claimedTotal.value).toEqual(100_000n)
+      expect(balanceOf(contract, 'ops')).toEqual(0n)
+    })
+
+    test('the outer fee must be at least twice the minimum fee', () => {
+      const { contract, crediter, ops } = setup(2_000_000n)
+
+      credit(contract, crediter, { newTotal: 2_000_000n })
+
+      expect(() =>
+        callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 1_999n }),
+      ).toThrow('outer fee must pool the inner fee')
+      callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2_000n })
+    })
+
+    test('a sender that is not the mapped address fails', () => {
+      const { contract, crediter } = setup(2_000_000n)
+      const stranger = ctx.any.account()
+
+      credit(contract, crediter, { newTotal: 2_000_000n })
+
+      expect(() =>
+        callInScope(contract, () => contract.claim('ops'), { sender: stranger, fee: 2_000n }),
+      ).toThrow('not the mapped address')
+    })
+
+    test('claim() fails once the app is retired', () => {
+      const { contract, admin, crediter, ops } = setup(2_000_000n)
+
+      credit(contract, crediter, { newTotal: 2_000_000n })
+      const releaseTo = ctx.any.account()
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      expect(() =>
+        callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2_000n }),
+      ).toThrow('app is retired')
+    })
   })
 
-  test('claim(): a balance of 100,000 succeeds and pays the mapped ops address', () => {
-    const { contract, crediter, payTo, mockUsdc, ops } = setup(100_000n)
+  describe('setIdentity() / applyIdentity()', () => {
+    const DELAY = 216_000n
+    const WINDOW = 216_000n
 
-    callInScope(contract, () => contract.credit(1n, 0n, 100000n, []), { sender: crediter })
-    callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2000n })
+    const withCreditedErin = () => {
+      const base = setup(400_000n)
+      const oldAddr = ctx.any.account()
+      const newAddr = ctx.any.account()
+      callInScope(base.contract, () => base.contract.setIdentity('github:erin', oldAddr))
+      credit(base.contract, base.crediter, {
+        newTotal: 400_000n,
+        entries: [entry('github:erin', 120_000n)],
+      })
+      return { ...base, oldAddr, newAddr }
+    }
 
-    const group = ctx.txn.lastGroup
-    expect(group.itxnGroups).toHaveLength(1)
-    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
-    expect(inner.sender).toEqual(payTo)
-    expect(inner.assetReceiver).toEqual(ops)
-    expect(inner.assetAmount).toEqual(100_000n)
-    void mockUsdc
+    test('an identity with no address and no balance is mapped at once', () => {
+      const { contract } = setup(0n)
+      const addr = ctx.any.account()
+
+      callInScope(contract, () => contract.setIdentity('github:fay', addr))
+
+      expect(contract.identityAddress('github:fay').value).toEqual(addr.bytes)
+      expect(contract.pendingAddress('github:fay').exists).toEqual(false)
+    })
+
+    test('a first mapping with a balance is pending and claim fails until apply', () => {
+      const { contract, crediter } = setup(2_000_000n)
+      const addr = ctx.any.account()
+
+      credit(contract, crediter, {
+        newTotal: 2_000_000n,
+        entries: [entry('github:gus', 200_000n)],
+      })
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:gus', addr))
+
+      expect(contract.identityAddress('github:gus').exists).toEqual(false)
+      expect(contract.pendingAddress('github:gus').value).toEqual(addr.bytes)
+      expect(() =>
+        callInScope(contract, () => contract.claim('github:gus'), { sender: addr, fee: 2_000n }),
+      ).toThrow('unmapped identity')
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY })
+      callInScope(contract, () => contract.applyIdentity('github:gus'))
+      callInScope(contract, () => contract.claim('github:gus'), { sender: addr, fee: 2_000n })
+      const inner = ctx.txn.lastGroup.itxnGroups[0].getAssetTransferInnerTxn(0)
+      expect(inner.assetReceiver).toEqual(addr)
+    })
+
+    test('applyIdentity() fails once the app is retired', () => {
+      const { contract, admin, newAddr } = withCreditedErin()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+      callInScope(contract, () => contract.announceRelease(ctx.any.account()), { sender: admin })
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY })
+      callInScope(contract, () => contract.executeRelease(), { sender: admin })
+
+      expect(() => callInScope(contract, () => contract.applyIdentity('github:erin'))).toThrow(
+        'app is retired',
+      )
+    })
+
+    test('a mapped identity only gets a pending address and keeps the old one', () => {
+      const { contract, oldAddr, newAddr } = withCreditedErin()
+
+      ctx.ledger.patchGlobalData({ round: 5_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+
+      expect(contract.identityAddress('github:erin').value).toEqual(oldAddr.bytes)
+      expect(contract.pendingAddress('github:erin').value).toEqual(newAddr.bytes)
+      expect(contract.pendingRound('github:erin').value).toEqual(5_000n)
+    })
+
+    test('applyIdentity() without a pending address fails', () => {
+      const { contract } = setup(0n)
+
+      expect(() => callInScope(contract, () => contract.applyIdentity('github:alice'))).toThrow(
+        'no pending address',
+      )
+    })
+
+    test('applyIdentity() before the delay fails and claims still go to the old address', () => {
+      const { contract, oldAddr, newAddr } = withCreditedErin()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY - 1n })
+      expect(() =>
+        callInScope(contract, () => contract.applyIdentity('github:erin'), {
+          sender: ctx.any.account(),
+        }),
+      ).toThrow('identity delay has not passed')
+
+      expect(() =>
+        callInScope(contract, () => contract.claim('github:erin'), {
+          sender: newAddr,
+          fee: 2_000n,
+        }),
+      ).toThrow('not the mapped address')
+      callInScope(contract, () => contract.claim('github:erin'), { sender: oldAddr, fee: 2_000n })
+      const inner = ctx.txn.lastGroup.itxnGroups[0].getAssetTransferInnerTxn(0)
+      expect(inner.assetReceiver).toEqual(oldAddr)
+    })
+
+    test('anybody can apply after the delay, then claims go to the new address', () => {
+      const { contract, oldAddr, newAddr } = withCreditedErin()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY })
+      callInScope(contract, () => contract.applyIdentity('github:erin'), {
+        sender: ctx.any.account(),
+      })
+
+      expect(contract.pendingAddress('github:erin').exists).toEqual(false)
+      expect(contract.pendingRound('github:erin').exists).toEqual(false)
+      expect(() =>
+        callInScope(contract, () => contract.claim('github:erin'), {
+          sender: oldAddr,
+          fee: 2_000n,
+        }),
+      ).toThrow('not the mapped address')
+
+      callInScope(contract, () => contract.claim('github:erin'), { sender: newAddr, fee: 2_000n })
+      const inner = ctx.txn.lastGroup.itxnGroups[0].getAssetTransferInnerTxn(0)
+      expect(inner.assetReceiver).toEqual(newAddr)
+      expect(inner.assetAmount).toEqual(120_000n)
+    })
+
+    test('applyIdentity() works on the last round of the window and fails after it', () => {
+      const { contract, newAddr } = withCreditedErin()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY + WINDOW })
+      expect(() => callInScope(contract, () => contract.applyIdentity('github:erin'))).toThrow(
+        'identity window has expired',
+      )
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY + WINDOW - 1n })
+      callInScope(contract, () => contract.applyIdentity('github:erin'))
+      expect(contract.identityAddress('github:erin').value).toEqual(newAddr.bytes)
+    })
+
+    test('a new setIdentity() replaces the pending address and restarts the delay', () => {
+      const { contract, newAddr } = withCreditedErin()
+      const laterAddr = ctx.any.account()
+
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.setIdentity('github:erin', newAddr))
+      ctx.ledger.patchGlobalData({ round: 1_000n + DELAY })
+      callInScope(contract, () => contract.setIdentity('github:erin', laterAddr))
+
+      expect(() => callInScope(contract, () => contract.applyIdentity('github:erin'))).toThrow(
+        'identity delay has not passed',
+      )
+
+      ctx.ledger.patchGlobalData({ round: 1_000n + 2n * DELAY })
+      callInScope(contract, () => contract.applyIdentity('github:erin'))
+      expect(contract.identityAddress('github:erin').value).toEqual(laterAddr.bytes)
+    })
   })
 
-  test('claim(): an outer fee below 2,000 fails', () => {
-    const { contract, crediter, ops } = setup(100_000n)
-
-    callInScope(contract, () => contract.credit(1n, 0n, 100000n, []), { sender: crediter })
-
-    expect(() =>
-      callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 1_999n }),
-    ).toThrow()
-  })
-
-  test('claim(): a sender that is not the mapped address fails', () => {
-    const { contract, crediter, ops } = setup(100_000n)
-    const stranger = ctx.any.account()
-    void ops
-
-    callInScope(contract, () => contract.credit(1n, 0n, 100000n, []), { sender: crediter })
-
-    expect(() =>
-      callInScope(contract, () => contract.claim('ops'), { sender: stranger, fee: 2000n }),
-    ).toThrow('not the mapped address')
-  })
-
-  test('claim(): an admin remap moves future claims to the new address', () => {
-    const { contract, admin, crediter } = setup(400_000n)
-    const oldAddr = ctx.any.account()
-    const newAddr = ctx.any.account()
-
-    callInScope(contract, () => contract.setIdentity('github:erin', oldAddr), { sender: admin })
-    callInScope(
-      contract,
-      () =>
-        contract.credit(1n, 400000n, 0n, [
-          { repo: 'octo/repo', identity: 'github:erin', amount: 120_000n },
-        ]),
-      { sender: crediter },
-    )
-
-    callInScope(contract, () => contract.setIdentity('github:erin', newAddr), { sender: admin })
-
-    expect(() =>
-      callInScope(contract, () => contract.claim('github:erin'), { sender: oldAddr, fee: 2000n }),
-    ).toThrow('not the mapped address')
-
-    callInScope(contract, () => contract.claim('github:erin'), { sender: newAddr, fee: 2000n })
-
-    const group = ctx.txn.lastGroup
-    const inner = group.itxnGroups[0].getAssetTransferInnerTxn(0)
-    expect(inner.assetReceiver).toEqual(newAddr)
-    expect(inner.assetAmount).toEqual(120_000n)
-  })
-
-  // AnnounceRelease() then executeRelease() replace
-  // releaseAuthority(). ctx.ledger.patchGlobalData({ round }) is the only
-  // way this JavaScript harness can move Global.round; it does not build
-  // the ARC-4 router, so no test here sends a real, separately-authorized
-  // rekeyed transaction — see the UpdateApplication/DeleteApplication
-  // caution below for the same limit applied to routing.
   describe('announceRelease() / executeRelease()', () => {
     test('announceRelease(): a non-admin sender fails', () => {
       const { contract } = setup(0n)
@@ -316,12 +537,11 @@ describe('PaymentRouter', () => {
     })
 
     test('executeRelease(): before the delay has passed fails', () => {
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       ctx.ledger.patchGlobalData({ round: 1_000n + 215_999n })
       expect(() =>
@@ -330,12 +550,11 @@ describe('PaymentRouter', () => {
     })
 
     test('executeRelease(): succeeds on the last round of the execute window', () => {
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 215_999n })
       callInScope(contract, () => contract.executeRelease(), { sender: admin })
@@ -345,13 +564,11 @@ describe('PaymentRouter', () => {
     })
 
     test('executeRelease(): after the execute window closes fails', () => {
-      // A stale announcement must not stay executable for good (audit L1).
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 216_000n })
       expect(() =>
@@ -360,12 +577,11 @@ describe('PaymentRouter', () => {
     })
 
     test('executeRelease(): an expired announcement works again only after a new delay', () => {
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       const reannounced = 1_000n + 500_000n
       ctx.ledger.patchGlobalData({ round: reannounced })
@@ -380,27 +596,13 @@ describe('PaymentRouter', () => {
       expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
     })
 
-    test('executeRelease(): without "treasury" mapped fails, even after the delay', () => {
-      const { contract, admin } = setup(0n)
-      const releaseTo = ctx.any.account()
-
-      ctx.ledger.patchGlobalData({ round: 1_000n })
-      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-
-      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
-      expect(() =>
-        callInScope(contract, () => contract.executeRelease(), { sender: admin }),
-      ).toThrow('treasury identity not mapped')
-    })
-
     test('executeRelease(): a non-admin sender fails', () => {
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const releaseTo = ctx.any.account()
       const notAdmin = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
       expect(() =>
@@ -409,21 +611,16 @@ describe('PaymentRouter', () => {
     })
 
     test('executeRelease(): re-announcing overwrites the target and restarts the delay', () => {
-      // Chosen behavior: the most recent announceRelease() call wins, and
-      // the delay is measured from its round, not the first announcement's.
-      const { contract, admin, ops } = setup(0n)
+      const { contract, admin } = setup(0n)
       const firstTarget = ctx.any.account()
       const secondTarget = ctx.any.account()
 
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(firstTarget), { sender: admin })
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
 
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
       callInScope(contract, () => contract.announceRelease(secondTarget), { sender: admin })
 
-      // The delay from the first announcement has passed, but not from the
-      // second (re-announcing) one.
       expect(() =>
         callInScope(contract, () => contract.executeRelease(), { sender: admin }),
       ).toThrow('release delay has not passed')
@@ -431,70 +628,43 @@ describe('PaymentRouter', () => {
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n + 216_000n })
       callInScope(contract, () => contract.executeRelease(), { sender: admin })
 
-      const group = ctx.txn.lastGroup
-      const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+      const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
       expect(rekeyTxn.rekeyTo).toEqual(secondTarget)
     })
 
-    test('executeRelease(): sweeps exactly creditedUnclaimed to treasury, zeroes it, and rekeys', () => {
-      const { contract, admin, crediter, payTo, ops } = setup(1_000_000n)
+    test('executeRelease(): moves no USDC, keeps creditedUnclaimed and rekeys payTo', () => {
+      const { contract, admin, crediter, payTo } = setup(1_000_000n)
 
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
-      callInScope(contract, () => contract.credit(1n, 0n, 1_000_000n, []), { sender: crediter })
+      credit(contract, crediter, { unattributed: 1_000_000n })
 
       const releaseTo = ctx.any.account()
       ctx.ledger.patchGlobalData({ round: 1_000n })
       callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-
-      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
-      callInScope(contract, () => contract.executeRelease(), { sender: admin })
-
-      const group = ctx.txn.lastGroup
-      expect(group.itxnGroups).toHaveLength(2)
-      const sweep = group.itxnGroups[0].getAssetTransferInnerTxn(0)
-      expect(sweep.sender).toEqual(payTo)
-      expect(sweep.assetReceiver).toEqual(ops)
-      expect(sweep.assetAmount).toEqual(1_000_000n)
-      const rekeyTxn = group.itxnGroups[1].getPaymentInnerTxn(0)
-      expect(rekeyTxn.sender).toEqual(payTo)
-      expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
-    })
-
-    test('executeRelease(): a zero creditedUnclaimed skips the sweep transfer', () => {
-      const { contract, admin, ops } = setup(0n)
-      const releaseTo = ctx.any.account()
-
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
-      ctx.ledger.patchGlobalData({ round: 1_000n })
-      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-
       ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
       callInScope(contract, () => contract.executeRelease(), { sender: admin })
 
       const group = ctx.txn.lastGroup
       expect(group.itxnGroups).toHaveLength(1)
       const rekeyTxn = group.itxnGroups[0].getPaymentInnerTxn(0)
+      expect(rekeyTxn.sender).toEqual(payTo)
+      expect(rekeyTxn.receiver).toEqual(payTo)
       expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+      expect(contract.creditedUnclaimed.value).toEqual(1_000_000n)
+      expect(contract.retired.value).toEqual(true)
     })
 
-    test('credit() and claim() fail once the app is retired', () => {
-      const { contract, admin, crediter, ops } = setup(1_000_000n)
-
-      callInScope(contract, () => contract.setIdentity('treasury', ops), { sender: admin })
-      callInScope(contract, () => contract.credit(1n, 0n, 1_000_000n, []), { sender: crediter })
-
+    test('executeRelease(): needs no mapped treasury identity', () => {
+      const contract = ctx.contract.create(PaymentRouter)
+      const payTo = ctx.any.account()
       const releaseTo = ctx.any.account()
-      ctx.ledger.patchGlobalData({ round: 1_000n })
-      callInScope(contract, () => contract.announceRelease(releaseTo), { sender: admin })
-      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
-      callInScope(contract, () => contract.executeRelease(), { sender: admin })
 
-      expect(() =>
-        callInScope(contract, () => contract.credit(2n, 0n, 1n, []), { sender: crediter }),
-      ).toThrow('app is retired')
-      expect(() =>
-        callInScope(contract, () => contract.claim('ops'), { sender: ops, fee: 2000n }),
-      ).toThrow('app is retired')
+      callInScope(contract, () => contract.createApplication(payTo, ctx.any.asset(), 0n))
+      ctx.ledger.patchGlobalData({ round: 1_000n })
+      callInScope(contract, () => contract.announceRelease(releaseTo))
+      ctx.ledger.patchGlobalData({ round: 1_000n + 216_000n })
+      callInScope(contract, () => contract.executeRelease())
+
+      expect(contract.retired.value).toEqual(true)
     })
   })
 

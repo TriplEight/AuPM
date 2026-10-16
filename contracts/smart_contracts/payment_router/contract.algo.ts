@@ -13,36 +13,35 @@ import {
   type uint64,
 } from '@algorandfoundation/algorand-typescript'
 
-// Auditor share of an attributed batch, per 1,000 micro-units. Ops gets the
-// rest of attributedTotal plus all of unattributedTotal. MVP split (P8):
-// auditor 300, ops 700.
-const AUDITOR_SHARE_NUM = Uint64(300)
+// Off-the-top shares of newTotal, per 1,000 micro-units. The contract
+// computes both and rounds down. The rest of newTotal goes to the pool part.
+const OPS_SHARE_NUM = Uint64(50)
+const TREASURY_CUT_NUM = Uint64(200)
 const SPLIT_DEN = Uint64(1000)
 
 // A claim below this floor costs more in fees than it pays out.
 const MIN_CLAIM = Uint64(100_000)
 
-// Minimum outer application-call fee for claim(). The inner axfer fee is 0,
-// so the claimant pools one min-fee through this outer fee.
-const MIN_CLAIM_FEE = Uint64(2_000)
+// The outer fee of claim() must be at least this many minimum fees. The inner
+// axfer fee is 0, so the claimant pools one minimum fee through the outer fee.
+const CLAIM_MIN_FEE_MULTIPLE = Uint64(2)
 
-// Fixed identity for the ops pool. The admin maps it to an address the same
-// way it maps an auditor identity.
+// Fixed identity for the ops balance. The admin maps it to an address the
+// same way it maps any other identity. An entry never names it.
 const OPS_IDENTITY = 'ops'
 
-// Fixed identity for the migration sweep target.
-// executeRelease() sweeps creditedUnclaimed to whatever address this
-// identity is mapped to; it fails if the identity is unmapped.
+// Fixed identity for the treasury balance. An entry never names it.
 const TREASURY_IDENTITY = 'treasury'
 
-// Delay, in rounds, between announceRelease() and a successful
-// executeRelease() call. About 7 days at ~2.9s/round. Compiled
-// in: a new value needs a new contract.
+// Delay, in rounds, between an announcement and its use: announceRelease()
+// to executeRelease(), and setIdentity() on a mapped identity to
+// applyIdentity(). About 7 days at ~2.9s/round. Compiled in: a new value
+// needs a new contract.
 const RELEASE_DELAY_ROUNDS = Uint64(216_000)
 
-// Rounds after the delay during which executeRelease() may run. About 7 days.
-// After that the announcement expires: executeRelease() fails until the admin
-// announces again, which restarts the delay and warns payees again.
+// Rounds after the delay during which the announced action may run. About 7
+// days. After that the announcement expires and the admin must announce
+// again, which restarts the delay.
 const RELEASE_WINDOW_ROUNDS = Uint64(216_000)
 
 // repo travels with each entry for shape parity with the off-chain ledger, but the
@@ -71,12 +70,29 @@ export class PaymentRouter extends Contract {
   // of payTo is its USDC balance minus this total.
   creditedUnclaimed = GlobalState<uint64>({ key: 'cru' })
 
-  // identity ("github:<login>", or "ops") -> claimant address, admin-set.
+  // Running totals, in micro-units. poolIn starts at carryIn and grows by the
+  // pool part of each batch. poolOut grows by the pool payee credits and the
+  // pool money sent to treasury. declaredTotal starts at carryIn and grows by
+  // the USDC each batch declares as arrived. claimedTotal grows by each claim
+  // payout. credit() keeps poolOut <= poolIn and
+  // declaredTotal <= payTo USDC balance + claimedTotal.
+  poolIn = GlobalState<uint64>({ key: 'pin' })
+  poolOut = GlobalState<uint64>({ key: 'pot' })
+  declaredTotal = GlobalState<uint64>({ key: 'dct' })
+  claimedTotal = GlobalState<uint64>({ key: 'clt' })
+
+  // identity ("github:<login>", "ops" or "treasury") -> claimant address,
+  // admin-set.
   identityAddress = BoxMap<string, bytes>({ keyPrefix: 'id:' })
+
+  // identity -> announced new address and the round of the announcement. Both
+  // boxes exist together, only for an identity that already has an address.
+  pendingAddress = BoxMap<string, bytes>({ keyPrefix: 'pa:' })
+  pendingRound = BoxMap<string, uint64>({ keyPrefix: 'pr:' })
 
   // identity -> credited, unclaimed balance owed to that identity. A new
   // box needs minimum balance on this app's own account, not on payTo.
-  // R2's deploy step must fund the app account before the first credit().
+  // The deploy step must fund the app account before the first credit().
   balances = BoxMap<string, uint64>({ keyPrefix: 'bal:' })
 
   // Migration state. announcedTo/announcedRound are set together
@@ -87,10 +103,15 @@ export class PaymentRouter extends Contract {
   retired = GlobalState<boolean>({ key: 'ret' })
 
   // Runs once, at creation. payTo and the USDC asset id are fixed here and
-  // never change afterwards.
-  public createApplication(payTo: Account, usdcAsset: Asset): void {
+  // never change afterwards. carryIn is the USDC at payTo that an earlier
+  // app did not pay out. It starts as both pool money and declared money.
+  public createApplication(payTo: Account, usdcAsset: Asset, carryIn: uint64): void {
     this.payTo.value = payTo.bytes
     this.assetId.value = usdcAsset.id
+    this.poolIn.value = carryIn
+    this.poolOut.value = Uint64(0)
+    this.declaredTotal.value = carryIn
+    this.claimedTotal.value = Uint64(0)
   }
 
   // Admin-only. Authorises the hot key that can call credit().
@@ -99,20 +120,52 @@ export class PaymentRouter extends Contract {
     this.crediter.value = addr.bytes
   }
 
-  // Admin-only. Maps an identity to the address that claims its balance.
-  // The same map holds every auditor identity and the fixed "ops" identity.
+  // Admin-only. An identity with no address and no balance gets this address
+  // at once. An identity with an address, or with a balance, is not mapped
+  // yet: the new address is only announced, and applyIdentity() maps it after
+  // RELEASE_DELAY_ROUNDS. A new call
+  // replaces the announced address and restarts the delay.
   public setIdentity(identity: string, addr: Account): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
-    this.identityAddress(identity).value = addr.bytes
+    const hasBalance: boolean = this.balances(identity).exists
+      ? this.balances(identity).value > Uint64(0)
+      : false
+    if (!this.identityAddress(identity).exists && !hasBalance) {
+      this.identityAddress(identity).value = addr.bytes
+      return
+    }
+    this.pendingAddress(identity).value = addr.bytes
+    this.pendingRound(identity).value = Global.round
   }
 
-  // Crediter-only. Credits one numbered batch of settled payments. entries
-  // are auditor amounts, one per (repo, identity), already summed over the
-  // batch by the caller. Never split per payment.
+  // Anybody can call it. Maps the announced address of an identity once
+  // RELEASE_DELAY_ROUNDS have passed and before RELEASE_WINDOW_ROUNDS have
+  // passed after that. Claims go to the current address until this call.
+  // Fails once the app is retired.
+  public applyIdentity(identity: string): void {
+    const isRetired: boolean = this.retired.hasValue ? this.retired.value : false
+    assert(!isRetired, 'app is retired')
+    assert(this.pendingAddress(identity).exists, 'no pending address')
+    const applicableFrom: uint64 = this.pendingRound(identity).value + RELEASE_DELAY_ROUNDS
+    assert(Global.round >= applicableFrom, 'identity delay has not passed')
+    assert(
+      Global.round < applicableFrom + RELEASE_WINDOW_ROUNDS,
+      'identity window has expired; announce again',
+    )
+    this.identityAddress(identity).value = this.pendingAddress(identity).value
+    this.pendingAddress(identity).delete()
+    this.pendingRound(identity).delete()
+  }
+
+  // Crediter-only. Credits one numbered batch. The contract computes ops and
+  // the treasury cut from newTotal and rounds down. entries are pool payee
+  // credits, one per (repo, identity). treasuryExtra and unattributedTotal go
+  // to treasury. Never split per payment.
   public credit(
     batchSeq: uint64,
-    attributedTotal: uint64,
+    newTotal: uint64,
     unattributedTotal: uint64,
+    treasuryExtra: uint64,
     entries: CreditEntry[],
   ): void {
     const isRetired: boolean = this.retired.hasValue ? this.retired.value : false
@@ -124,46 +177,83 @@ export class PaymentRouter extends Contract {
 
     let entriesTotal: uint64 = Uint64(0)
     for (let i: uint64 = Uint64(0); i < entries.length; i = i + Uint64(1)) {
+      assert(entries[i].amount > Uint64(0), 'entry amount must be above 0')
+      assert(
+        entries[i].identity !== OPS_IDENTITY && entries[i].identity !== TREASURY_IDENTITY,
+        'entry must not name ops or treasury',
+      )
       entriesTotal = entriesTotal + entries[i].amount
     }
-    const auditorShare: uint64 = (attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN
-    assert(entriesTotal === auditorShare, 'entries must sum to attributedTotal x 300 / 1000')
 
-    const asset = Asset(this.assetId.value)
-    const payToAcct = Account(this.payTo.value)
-    const held: uint64 = asset.balance(payToAcct)
+    const opsAmount: uint64 = (newTotal * OPS_SHARE_NUM) / SPLIT_DEN
+    const cutAmount: uint64 = (newTotal * TREASURY_CUT_NUM) / SPLIT_DEN
+    const treasuryAmount: uint64 = cutAmount + treasuryExtra + unattributedTotal
+
+    const held: uint64 = Asset(this.assetId.value).balance(Account(this.payTo.value))
+    this.checkAndAdvanceTotals(
+      newTotal - opsAmount - cutAmount,
+      entriesTotal + treasuryExtra,
+      newTotal + unattributedTotal,
+      held,
+    )
+
     const alreadyCredited: uint64 = this.creditedUnclaimed.hasValue
       ? this.creditedUnclaimed.value
       : Uint64(0)
-    const unallocated: uint64 = held - alreadyCredited
-    const batchTotal: uint64 = attributedTotal + unattributedTotal
-    assert(batchTotal <= unallocated, 'batch total exceeds the unallocated balance')
+    const batchTotal: uint64 = opsAmount + treasuryAmount + entriesTotal
+    assert(batchTotal + alreadyCredited <= held, 'batch total exceeds the unallocated balance')
 
     // Credit each identity directly. No identity mapping is required here,
     // so an unmapped identity never stalls a batch: it still accrues a
     // balance, and claims once the admin maps it to an address.
     for (let i: uint64 = Uint64(0); i < entries.length; i = i + Uint64(1)) {
-      const identity = entries[i].identity
-      const current: uint64 = this.balances(identity).exists
-        ? this.balances(identity).value
-        : Uint64(0)
-      this.balances(identity).value = current + entries[i].amount
+      this.addBalance(entries[i].identity, entries[i].amount)
     }
-
-    const opsAmount: uint64 = attributedTotal - entriesTotal + unattributedTotal
-    const opsCurrent: uint64 = this.balances(OPS_IDENTITY).exists
-      ? this.balances(OPS_IDENTITY).value
-      : Uint64(0)
-    this.balances(OPS_IDENTITY).value = opsCurrent + opsAmount
+    this.addBalance(OPS_IDENTITY, opsAmount)
+    this.addBalance(TREASURY_IDENTITY, treasuryAmount)
 
     this.creditedUnclaimed.value = alreadyCredited + batchTotal
     this.lastBatchSeq.value = batchSeq
   }
 
+  // Adds one batch to the four running totals and asserts both bounds.
+  private checkAndAdvanceTotals(
+    poolInAdd: uint64,
+    poolOutAdd: uint64,
+    declaredAdd: uint64,
+    held: uint64,
+  ): void {
+    const newPoolIn: uint64 = this.poolIn.value + poolInAdd
+    const newPoolOut: uint64 = this.poolOut.value + poolOutAdd
+    assert(newPoolOut <= newPoolIn, 'pool payouts exceed the pool part')
+
+    const newDeclared: uint64 = this.declaredTotal.value + declaredAdd
+    assert(
+      newDeclared <= held + this.claimedTotal.value,
+      'declared total exceeds the USDC that arrived',
+    )
+
+    this.poolIn.value = newPoolIn
+    this.poolOut.value = newPoolOut
+    this.declaredTotal.value = newDeclared
+  }
+
+  // Adds amount to the balance of an identity. A zero amount writes no box,
+  // so it needs no box reference.
+  private addBalance(identity: string, amount: uint64): void {
+    if (amount === Uint64(0)) {
+      return
+    }
+    const current: uint64 = this.balances(identity).exists
+      ? this.balances(identity).value
+      : Uint64(0)
+    this.balances(identity).value = current + amount
+  }
+
   // The mapped address of an identity claims its whole balance. MIN_CLAIM
   // gates dust claims. Inner fees are 0; the claimant pools the fee through
-  // the outer app-call fee. A later admin remap moves future claims to the
-  // new address; it does not touch a balance already claimed.
+  // the outer app-call fee. A remap applied by applyIdentity() moves future
+  // claims to the new address; it does not touch a balance already claimed.
   public claim(identity: string): void {
     const isRetired: boolean = this.retired.hasValue ? this.retired.value : false
     assert(!isRetired, 'app is retired')
@@ -174,10 +264,14 @@ export class PaymentRouter extends Contract {
       ? this.balances(identity).value
       : Uint64(0)
     assert(balance >= MIN_CLAIM, 'balance below MIN_CLAIM')
-    assert(Txn.fee >= MIN_CLAIM_FEE, 'outer fee must pool the inner fee')
+    assert(
+      Txn.fee >= CLAIM_MIN_FEE_MULTIPLE * Global.minTxnFee,
+      'outer fee must pool the inner fee',
+    )
 
     this.balances(identity).delete()
     this.creditedUnclaimed.value = this.creditedUnclaimed.value - balance
+    this.claimedTotal.value = this.claimedTotal.value + balance
 
     const asset = Asset(this.assetId.value)
     const payToAcct = Account(this.payTo.value)
@@ -205,11 +299,9 @@ export class PaymentRouter extends Contract {
 
   // Admin-only. Runs only after the announce-to-execute delay has passed and
   // before the execute window that follows it closes.
-  // Sweeps creditedUnclaimed to the "treasury" identity's mapped address,
-  // zeroes creditedUnclaimed, marks the app retired (credit() and claim()
-  // fail on it from then on), then rekeys payTo to the announced address.
-  // payTo's own address never changes; only the authorizer does
-  // (invariant 1).
+  // Moves no USDC. Marks the app retired (credit() and claim() fail on it
+  // from then on), then rekeys payTo to the announced address. payTo's own
+  // address never changes; only the authorizer does.
   public executeRelease(): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     assert(this.announcedTo.hasValue, 'no release announced')
@@ -219,30 +311,10 @@ export class PaymentRouter extends Contract {
       Global.round < executableFrom + RELEASE_WINDOW_ROUNDS,
       'release window has expired; announce again',
     )
-    assert(this.identityAddress(TREASURY_IDENTITY).exists, 'treasury identity not mapped')
 
-    const payToAcct = Account(this.payTo.value)
-    const sweepAmount: uint64 = this.creditedUnclaimed.hasValue
-      ? this.creditedUnclaimed.value
-      : Uint64(0)
-
-    if (sweepAmount > Uint64(0)) {
-      const asset = Asset(this.assetId.value)
-      const treasuryAcct = Account(this.identityAddress(TREASURY_IDENTITY).value)
-      itxn
-        .assetTransfer({
-          sender: payToAcct,
-          xferAsset: asset,
-          assetReceiver: treasuryAcct,
-          assetAmount: sweepAmount,
-          fee: Uint64(0),
-        })
-        .submit()
-    }
-
-    this.creditedUnclaimed.value = Uint64(0)
     this.retired.value = true
 
+    const payToAcct = Account(this.payTo.value)
     const releaseTo = Account(this.announcedTo.value)
     itxn
       .payment({

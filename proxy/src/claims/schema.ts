@@ -116,6 +116,84 @@ export function upgradeBatchSchema(handle: Database.Database, legacyAppId: numbe
 const configuredAppId = process.env.PAYMENT_ROUTER_APP_ID
 upgradeBatchSchema(db, configuredAppId ? Number(configuredAppId) : null)
 
+// The accrual table of the package-pool ledger. One row is one share of one
+// payment: a payee share, an ops share, a treasury cut, a treasury
+// `unallocated` share, or a `slash` or `forfeit` share that an event moved to
+// treasury. `unlock_at` is the time (ms) after which a pool share can be
+// credited; 0 means not held. `frozen` is 1 while a dispute holds a share.
+// A row has two batch pointers. `batch_*` names the batch whose `newTotal`
+// counted the payment. `paid_*` names the batch that credited the share to a
+// payee or to treasury. Ops, cut and unattributed rows never get a `paid_*`.
+const ACCRUALS_DDL = `
+  CREATE TABLE accruals (
+    settle_txid   TEXT NOT NULL,
+    route         TEXT NOT NULL,
+    pkg           TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    repo          TEXT,
+    role          TEXT NOT NULL,
+    identity      TEXT NOT NULL,
+    amount_micro  INTEGER NOT NULL,
+    created_at    INTEGER NOT NULL,
+    unlock_at     INTEGER NOT NULL DEFAULT 0,
+    frozen        INTEGER NOT NULL DEFAULT 0,
+    treasury_kind TEXT,
+    batch_app_id  INTEGER,
+    batch_seq     INTEGER,
+    paid_app_id   INTEGER,
+    paid_seq      INTEGER,
+    PRIMARY KEY (settle_txid, role, pkg, version, identity)
+  )
+`
+
+/**
+ * Brings the ledger to the package-pool shape: `accruals` gets the hold,
+ * freeze, treasury-kind and payout columns and a primary key that includes
+ * `identity`; `batches` renames `attributed_micro` to `new_total_micro` and
+ * gets `treasury_extra_micro`. Every existing row stays. Every existing
+ * accrual was credited on the previous app, so its payout pointer copies its
+ * batch pointer and the new job never pays it again. SQLite cannot change a
+ * primary key in place, so the old table is rebuilt inside one transaction.
+ * A database in the new shape is not touched, so the upgrade is safe on every
+ * boot. Throws, and changes nothing, when an old accrual has no batch: credit
+ * every old accrual on the previous app first.
+ */
+export function upgradePoolSchema(handle: Database.Database): void {
+  const names = (table: string): string[] =>
+    (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
+  const upgrade = handle.transaction(() => {
+    const batchNames = names('batches')
+    if (batchNames.includes('attributed_micro')) {
+      handle.exec('ALTER TABLE batches RENAME COLUMN attributed_micro TO new_total_micro')
+    }
+    if (!batchNames.includes('treasury_extra_micro')) {
+      handle.exec('ALTER TABLE batches ADD COLUMN treasury_extra_micro INTEGER NOT NULL DEFAULT 0')
+    }
+    if (names('accruals').includes('unlock_at')) return
+    const open = handle.prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL').get()
+    const openCount = (open as { n: number }).n
+    if (openCount > 0) {
+      throw new Error(
+        `upgradePoolSchema: ${openCount} accrual row(s) are not credited yet. Credit every ` +
+          'accrual on the previous PaymentRouter app, then boot this version.',
+      )
+    }
+    handle.exec('ALTER TABLE accruals RENAME TO accruals_old')
+    handle.exec(ACCRUALS_DDL)
+    handle.exec(
+      `INSERT INTO accruals (settle_txid, route, pkg, version, repo, role, identity, amount_micro,
+                             created_at, batch_app_id, batch_seq, paid_app_id, paid_seq)
+       SELECT settle_txid, route, pkg, version, repo, role, identity, amount_micro,
+              created_at, batch_app_id, batch_seq, batch_app_id, batch_seq
+       FROM accruals_old`,
+    )
+    handle.exec('DROP TABLE accruals_old')
+  })
+  upgrade()
+}
+
+upgradePoolSchema(db)
+
 // One row per manual, human-checked payout. Signed
 // locally from the cold pool key, never by the server.
 db.exec(`
@@ -139,18 +217,30 @@ export type AccrualRow = {
   role: string
   identity: string
   amount_micro: number
-  /** NULL until the nightly credit step assigns this row to a batch. */
-  batch_app_id: number | null
-  /** NULL until the nightly credit step assigns this row to a batch. */
-  batch_seq: number | null
   created_at: number
+  /** Time (ms) after which a pool share can be credited. 0 means not held. */
+  unlock_at: number
+  /** 1 while a dispute freezes the share; a frozen share is never credited. */
+  frozen: number
+  /** Set on a treasury income row: `cut`, `unallocated`, `slash` or `forfeit`. */
+  treasury_kind: string | null
+  /** NULL until a batch counts this payment in its `newTotal`. */
+  batch_app_id: number | null
+  /** NULL until a batch counts this payment in its `newTotal`. */
+  batch_seq: number | null
+  /** NULL until a batch credits this share. */
+  paid_app_id: number | null
+  /** NULL until a batch credits this share. */
+  paid_seq: number | null
 }
 
 export type BatchRow = {
   app_id: number
   batch_seq: number
-  attributed_micro: number
+  /** `newTotal` of the credit() call: payments counted by this batch. */
+  new_total_micro: number
   unattributed_micro: number
+  treasury_extra_micro: number
   /** NULL until the on-chain credit() call for this batch confirms. */
   credit_txid: string | null
   created_at: number

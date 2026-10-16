@@ -11,158 +11,82 @@ export type { Attribution, AttributionEntry, Role } from '../attest/attribution.
 
 import type { Attribution, AttributionEntry, Role } from '../attest/attribution.js'
 
-/** Identity used whenever a role cannot be mapped to a real contributor. */
-export const UNASSIGNED = 'unassigned'
-
-/** Identity recorded for the ops role — never `UNASSIGNED`. */
+/** Identity of the ops income. It is never a payee. */
 export const OPS_IDENTITY = 'ops'
 
-/**
- * All six target roles' share of every 1,000 micro-USDC paid for one
- * reviewed package — one split on every
- * network. The ledger records all six roles for every payment, so Phase 2
- * can add attributed identities for contributor, treasury, and ops with no
- * data loss, even though the MVP resolves all three (plus maintainer and
- * the adversarial reviewer) to `unassigned` today.
- */
-export const ROLE_SHARE_PER_1000: Readonly<Record<Role, number>> = {
-  auditor: 300,
-  contributor: 100,
-  maintainer: 200,
-  reviewer: 250,
-  treasury: 100,
-  ops: 50,
-}
+/** Identity of the treasury income. It is never a payee. */
+export const TREASURY_IDENTITY = 'treasury'
+
+/** Treasury share off the top, per 1,000 micro-USDC paid for one reviewed package. */
+export const CUT_PER_1000 = 200
+
+/** Ops share off the top, per 1,000 micro-USDC paid for one reviewed package. */
+export const OPS_PER_1000 = 50
+
+/** Roles that share the package pool. */
+export type PoolRole = 'reviewer' | 'contributor' | 'maintainer'
 
 /**
- * The MVP split: the auditor gets its share of the
- * ledger table above, and everything else — every role not yet onboarded
- * — is unclaimed ops income until those roles launch.
+ * Share of each pool role, per 1,000 micro-USDC paid. The three shares sum to
+ * 750: what is left after the cut and the ops share.
+ */
+export const POOL_SHARE_PER_1000: Readonly<Record<PoolRole, number>> = {
+  reviewer: 400,
+  contributor: 100,
+  maintainer: 250,
+}
+
+export const POOL_ROLES: readonly PoolRole[] = ['reviewer', 'contributor', 'maintainer']
+
+/** The four kinds of treasury income in the ledger. */
+export type TreasuryKind = 'cut' | 'unallocated' | 'slash' | 'forfeit'
+
+/**
+ * The MVP split that the live contract still pays: the auditor gets 30%,
+ * ops gets the rest. Only the public disclosure text uses it.
  */
 export function mvpSplit(): {
   auditorPercent: number
   opsPercent: number
 } {
-  const auditorPercent = ROLE_SHARE_PER_1000.auditor / 10
+  const auditorPercent = 30
   return { auditorPercent, opsPercent: 100 - auditorPercent }
 }
 
-/**
- * Integer micro-USDC owed to the auditor pool out of `attributedMicro`
- * Floors like the contract's own
- * `(attributedTotal * AUDITOR_SHARE_NUM) / SPLIT_DEN` uint64 division
- * (contracts/smart_contracts/payment_router/contract.algo.ts) — this
- * defence-in-depth check (proxy/src/claims/credit.ts) must reject the same
- * way the contract would, not merely when the division happens to be exact.
- */
-export function auditorShareMicro(attributedMicro: number): number {
-  return Math.floor((attributedMicro * ROLE_SHARE_PER_1000.auditor) / 1000)
-}
+/** Default hold of a pool share, in days. */
+export const DEFAULT_HOLD_DAYS = 30
 
-export const ROLES: readonly Role[] = [
-  'auditor',
-  'contributor',
-  'maintainer',
-  'reviewer',
-  'treasury',
-  'ops',
-]
+const MAX_HOLD_DAYS = 3650
+const DAY_MS = 24 * 60 * 60 * 1000
 
 /**
- * Integer micro-USDC owed to `role` out of the whole payment.
- *
- * CAUTION: money is always integer micro-units. This relies on
- * the invariant that every price is a multiple of 1,000 microUSDC, so the
- * division below is always exact — no floating point, no remainder lost.
+ * Reads the hold of a pool share from `POOL_HOLD_DAYS` and returns it in
+ * milliseconds. An unset or empty value gives the default of 30 days.
+ * Throws on a value that is not a whole number of days from 1 to 3650,
+ * so a bad value stops the process at boot.
  */
-export function computeRoleShareMicro(priceMicro: number, role: Role): number {
-  if (!Number.isInteger(priceMicro) || priceMicro < 0) {
+export function holdMsFromEnv(env: NodeJS.ProcessEnv): number {
+  const raw = env.POOL_HOLD_DAYS?.trim()
+  if (raw === undefined || raw === '') return DEFAULT_HOLD_DAYS * DAY_MS
+  const days = Number(raw)
+  if (!/^\d+$/.test(raw) || days < 1 || days > MAX_HOLD_DAYS) {
     throw new Error(
-      `computeRoleShareMicro: priceMicro must be a non-negative integer, got ${priceMicro}`,
+      `POOL_HOLD_DAYS must be a whole number of days from 1 to ${MAX_HOLD_DAYS}, got "${raw}". ` +
+        `Unset it to use the default of ${DEFAULT_HOLD_DAYS} days.`,
     )
   }
-  if (priceMicro % 1000 !== 0) {
-    throw new Error(
-      `computeRoleShareMicro: priceMicro ${priceMicro} is not a multiple of 1,000 microUSDC`,
-    )
-  }
-  return (priceMicro / 1000) * ROLE_SHARE_PER_1000[role]
+  return days * DAY_MS
 }
 
 /**
  * Canonical sort order for ledger writes: by package name, then version.
  * Deterministic so the same payment always writes its accrual rows in the
- * same order — a debugging and snapshot-testing convenience only; every
- * reviewed package now carries its own exact role shares,
- * so no split ever depends on this order for correctness.
+ * same order. No split depends on this order for correctness.
  */
 export function sortPackages(packages: AttributionEntry[]): AttributionEntry[] {
   return [...packages].sort(
     (a, b) => a.pkg.localeCompare(b.pkg) || a.version.localeCompare(b.version),
   )
-}
-
-/**
- * auditor -> `github:<reviewer>` from the review record, already resolved
- * onto AttributionEntry.auditor. A missing reviewer maps to `unassigned`.
- */
-export function resolveAuditorIdentity(entry: AttributionEntry): string {
-  return entry.auditor ?? UNASSIGNED
-}
-
-/**
- * maintainer -> `unassigned`, always. No maintainer
- * identity is onboarded yet, so this ignores the entry entirely on purpose.
- */
-export function resolveMaintainerIdentity(_entry: AttributionEntry): string {
-  return UNASSIGNED
-}
-
-/**
- * contributor -> `unassigned`, always. No contributor
- * identity is onboarded yet.
- */
-export function resolveContributorIdentity(_entry: AttributionEntry): string {
-  return UNASSIGNED
-}
-
-/**
- * reviewer (the adversarial reviewer) -> `unassigned` in the MVP. No
- * adversarial review exists yet; it stays in the reviewer pool as the
- * future bounty budget. This ignores the entry entirely on
- * purpose.
- */
-export function resolveReviewerIdentity(_entry: AttributionEntry): string {
-  return UNASSIGNED
-}
-
-/**
- * treasury -> `unassigned`, always. No treasury identity is
- * onboarded yet.
- */
-export function resolveTreasuryIdentity(_entry: AttributionEntry): string {
-  return UNASSIGNED
-}
-
-/**
- * ops -> `ops`, always — the one non-`unassigned` MVP
- * identity, credited on-chain to the ops balance.
- */
-export function resolveOpsIdentity(_entry: AttributionEntry): string {
-  return OPS_IDENTITY
-}
-
-const IDENTITY_RESOLVERS: Readonly<Record<Role, (entry: AttributionEntry) => string>> = {
-  auditor: resolveAuditorIdentity,
-  contributor: resolveContributorIdentity,
-  maintainer: resolveMaintainerIdentity,
-  reviewer: resolveReviewerIdentity,
-  treasury: resolveTreasuryIdentity,
-  ops: resolveOpsIdentity,
-}
-
-export function resolveIdentity(role: Role, entry: AttributionEntry): string {
-  return IDENTITY_RESOLVERS[role](entry)
 }
 
 /** One row this module hands to the ledger writer — matches the `accruals` table. */
@@ -173,17 +97,87 @@ export interface AccrualInput {
   role: Role
   identity: string
   amountMicro: number
+  /** Set on a treasury income row, null on a payee row and on an ops row. */
+  treasuryKind: TreasuryKind | null
+  /** True for a pool share: it unlocks after the hold. Off-the-top rows are not held. */
+  held: boolean
+}
+
+/** One share of a pool role: a payee, or treasury `unallocated`. */
+export interface PoolShare {
+  identity: string
+  amountMicro: number
+  treasuryKind: TreasuryKind | null
+}
+
+/**
+ * Splits the share of one pool role equally between its `payees` with
+ * integer division. The remainder goes to treasury as `unallocated`. A role
+ * with no payee gives its whole share to treasury as `unallocated`.
+ */
+export function splitPoolShare(amountMicro: number, payees: string[]): PoolShare[] {
+  const unallocated = (amount: number): PoolShare => ({
+    identity: TREASURY_IDENTITY,
+    amountMicro: amount,
+    treasuryKind: 'unallocated',
+  })
+  if (payees.length === 0) return [unallocated(amountMicro)]
+  const each = Math.floor(amountMicro / payees.length)
+  const rest = amountMicro - each * payees.length
+  const shares: PoolShare[] =
+    each > 0 ? payees.map((identity) => ({ identity, amountMicro: each, treasuryKind: null })) : []
+  if (rest > 0 || each === 0) shares.push(unallocated(rest))
+  return shares
+}
+
+/**
+ * The payees of one pool role of one package. Only the reviewer line has a
+ * payee today: the reviewer of the review record. Never `ops` or `treasury`.
+ * Contributor and maintainer are not onboarded, so they have no payee.
+ */
+function payeesOf(role: PoolRole, entry: AttributionEntry): string[] {
+  if (role !== 'reviewer' || entry.auditor === null) return []
+  const name = entry.auditor.toLowerCase()
+  return name === OPS_IDENTITY || name === TREASURY_IDENTITY ? [] : [name]
+}
+
+/** Every accrual row of one reviewed package for one payment of 1,000 micro-USDC. */
+function packageRows(route: Attribution['route'], entry: AttributionEntry): AccrualInput[] {
+  const base = { route, pkg: entry.pkg, version: entry.version }
+  const rows: AccrualInput[] = [
+    {
+      ...base,
+      role: 'treasury',
+      identity: TREASURY_IDENTITY,
+      amountMicro: CUT_PER_1000,
+      treasuryKind: 'cut',
+      held: false,
+    },
+    {
+      ...base,
+      role: 'ops',
+      identity: OPS_IDENTITY,
+      amountMicro: OPS_PER_1000,
+      treasuryKind: null,
+      held: false,
+    },
+  ]
+  for (const role of POOL_ROLES) {
+    for (const share of splitPoolShare(POOL_SHARE_PER_1000[role], payeesOf(role, entry))) {
+      rows.push({ ...base, role, ...share, held: true })
+    }
+  }
+  return rows
 }
 
 /**
  * Build every accrual row for one settled, paid request.
  *
- * Every route prices each reviewed package at exactly 1,000 microUSDC
- * so every package in `attribution.packages` gets its own
- * full set of exact role shares for `network` (defaults to the network
- * this process is configured for) — tarball and single-attest (one
- * package) the same way lockfile (N packages) does. No division, no
- * remainder, and no cross-package split.
+ * Every route prices each reviewed package at exactly 1,000 microUSDC, so
+ * every package in `attribution.packages` gets its own exact shares: cut 200
+ * and ops 50 off the top, then the pool of that exact `name@version`
+ * (reviewer line 400, contributor 100, maintainer 250). A pool role with no
+ * payee goes to treasury as `unallocated`. Money is integer micro-units.
  *
  * WARNING: never call this for a free request. Returns `[]` when
  * `priceMicro` is 0 or `packages` is empty, so the ledger writer never
@@ -207,19 +201,5 @@ export function buildAccrualInputs(attribution: Attribution): AccrualInput[] {
         `(expected ${expectedPriceMicro})`,
     )
   }
-
-  const rows: AccrualInput[] = []
-  for (const entry of packages) {
-    for (const role of ROLES) {
-      rows.push({
-        route: attribution.route,
-        pkg: entry.pkg,
-        version: entry.version,
-        role,
-        identity: resolveIdentity(role, entry),
-        amountMicro: ROLE_SHARE_PER_1000[role],
-      })
-    }
-  }
-  return rows
+  return packages.flatMap((entry) => packageRows(attribution.route, entry))
 }
