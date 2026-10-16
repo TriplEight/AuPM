@@ -747,9 +747,9 @@ export function buildUnsignedSetCrediterTxn(
 
 /**
  * Builds the unsigned setIdentity(identity, addr) call, sender set to the admin multisig
- * address, with the identity's own box (identityAddress = BoxMap<string, bytes>({ keyPrefix:
- * 'id:' })) attached as a box reference — contract.algo.ts writes it directly, with no prior
- * read.
+ * address. setIdentity reads the identity's `id:` and `bal:` boxes. It writes `id:` for a
+ * first mapping, or the pending `pa:` and `pr:` boxes for a remap. All four go in as box
+ * references, because the AVM rejects any box that the call does not name.
  *
  * @param appId - the deployed PaymentRouter app id (parseAppId).
  * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
@@ -775,9 +775,21 @@ export function buildUnsignedSetIdentityTxn(
       new algosdk.ABIStringType().encode(identity),
       new algosdk.ABIAddressType().encode(addr),
     ],
-    boxes: [{ appIndex: 0, name: identityBoxName(identity) }],
+    boxes: setIdentityBoxNames(identity).map((name) => ({ appIndex: 0, name })),
     suggestedParams,
   })
+}
+
+/**
+ * The boxes that setIdentity(identity, addr) can touch: `id:`, `bal:`, `pa:` and `pr:`, each
+ * followed by the utf8 identity. Pure: covered directly by deploy-config.spec.ts.
+ *
+ * @param identity - the identity string ("github:<login>", "ops" or "treasury").
+ */
+export function setIdentityBoxNames(identity: string): Uint8Array[] {
+  return ['id:', 'bal:', 'pa:', 'pr:'].map((prefix) =>
+    new TextEncoder().encode(`${prefix}${identity}`),
+  )
 }
 
 /**

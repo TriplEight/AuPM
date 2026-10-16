@@ -576,7 +576,7 @@ describe('admin-call builders', () => {
     expect(txn.applicationCall?.boxes ?? []).toHaveLength(0)
   })
 
-  test('buildUnsignedSetIdentityTxn: ABI-encoded identity/address and the identity box ref', () => {
+  test('buildUnsignedSetIdentityTxn: ABI-encoded identity/address and every box it touches', () => {
     const identityAddress = algosdk.generateAccount().addr.toString()
     const txn = buildUnsignedSetIdentityTxn(
       APP_ID,
@@ -593,8 +593,14 @@ describe('admin-call builders', () => {
     expect(new algosdk.ABIStringType().decode(appArgs[1])).toBe('github:octocat')
     expect(new algosdk.ABIAddressType().decode(appArgs[2])).toBe(identityAddress)
     const boxes = txn.applicationCall?.boxes ?? []
-    expect(boxes).toHaveLength(1)
-    expect(boxes[0].appIndex).toBe(0n)
+    expect(boxes.map((b) => b.appIndex)).toEqual([0n, 0n, 0n, 0n])
+    const names = boxes.map((b) => new TextDecoder().decode(b.name))
+    expect(names).toEqual([
+      'id:github:octocat',
+      'bal:github:octocat',
+      'pa:github:octocat',
+      'pr:github:octocat',
+    ])
     expect(new Uint8Array(boxes[0].name)).toEqual(identityBoxName('github:octocat'))
   })
 
