@@ -28,6 +28,7 @@ import {
   identityBoxName,
   parseAdminMultisigAddrs,
   parseAppId,
+  parseCarryIn,
   parseNetwork,
   resolveClientConfig,
   resolveExecuteReleaseFee,
@@ -371,12 +372,25 @@ describe('buildUnsignedCreateApplicationTxn', () => {
 
     expect(txn.sender.toString()).toBe(multisigAddress)
     const appArgs = txn.applicationCall?.appArgs ?? []
-    expect(appArgs).toHaveLength(3)
+    expect(appArgs).toHaveLength(4)
     expect(appArgs[0]).toEqual(
-      algosdk.ABIMethod.fromSignature('createApplication(address,uint64)void').getSelector(),
+      algosdk.ABIMethod.fromSignature('createApplication(address,uint64,uint64)void').getSelector(),
     )
     expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(payToAddress)
     expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(31566704n)
+    expect(new algosdk.ABIUintType(64).decode(appArgs[3])).toBe(0n)
+  })
+
+  test('encodes carryIn as the third ABI arg', () => {
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+      123_456n,
+    )
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(new algosdk.ABIUintType(64).decode(appArgs[3])).toBe(123_456n)
   })
 
   test('a different payToAddress or usdcAssetId changes the encoded args, not the sender', () => {
@@ -391,6 +405,23 @@ describe('buildUnsignedCreateApplicationTxn', () => {
     const appArgs = txn.applicationCall?.appArgs ?? []
     expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(otherPayTo)
     expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(10458941n)
+  })
+})
+
+describe('parseCarryIn', () => {
+  test('unset or empty means 0', () => {
+    expect(parseCarryIn(undefined)).toBe(0n)
+    expect(parseCarryIn('')).toBe(0n)
+  })
+
+  test('parses a non-negative integer', () => {
+    expect(parseCarryIn('250000')).toBe(250_000n)
+  })
+
+  test('refuses a negative, fractional or non-numeric value', () => {
+    for (const bad of ['-1', '1.5', '1e3', 'abc']) {
+      expect(() => parseCarryIn(bad)).toThrow('CARRY_IN must be a non-negative integer')
+    }
   })
 })
 

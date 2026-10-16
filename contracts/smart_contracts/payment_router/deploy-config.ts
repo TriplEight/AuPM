@@ -205,6 +205,8 @@ export interface DeployPaymentRouterParams {
   deployer: TransactionSignerAccount
   crediterAddress: string
   payToAddress: string
+  /** USDC micro-units at payTo that an earlier app did not pay out. Defaults to 0. */
+  carryIn?: bigint
   /** Every identity to map, ops included (contract.algo.ts's OPS_IDENTITY). */
   identityMap: Map<string, string>
   /**
@@ -337,6 +339,7 @@ export async function deployPaymentRouter(
     deployer,
     crediterAddress,
     payToAddress,
+    carryIn = 0n,
     identityMap,
     appName,
     requireFreshCreate,
@@ -365,7 +368,7 @@ export async function deployPaymentRouter(
   const { appClient, result } = await factory.deploy({
     createParams: {
       method: 'createApplication',
-      args: { payTo: payToAddress, usdcAsset: usdcAssetId },
+      args: { payTo: payToAddress, usdcAsset: usdcAssetId, carryIn },
     },
     onUpdate: 'append',
     onSchemaBreak: 'append',
@@ -504,10 +507,24 @@ export function deriveAdminMultisigAddress(params: algosdk.MultisigMetadata): st
   return algosdk.multisigAddress(params).toString()
 }
 
-const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)void'
+/**
+ * Parses CARRY_IN (USDC micro-units, a non-negative integer) for createApplication. Unset
+ * means 0. Pure: covered directly by deploy-config.spec.ts.
+ *
+ * @param carryInEnv - the raw CARRY_IN environment value.
+ */
+export function parseCarryIn(carryInEnv: string | undefined): bigint {
+  if (carryInEnv === undefined || carryInEnv === '') return 0n
+  if (!/^\d+$/.test(carryInEnv)) {
+    throw new Error(`CARRY_IN must be a non-negative integer, got ${JSON.stringify(carryInEnv)}`)
+  }
+  return BigInt(carryInEnv)
+}
+
+const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64,uint64)void'
 
 /**
- * Builds the unsigned createApplication(payTo, usdcAsset) call, sender set
+ * Builds the unsigned createApplication(payTo, usdcAsset, carryIn) call, sender set
  * to the admin multisig address, ready for the offline goal signing flow
  * documented above. Reads the compiled approval/clear programs and the
  * global state schema straight off the generated ARC-56 spec — never
@@ -520,12 +537,14 @@ const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64)vo
  * @param payToAddress - the payTo account this deploy fixes at creation.
  * @param usdcAssetId - the USDC asset id for the target network.
  * @param suggestedParams - the algod transaction params (fee, validity window, genesis).
+ * @param carryIn - USDC micro-units at payTo that an earlier app did not pay out. Defaults to 0.
  */
 export function buildUnsignedCreateApplicationTxn(
   multisigAddress: string,
   payToAddress: string,
   usdcAssetId: number,
   suggestedParams: algosdk.SuggestedParams,
+  carryIn: bigint = 0n,
 ): algosdk.Transaction {
   if (!APP_SPEC.byteCode) {
     throw new Error(
@@ -537,6 +556,7 @@ export function buildUnsignedCreateApplicationTxn(
     method.getSelector(),
     new algosdk.ABIAddressType().encode(payToAddress),
     new algosdk.ABIUintType(64).encode(usdcAssetId),
+    new algosdk.ABIUintType(64).encode(carryIn),
   ]
   const schema = APP_SPEC.state.schema
   return algosdk.makeApplicationCreateTxnFromObject({
@@ -593,6 +613,7 @@ export async function deployMultisigCreate(): Promise<void> {
     payToAddress,
     USDC_ASSET_ID[network],
     suggestedParams,
+    parseCarryIn(process.env.CARRY_IN),
   )
 
   const outPath = process.env.PAYMENT_ROUTER_MSIG_CREATE_TXN_PATH ?? './payment-router-create.txn'
