@@ -12,7 +12,13 @@ import {
   POOL_ROLES,
   type PoolRole,
 } from './attribution-rules.js'
-import db, { type AccrualRow, type BatchRow, type PayoutRow } from './schema.js'
+import db, {
+  type AccrualRow,
+  type BacklogRow,
+  type BatchRow,
+  type PayeeRow,
+  type PayoutRow,
+} from './schema.js'
 
 // ---------------------------------------------------------------------------
 // Identity canonicalisation
@@ -204,7 +210,13 @@ function shareArgs(filter: ShareFilter): [string, string, string, string | null,
   return [filter.pkg, filter.version, filter.role, identity, identity]
 }
 
-const freezeStmt = db.prepare(`UPDATE accruals SET frozen = 1 WHERE ${SHARE_SCOPE} AND frozen = 0`)
+// A freeze acts only on a held share: one whose hold has not ended (`unlock_at`
+// after the clock). A matured share waits for its payout threshold, out of
+// reach of a freeze. Release, slash and forfeit act on frozen shares only, and
+// a share frozen before its hold ended stays under dispute after it.
+const freezeStmt = db.prepare(
+  `UPDATE accruals SET frozen = 1 WHERE ${SHARE_SCOPE} AND frozen = 0 AND unlock_at > ?`,
+)
 const releaseStmt = db.prepare(`UPDATE accruals SET frozen = 0 WHERE ${SHARE_SCOPE} AND frozen = 1`)
 const convertStmt = db.prepare(
   `UPDATE accruals SET treasury_kind = ?, frozen = 0, unlock_at = 0
@@ -212,12 +224,13 @@ const convertStmt = db.prepare(
 )
 
 /**
- * Freezes the uncredited payee shares that `filter` selects. A frozen share
- * is never credited. Returns the number of shares frozen.
+ * Freezes the held payee shares that `filter` selects: uncredited shares whose
+ * hold has not ended at `now`. A frozen share is never credited. Returns the
+ * number of shares frozen.
  */
-export function freezeShares(filter: ShareFilter): number {
+export function freezeShares(filter: ShareFilter, now: number = Date.now()): number {
   assertPoolRole('freezeShares', filter.role)
-  return freezeStmt.run(...shareArgs(filter)).changes
+  return freezeStmt.run(...shareArgs(filter), now).changes
 }
 
 /**
@@ -251,10 +264,10 @@ export function forfeitShares(filter: Omit<ShareFilter, 'role'>): number {
 // Batches (nightly credit step)
 // ---------------------------------------------------------------------------
 
-/** One `(repo, identity)` amount for `credit()`'s `entries` argument. */
-export interface CreditEntry {
-  repo: string
+/** One payee payout for `credit()`'s `payouts` argument. */
+export interface CreditPayout {
   identity: string
+  address: string
   amountMicro: number
 }
 
@@ -266,14 +279,16 @@ export interface CreditTotals {
   unattributedMicro: number
   /** Matured `unallocated`, `slash` and `forfeit` treasury income. */
   treasuryExtraMicro: number
-  /** Payee shares, summed per `(repo, identity)`. */
-  entries: CreditEntry[]
+  /** Payee shares, summed per payee. */
+  payouts: CreditPayout[]
 }
 
 /** The rows one batch counts (`counted`) and credits (`paid`). */
 export interface BatchPlan {
   counted: AccrualRow[]
   paid: AccrualRow[]
+  /** Payout address of each payee identity in `paid`. */
+  addresses?: Readonly<Record<string, string>>
 }
 
 /** True for a share of a pool role, whether it has a payee or not. */
@@ -281,35 +296,44 @@ export function isPoolShare(row: AccrualRow): boolean {
   return (POOL_ROLES as readonly string[]).includes(row.role)
 }
 
-function addEntry(entries: Map<string, CreditEntry>, row: AccrualRow): void {
-  const repo = row.repo ?? ''
-  const key = `${repo}\u0000${row.identity}`
-  const existing = entries.get(key)
-  if (existing) existing.amountMicro += row.amount_micro
-  else entries.set(key, { repo, identity: row.identity, amountMicro: row.amount_micro })
-}
-
 /**
  * Groups the rows of a batch into the shape `credit()` needs. `counted` rows
  * add to `newTotalMicro`, or to `unattributedMicro` when the row is an
  * unmatched inflow. `paid` rows add to `treasuryExtraMicro` when they carry a
- * treasury kind, and to `entries` otherwise. Entries sum per `(repo,
- * identity)`, never per payment.
+ * treasury kind, and to `payouts` otherwise. Payouts sum per payee, never per
+ * payment, sort by identity (the order of a stored batch) and each needs an address in `plan.addresses`.
  */
 export function groupForCredit(plan: BatchPlan): CreditTotals {
   let newTotalMicro = 0
   let unattributedMicro = 0
   let treasuryExtraMicro = 0
-  const entries = new Map<string, CreditEntry>()
+  const payouts = new Map<string, CreditPayout>()
   for (const row of plan.counted) {
     if (row.route === 'unassigned') unattributedMicro += row.amount_micro
     else newTotalMicro += row.amount_micro
   }
   for (const row of plan.paid) {
-    if (row.treasury_kind !== null) treasuryExtraMicro += row.amount_micro
-    else addEntry(entries, row)
+    if (row.treasury_kind !== null) {
+      treasuryExtraMicro += row.amount_micro
+      continue
+    }
+    const existing = payouts.get(row.identity)
+    if (existing) {
+      existing.amountMicro += row.amount_micro
+      continue
+    }
+    const address = plan.addresses?.[row.identity]
+    if (address === undefined) {
+      throw new Error(`groupForCredit: payee ${row.identity} has no payout address in the plan`)
+    }
+    payouts.set(row.identity, { identity: row.identity, address, amountMicro: row.amount_micro })
   }
-  return { newTotalMicro, unattributedMicro, treasuryExtraMicro, entries: [...entries.values()] }
+  return {
+    newTotalMicro,
+    unattributedMicro,
+    treasuryExtraMicro,
+    payouts: [...payouts.values()].sort((a, b) => (a.identity < b.identity ? -1 : 1)),
+  }
 }
 
 const listCandidateRows = db.prepare<[], AccrualRow>(
@@ -328,17 +352,25 @@ export function listCreditCandidates(): AccrualRow[] {
   return listCandidateRows.all()
 }
 
-const listPaidRowsForBatch = db.prepare<[number, number], AccrualRow>(
-  'SELECT * FROM accruals WHERE paid_app_id = ? AND paid_seq = ? ORDER BY created_at, settle_txid',
+const listBatchPayoutRows = db.prepare<
+  [number, number],
+  { identity: string; address: string; amount_micro: number }
+>(
+  'SELECT identity, address, amount_micro FROM batch_payouts ' +
+    'WHERE app_id = ? AND batch_seq = ? ORDER BY identity',
 )
 
 /**
- * Rebuilds the `entries` of a batch from the rows it credited. A resend of a
- * batch that crashed before its credit txid was recorded uses exactly these
- * rows, never a fresh snapshot (see `getPendingBatch`).
+ * The payouts of a batch, as stored when the batch opened. A resend of a batch
+ * that crashed before its credit txid was recorded uses exactly these payouts,
+ * never a fresh snapshot (see `getPendingBatch`).
  */
-export function summarizeBatch(appId: number, batchSeq: number): CreditEntry[] {
-  return groupForCredit({ counted: [], paid: listPaidRowsForBatch.all(appId, batchSeq) }).entries
+export function listBatchPayouts(appId: number, batchSeq: number): CreditPayout[] {
+  return listBatchPayoutRows.all(appId, batchSeq).map((row) => ({
+    identity: row.identity,
+    address: row.address,
+    amountMicro: row.amount_micro,
+  }))
 }
 
 const ROW_KEY = 'settle_txid = ? AND role = ? AND pkg = ? AND version = ? AND identity = ?'
@@ -379,6 +411,10 @@ const insertBatch = db.prepare<[number, number, number, number, number, number]>
      (app_id, batch_seq, new_total_micro, unattributed_micro, treasury_extra_micro, created_at)
    VALUES (?, ?, ?, ?, ?, ?)`,
 )
+const insertBatchPayout = db.prepare<[number, number, string, string, number]>(
+  `INSERT INTO batch_payouts (app_id, batch_seq, identity, address, amount_micro)
+   VALUES (?, ?, ?, ?, ?)`,
+)
 
 function assignRows(
   stmt: typeof assignCounted,
@@ -405,7 +441,7 @@ function assignRows(
  * `credit_txid` starts NULL. Throws, and writes nothing, when a row is
  * missing, frozen, or already in a batch.
  *
- * @returns the totals and entries of the plan — what `credit()` must send.
+ * @returns the totals and payouts of the plan — what `credit()` must send.
  */
 export const openBatch = db.transaction(
   (appId: number, batchSeq: number, plan: BatchPlan): CreditTotals => {
@@ -420,6 +456,9 @@ export const openBatch = db.transaction(
     )
     assignRows(assignCounted, 'counted', appId, batchSeq, plan.counted)
     assignRows(assignPaid, 'credited', appId, batchSeq, plan.paid)
+    for (const payout of totals.payouts) {
+      insertBatchPayout.run(appId, batchSeq, payout.identity, payout.address, payout.amountMicro)
+    }
     return totals
   },
 )
@@ -430,6 +469,9 @@ const unassignCounted = db.prepare<[number, number]>(
 )
 const unassignPaid = db.prepare<[number, number]>(
   'UPDATE accruals SET paid_app_id = NULL, paid_seq = NULL WHERE paid_app_id = ? AND paid_seq = ?',
+)
+const deleteBatchPayouts = db.prepare<[number, number]>(
+  'DELETE FROM batch_payouts WHERE app_id = ? AND batch_seq = ?',
 )
 const deletePendingBatchRow = db.prepare<[number, number]>(
   'DELETE FROM batches WHERE app_id = ? AND batch_seq = ? AND credit_txid IS NULL',
@@ -445,6 +487,7 @@ const deletePendingBatchRow = db.prepare<[number, number]>(
 export const releaseBatch = db.transaction((appId: number, batchSeq: number): void => {
   unassignCounted.run(appId, batchSeq)
   unassignPaid.run(appId, batchSeq)
+  deleteBatchPayouts.run(appId, batchSeq)
   const { changes } = deletePendingBatchRow.run(appId, batchSeq)
   if (changes !== 1) {
     throw new Error(
@@ -457,12 +500,32 @@ export const releaseBatch = db.transaction((appId: number, batchSeq: number): vo
 const recordCreditTxidStmt = db.prepare<[string, number, number]>(
   'UPDATE batches SET credit_txid = ? WHERE app_id = ? AND batch_seq = ?',
 )
+const stampPayeesStmt = db.prepare<[number, number, number]>(
+  `UPDATE payees SET last_payout_at = ?
+   WHERE identity IN (SELECT identity FROM batch_payouts WHERE app_id = ? AND batch_seq = ?)`,
+)
+const recordBatchPayoutsStmt = db.prepare<[string, number, number, number]>(
+  `INSERT INTO payouts (identity, role, amount_micro, txid, paid_at)
+   SELECT identity, role, SUM(amount_micro), ?, ? FROM accruals
+   WHERE paid_app_id = ? AND paid_seq = ? AND treasury_kind IS NULL
+     AND role IN ('reviewer', 'contributor', 'maintainer')
+   GROUP BY identity, role
+   ON CONFLICT (identity, role, txid) DO NOTHING`,
+)
 
-/** Records the confirmed credit() txid on batch `batchSeq` of `appId`. A
- * batch row whose txid is recorded is never sent again. */
-export function recordBatchCreditTxid(appId: number, batchSeq: number, txid: string): void {
-  recordCreditTxidStmt.run(txid, appId, batchSeq)
-}
+/**
+ * Records the confirmed credit() txid on batch `batchSeq` of `appId`, in one
+ * SQLite transaction. A batch row whose txid is recorded is never sent again.
+ * It also stamps `last_payout_at` of every payee the batch paid with `now`,
+ * and records what each payee received per role in `payouts`.
+ */
+export const recordBatchCreditTxid = db.transaction(
+  (appId: number, batchSeq: number, txid: string, now: number = Date.now()): void => {
+    recordCreditTxidStmt.run(txid, appId, batchSeq)
+    stampPayeesStmt.run(now, appId, batchSeq)
+    recordBatchPayoutsStmt.run(txid, now, appId, batchSeq)
+  },
+)
 
 // ---------------------------------------------------------------------------
 // Payouts
@@ -494,4 +557,102 @@ export function listPayoutsForIdentity(identity: string): PayoutRow[] {
   return db
     .prepare<[string], PayoutRow>('SELECT * FROM payouts WHERE identity = ?')
     .all(canonicalizeIdentity(identity))
+}
+
+// ---------------------------------------------------------------------------
+// Payees and payout balances
+// ---------------------------------------------------------------------------
+
+const upsertPayeeStmt = db.prepare<[string, string, number, number]>(
+  `INSERT INTO payees (identity, payout_address, onboarded_at, last_optin_check)
+   VALUES (?, ?, ?, ?)
+   ON CONFLICT (identity) DO UPDATE
+     SET payout_address = excluded.payout_address, last_optin_check = excluded.last_optin_check`,
+)
+
+/**
+ * Adds a payee, or changes the payout address of an existing one. A change keeps
+ * `onboarded_at` and `last_payout_at`. `checkedAt` is the time (ms) of the algod
+ * check that approved the address. An ops action: no multisig is involved.
+ */
+export function upsertPayee(
+  identity: string,
+  payoutAddress: string,
+  onboardedAt: number,
+  checkedAt: number,
+): void {
+  upsertPayeeStmt.run(canonicalizeIdentity(identity), payoutAddress, onboardedAt, checkedAt)
+}
+
+export function getPayee(identity: string): PayeeRow | undefined {
+  return db
+    .prepare<[string], PayeeRow>('SELECT * FROM payees WHERE identity = ?')
+    .get(canonicalizeIdentity(identity))
+}
+
+export function listPayees(): PayeeRow[] {
+  return db.prepare<[], PayeeRow>('SELECT * FROM payees ORDER BY identity').all()
+}
+
+const touchPayeeStmt = db.prepare<[number, string]>(
+  'UPDATE payees SET last_optin_check = ? WHERE identity = ?',
+)
+
+/** Records the time (ms) of the last opt-in check of a payee's address. */
+export function touchPayeeOptInCheck(identity: string, checkedAt: number): void {
+  touchPayeeStmt.run(checkedAt, canonicalizeIdentity(identity))
+}
+
+/** A payee's matured, unfrozen, unpaid pool balance in micro-USDC. */
+export interface PayeeBalance {
+  identity: string
+  balanceMicro: number
+}
+
+const listBalancesStmt = db.prepare<[number], { identity: string; total: number }>(
+  `SELECT identity, SUM(amount_micro) AS total FROM accruals
+   WHERE paid_seq IS NULL AND treasury_kind IS NULL AND frozen = 0 AND unlock_at <= ?
+     AND role IN ('reviewer', 'contributor', 'maintainer')
+   GROUP BY identity ORDER BY identity`,
+)
+
+/**
+ * The matured, unfrozen, unpaid balance of every payee identity at `now`. A
+ * share inside its hold, a frozen share and a credited share do not count.
+ */
+export function listPayeeBalances(now: number): PayeeBalance[] {
+  return listBalancesStmt
+    .all(now)
+    .map((row) => ({ identity: row.identity, balanceMicro: row.total }))
+}
+
+const selectPreviousDayStmt = db.prepare<[number], BacklogRow>(
+  'SELECT * FROM backlog_days WHERE day < ? ORDER BY day DESC LIMIT 1',
+)
+const upsertDayStmt = db.prepare<[number, number, number]>(
+  `INSERT INTO backlog_days (day, total_micro, grew_streak) VALUES (?, ?, ?)
+   ON CONFLICT (day) DO UPDATE
+     SET total_micro = excluded.total_micro, grew_streak = excluded.grew_streak`,
+)
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Records the matured, unpaid payee total of the UTC day of `now` and returns
+ * how many days in a row it grew. A day grows when its total is above the total
+ * of the previous recorded day (0 before the first record). A second record on
+ * the same day replaces the first. Any day without growth resets the count to 0.
+ */
+export function recordBacklog(totalMicro: number, now: number): number {
+  const day = Math.floor(now / DAY_MS)
+  const previous = selectPreviousDayStmt.get(day)
+  const grew = totalMicro > (previous?.total_micro ?? 0)
+  const streak = grew ? (previous?.grew_streak ?? 0) + 1 : 0
+  upsertDayStmt.run(day, totalMicro, streak)
+  return streak
+}
+
+/** The sum of `listPayeeBalances(now)`: the backlog the payout rules have not paid. */
+export function matureUnpaidTotal(now: number): number {
+  return listPayeeBalances(now).reduce((sum, row) => sum + row.balanceMicro, 0)
 }

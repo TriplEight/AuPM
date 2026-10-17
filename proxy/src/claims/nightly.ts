@@ -19,6 +19,7 @@
 
 import { PAY_TO } from '../config.js'
 import { type CreditChainClient, runCreditStep } from './credit.js'
+import { matureUnpaidTotal, recordBacklog } from './ledger.js'
 import { type IndexerClient, reconcile } from './reconcile.js'
 import {
   acquireNightlyLease,
@@ -46,6 +47,8 @@ export interface NightlyDeps {
   assertGenesisMatches: () => void | Promise<void>
   env?: NodeJS.ProcessEnv
   log?: (line: string) => void
+  /** The clock in ms. Defaults to `Date.now`. */
+  now?: () => number
   /**
    * Called once per batch the credit step credited this run, in batch order.
    * Lets runNightlyWithLease record the last `batch_seq`/`credit_txid` on the
@@ -63,6 +66,7 @@ export interface NightlyDeps {
 export async function runNightly(deps: NightlyDeps): Promise<void> {
   const log = deps.log ?? console.log
   const env = deps.env ?? process.env
+  const clock = deps.now ?? Date.now
 
   await deps.assertGenesisMatches()
 
@@ -88,13 +92,48 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
     return
   }
 
-  // One credit() call holds at most MAX_IDENTITY_BOXES identities and
-  // MAX_CREDIT_ENTRIES (repo, identity) entries, so a large backlog needs
-  // several batches. Each credited batch closes the pending
-  // batch or stamps at least one uncredited row, so this loop always ends.
+  await creditAllBatches(deps, env, log, clock)
+  checkBacklog(log, clock())
+}
+
+/** Nights in a row of growth of the matured, unpaid total that raise the alert. */
+export const BACKLOG_ALERT_NIGHTS = 7
+
+/**
+ * Records tonight's matured, unpaid payee total and alerts the operator, in the
+ * run log, when it has grown for BACKLOG_ALERT_NIGHTS nights in a row. A
+ * growing total means payees are not paid: an address that fails the opt-in
+ * check, no address at all, or a payout cap that is too low.
+ */
+function checkBacklog(log: (line: string) => void, now: number): void {
+  const total = matureUnpaidTotal(now)
+  const nights = recordBacklog(total, now)
+  if (nights >= BACKLOG_ALERT_NIGHTS) {
+    log(
+      `aupm-nightly: ALERT matured unpaid payee total grew ${nights} nights in a row, ` +
+        `now ${total} micro-USDC`,
+    )
+  }
+}
+
+/**
+ * Credits batch after batch until the credit step has nothing left to do. One
+ * batch holds at most MAX_PAYOUTS_PER_GROUP payees, so a large backlog needs
+ * several batches. A failed batch throws and stops the run; the next run
+ * continues from the on-chain batch number. Each credited batch closes the
+ * pending batch or stamps at least one uncredited row, so this loop always ends.
+ */
+async function creditAllBatches(
+  deps: NightlyDeps,
+  env: NodeJS.ProcessEnv,
+  log: (line: string) => void,
+  clock: () => number,
+): Promise<void> {
+  const client = deps.creditClient
+  if (!client) return
   let credited = 0
   for (;;) {
-    const outcome = await runCreditStep(deps.creditClient, env)
+    const outcome = await runCreditStep(client, env, clock(), log)
     if (!outcome.ran) {
       if (credited === 0) log(`aupm-nightly: credit skipped — ${outcome.reason}`)
       return

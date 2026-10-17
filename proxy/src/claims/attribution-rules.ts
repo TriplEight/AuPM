@@ -78,6 +78,70 @@ export function holdMsFromEnv(env: NodeJS.ProcessEnv): number {
   return days * DAY_MS
 }
 
+const DAYS_BEFORE_DUST_PAYOUT = 7
+const DAYS_BEFORE_FLOOR_PAYOUT = 30
+
+/** The off-chain thresholds that decide when a payee's matured balance is paid. */
+export interface PayoutRules {
+  /** At or above this balance (micro-USDC) a payee is paid on any night. */
+  minMicro: number
+  /** At or above this balance a payee is paid when the last payout is 7 days old. */
+  dustMicro: number
+  /** At or above this balance a payee is paid when the last payout is 30 days old. */
+  floorMicro: number
+}
+
+export const DEFAULT_PAYOUT_RULES: PayoutRules = {
+  minMicro: 1_000_000,
+  dustMicro: 100_000,
+  floorMicro: 10_000,
+}
+
+function positiveIntegerFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
+  const raw = env[name]?.trim()
+  if (raw === undefined || raw === '') return fallback
+  const value = Number(raw)
+  if (!/^\d+$/.test(raw) || !Number.isSafeInteger(value) || value < 1) {
+    throw new Error(
+      `${name} must be a whole number of micro-USDC of at least 1, got "${raw}". ` +
+        `Unset it to use the default of ${fallback}.`,
+    )
+  }
+  return value
+}
+
+/**
+ * Reads the payout thresholds from `PAYOUT_MIN`, `PAYOUT_DUST` and
+ * `PAYOUT_FLOOR`, in micro-USDC. An unset or empty value gives the default.
+ * Throws on a value that is not a whole number of at least 1.
+ */
+export function payoutRulesFromEnv(env: NodeJS.ProcessEnv): PayoutRules {
+  return {
+    minMicro: positiveIntegerFromEnv(env, 'PAYOUT_MIN', DEFAULT_PAYOUT_RULES.minMicro),
+    dustMicro: positiveIntegerFromEnv(env, 'PAYOUT_DUST', DEFAULT_PAYOUT_RULES.dustMicro),
+    floorMicro: positiveIntegerFromEnv(env, 'PAYOUT_FLOOR', DEFAULT_PAYOUT_RULES.floorMicro),
+  }
+}
+
+/**
+ * True when a payee's matured, unfrozen `balanceMicro` is due for payout:
+ * at or above the minimum on any night; at or above the dust level when the
+ * last payout is 7 days old; at or above the floor when it is 30 days old.
+ * `lastPayoutAt` is the time (ms) of the last payout, or the onboarding time
+ * for a payee that was never paid.
+ */
+export function isPayoutDue(
+  balanceMicro: number,
+  lastPayoutAt: number,
+  now: number,
+  rules: PayoutRules,
+): boolean {
+  if (balanceMicro >= rules.minMicro) return true
+  const idleMs = now - lastPayoutAt
+  if (idleMs >= DAYS_BEFORE_DUST_PAYOUT * DAY_MS && balanceMicro >= rules.dustMicro) return true
+  return idleMs >= DAYS_BEFORE_FLOOR_PAYOUT * DAY_MS && balanceMicro >= rules.floorMicro
+}
+
 /**
  * Canonical sort order for ledger writes: by package name, then version.
  * Deterministic so the same payment always writes its accrual rows in the
