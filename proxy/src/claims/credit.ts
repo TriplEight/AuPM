@@ -574,6 +574,26 @@ function httpStatusOf(err: unknown): number | undefined {
 }
 
 /**
+ * Builds the USDC opt-in check for a payout address over an algod client. It needs no signing key.
+ * A missing asset holding, or a 404 from algod, means the address has not opted in.
+ */
+export function buildAlgodPayoutChecker(
+  algod: algosdk.Algodv2,
+  assetId: bigint,
+): CreditChainClient['checkPayoutAddress'] {
+  return async (address) => {
+    try {
+      const info = await algod.accountAssetInformation(address, assetId).do()
+      if (!info.assetHolding) return 'not-opted-in'
+      return info.assetHolding.isFrozen ? 'frozen' : 'ok'
+    } catch (err) {
+      if (httpStatusOf(err) === 404) return 'not-opted-in'
+      throw err
+    }
+  }
+}
+
+/**
  * Build a real, injectable CreditChainClient over algosdk (see the
  * CREDIT_METHOD_SIGNATURE comment above for why not algokit-utils).
  * `algod` is a caller-built Algodv2 client; `indexer` is a caller-built
@@ -606,16 +626,7 @@ export function buildAlgodCreditClient(
       return value ? Number(value.uint) : 0
     },
 
-    async checkPayoutAddress(address) {
-      try {
-        const info = await algod.accountAssetInformation(address, assetId).do()
-        if (!info.assetHolding) return 'not-opted-in'
-        return info.assetHolding.isFrozen ? 'frozen' : 'ok'
-      } catch (err) {
-        if (httpStatusOf(err) === 404) return 'not-opted-in'
-        throw err
-      }
-    },
+    checkPayoutAddress: buildAlgodPayoutChecker(algod, assetId),
 
     async findCreditTxidByNote(appId, batchSeq) {
       const note = creditNote(batchSeq)
