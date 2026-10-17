@@ -658,6 +658,9 @@ export async function deployMultisigCreate(): Promise<void> {
 const SET_CREDITER_METHOD_SIGNATURE = 'setCrediter(address)void'
 const ANNOUNCE_RELEASE_METHOD_SIGNATURE = 'announceRelease(address)void'
 const EXECUTE_RELEASE_METHOD_SIGNATURE = 'executeRelease()void'
+const LOWER_PAYOUT_CAP_METHOD_SIGNATURE = 'lowerPayoutCap(uint64)void'
+const ANNOUNCE_CHANGE_METHOD_SIGNATURE = 'announceChange(string,byte[])void'
+const APPLY_CHANGE_METHOD_SIGNATURE = 'applyChange()void'
 
 /**
  * The flat outer fee executeRelease() uses. It submits one inner transaction (the payTo rekey
@@ -805,6 +808,123 @@ export function buildUnsignedExecuteReleaseTxn(
   })
 }
 
+/** The largest value a uint64 holds. */
+const UINT64_MAX = (BigInt(1) << BigInt(64)) - BigInt(1)
+
+/** The keys announceChange accepts: the payout cap, the ops address and the treasury address. */
+export type ChangeKey = 'cap' | 'ops' | 'trs'
+
+function assertUint64(value: bigint, label: string): void {
+  if (value < BigInt(0) || value > UINT64_MAX) {
+    throw new Error(`${label} must be between 0 and 2^64-1, got ${value}`)
+  }
+}
+
+/**
+ * Encodes the announceChange value bytes. A cap is 8 bytes big-endian. An ops or trs value is
+ * the 32 public-key bytes of an Algorand address. Pure: covered directly by
+ * deploy-config.spec.ts.
+ *
+ * @param key - the pending-change key: "cap", "ops" or "trs".
+ * @param value - a bigint for "cap", an Algorand address string for "ops" and "trs".
+ */
+export function encodeChangeValue(key: string, value: bigint | string): Uint8Array {
+  if (key === 'cap') {
+    if (typeof value !== 'bigint') throw new Error('the cap change value must be a bigint')
+    assertUint64(value, 'cap')
+    return new algosdk.ABIUintType(64).encode(value)
+  }
+  if (key === 'ops' || key === 'trs') {
+    if (typeof value !== 'string' || !algosdk.isValidAddress(value)) {
+      throw new Error(`the ${key} change value must be a valid Algorand address`)
+    }
+    return algosdk.decodeAddress(value).publicKey
+  }
+  throw new Error(`unknown change key ${JSON.stringify(key)}, expected "cap", "ops" or "trs"`)
+}
+
+/**
+ * Builds the unsigned lowerPayoutCap(cap) call, sender set to the admin multisig address.
+ *
+ * @param appId - the deployed PaymentRouter app id (parseAppId).
+ * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
+ * @param cap - the new payout cap in USDC micro-units, from 0 to 2^64-1.
+ * @param suggestedParams - the algod transaction params.
+ */
+export function buildUnsignedLowerPayoutCapTxn(
+  appId: bigint,
+  multisigAddress: string,
+  cap: bigint,
+  suggestedParams: algosdk.SuggestedParams,
+): algosdk.Transaction {
+  assertUint64(cap, 'cap')
+  assertMethodSignatureMatchesSpec(LOWER_PAYOUT_CAP_METHOD_SIGNATURE, APP_SPEC)
+  const method = algosdk.ABIMethod.fromSignature(LOWER_PAYOUT_CAP_METHOD_SIGNATURE)
+  return algosdk.makeApplicationCallTxnFromObject({
+    sender: multisigAddress,
+    appIndex: appId,
+    onComplete: algosdk.OnApplicationComplete.NoOpOC,
+    appArgs: [method.getSelector(), new algosdk.ABIUintType(64).encode(cap)],
+    suggestedParams,
+  })
+}
+
+/**
+ * Builds the unsigned announceChange(key, value) call, sender set to the admin multisig address.
+ * The value encoding depends on the key (encodeChangeValue).
+ *
+ * @param appId - the deployed PaymentRouter app id (parseAppId).
+ * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
+ * @param key - the pending-change key: "cap", "ops" or "trs".
+ * @param value - a bigint for "cap", an Algorand address string for "ops" and "trs".
+ * @param suggestedParams - the algod transaction params.
+ */
+export function buildUnsignedAnnounceChangeTxn(
+  appId: bigint,
+  multisigAddress: string,
+  key: ChangeKey,
+  value: bigint | string,
+  suggestedParams: algosdk.SuggestedParams,
+): algosdk.Transaction {
+  const valueBytes = encodeChangeValue(key, value)
+  assertMethodSignatureMatchesSpec(ANNOUNCE_CHANGE_METHOD_SIGNATURE, APP_SPEC)
+  const method = algosdk.ABIMethod.fromSignature(ANNOUNCE_CHANGE_METHOD_SIGNATURE)
+  return algosdk.makeApplicationCallTxnFromObject({
+    sender: multisigAddress,
+    appIndex: appId,
+    onComplete: algosdk.OnApplicationComplete.NoOpOC,
+    appArgs: [
+      method.getSelector(),
+      new algosdk.ABIStringType().encode(key),
+      algosdk.ABIType.from('byte[]').encode(valueBytes),
+    ],
+    suggestedParams,
+  })
+}
+
+/**
+ * Builds the unsigned applyChange() call, sender set to the admin multisig address.
+ *
+ * @param appId - the deployed PaymentRouter app id (parseAppId).
+ * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
+ * @param suggestedParams - the algod transaction params.
+ */
+export function buildUnsignedApplyChangeTxn(
+  appId: bigint,
+  multisigAddress: string,
+  suggestedParams: algosdk.SuggestedParams,
+): algosdk.Transaction {
+  assertMethodSignatureMatchesSpec(APPLY_CHANGE_METHOD_SIGNATURE, APP_SPEC)
+  const method = algosdk.ABIMethod.fromSignature(APPLY_CHANGE_METHOD_SIGNATURE)
+  return algosdk.makeApplicationCallTxnFromObject({
+    sender: multisigAddress,
+    appIndex: appId,
+    onComplete: algosdk.OnApplicationComplete.NoOpOC,
+    appArgs: [method.getSelector()],
+    suggestedParams,
+  })
+}
+
 /**
  * Shared setup every deployMultisig* CLI entry below needs: the resolved network, the MainNet
  * confirmation guard, the admin multisig address, the target app id, and a genesis-checked
@@ -896,6 +1016,70 @@ export async function deployMultisigExecuteRelease(): Promise<void> {
     './payment-router-execute-release.txn'
   writeUnsignedTxnFile(txn, outPath)
   printMultisigSigningInstructions('executeRelease', outPath)
+}
+
+/**
+ * CLI entry point: builds lowerPayoutCap(cap) for the admin multisig and writes it, unsigned, to
+ * PAYMENT_ROUTER_MSIG_LOWER_PAYOUT_CAP_TXN_PATH (default ./payment-router-lower-payout-cap.txn).
+ * PAYOUT_CAP is the new cap in USDC micro-units.
+ */
+export async function deployMultisigLowerPayoutCap(): Promise<void> {
+  const cap = parsePayoutCap(process.env.PAYOUT_CAP)
+
+  const { multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
+  const txn = buildUnsignedLowerPayoutCapTxn(appId, multisigAddress, cap, suggestedParams)
+
+  const outPath =
+    process.env.PAYMENT_ROUTER_MSIG_LOWER_PAYOUT_CAP_TXN_PATH ??
+    './payment-router-lower-payout-cap.txn'
+  writeUnsignedTxnFile(txn, outPath)
+  printMultisigSigningInstructions('lowerPayoutCap', outPath)
+}
+
+/**
+ * Reads CHANGE_KEY and CHANGE_VALUE. CHANGE_VALUE is digits for "cap" and an address for "ops"
+ * and "trs". Pure apart from the environment read: covered directly by deploy-config.spec.ts.
+ */
+export function parseChangeFromEnv(): { key: ChangeKey; value: bigint | string } {
+  const key = process.env.CHANGE_KEY
+  const value = process.env.CHANGE_VALUE
+  if (!key) throw new Error('CHANGE_KEY is not set')
+  if (!value) throw new Error('CHANGE_VALUE is not set')
+  if (key === 'cap') return { key, value: parsePayoutCap(value) }
+  if (key === 'ops' || key === 'trs') return { key, value }
+  throw new Error(`CHANGE_KEY must be "cap", "ops" or "trs", got ${JSON.stringify(key)}`)
+}
+
+/**
+ * CLI entry point: builds announceChange(key, value) for the admin multisig and writes it,
+ * unsigned, to PAYMENT_ROUTER_MSIG_ANNOUNCE_CHANGE_TXN_PATH (default
+ * ./payment-router-announce-change.txn). CHANGE_KEY is "cap", "ops" or "trs".
+ */
+export async function deployMultisigAnnounceChange(): Promise<void> {
+  const { key, value } = parseChangeFromEnv()
+
+  const { multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
+  const txn = buildUnsignedAnnounceChangeTxn(appId, multisigAddress, key, value, suggestedParams)
+
+  const outPath =
+    process.env.PAYMENT_ROUTER_MSIG_ANNOUNCE_CHANGE_TXN_PATH ??
+    './payment-router-announce-change.txn'
+  writeUnsignedTxnFile(txn, outPath)
+  printMultisigSigningInstructions('announceChange', outPath)
+}
+
+/**
+ * CLI entry point: builds applyChange() for the admin multisig and writes it, unsigned, to
+ * PAYMENT_ROUTER_MSIG_APPLY_CHANGE_TXN_PATH (default ./payment-router-apply-change.txn).
+ */
+export async function deployMultisigApplyChange(): Promise<void> {
+  const { multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
+  const txn = buildUnsignedApplyChangeTxn(appId, multisigAddress, suggestedParams)
+
+  const outPath =
+    process.env.PAYMENT_ROUTER_MSIG_APPLY_CHANGE_TXN_PATH ?? './payment-router-apply-change.txn'
+  writeUnsignedTxnFile(txn, outPath)
+  printMultisigSigningInstructions('applyChange', outPath)
 }
 
 /**

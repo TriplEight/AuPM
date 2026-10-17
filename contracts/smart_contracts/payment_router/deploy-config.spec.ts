@@ -17,13 +17,20 @@ import {
   assertOptedIntoUsdc,
   assertSingleKeyDeployNotMainnet,
   buildAdminMultisigParams,
+  buildUnsignedAnnounceChangeTxn,
   buildUnsignedAnnounceReleaseTxn,
+  buildUnsignedApplyChangeTxn,
   buildUnsignedCreateApplicationTxn,
   buildUnsignedExecuteReleaseTxn,
+  buildUnsignedLowerPayoutCapTxn,
   buildUnsignedSetCrediterTxn,
   deploy,
+  deployMultisigAnnounceChange,
+  deployMultisigApplyChange,
+  deployMultisigLowerPayoutCap,
   deriveAdminMultisigAddress,
   EXECUTE_RELEASE_MIN_FEE,
+  encodeChangeValue,
   parseAdminMultisigAddrs,
   parseAppId,
   parseCarryIn,
@@ -671,6 +678,135 @@ describe('admin-call builders', () => {
       higherFeeParams,
     )
     expect(higherFeeTxn.fee).toBe(5_000n)
+  })
+})
+
+describe('payout cap and pending-change builders', () => {
+  const addrs = [
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+    algosdk.generateAccount().addr.toString(),
+  ]
+  const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
+  const APP_ID = 772553842n
+  const PARAMS: algosdk.SuggestedParams = {
+    fee: 0n,
+    minFee: 1_000n,
+    firstValid: 100n,
+    lastValid: 1_100n,
+    genesisID: 'mainnet-v1.0',
+    genesisHash: new Uint8Array(32),
+    flatFee: false,
+  }
+  const MAX_U64 = 2n ** 64n - 1n
+
+  function selector(signature: string): Uint8Array {
+    return algosdk.ABIMethod.fromSignature(signature).getSelector()
+  }
+
+  test.each([0n, 1n, 1_000_000n, MAX_U64])('lowerPayoutCap encodes cap %s', (cap) => {
+    const txn = buildUnsignedLowerPayoutCapTxn(APP_ID, multisigAddress, cap, PARAMS)
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    expect(txn.applicationCall?.appIndex).toBe(APP_ID)
+    expect(txn.applicationCall?.onComplete).toBe(algosdk.OnApplicationComplete.NoOpOC)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs).toHaveLength(2)
+    expect(appArgs[0]).toEqual(selector('lowerPayoutCap(uint64)void'))
+    expect(new algosdk.ABIUintType(64).decode(appArgs[1])).toBe(cap)
+  })
+
+  test('lowerPayoutCap rejects a negative cap and a cap above 2^64-1', () => {
+    expect(() => buildUnsignedLowerPayoutCapTxn(APP_ID, multisigAddress, -1n, PARAMS)).toThrow(
+      /cap must be between 0 and 2\^64-1/,
+    )
+    expect(() =>
+      buildUnsignedLowerPayoutCapTxn(APP_ID, multisigAddress, MAX_U64 + 1n, PARAMS),
+    ).toThrow(/cap must be between 0 and 2\^64-1/)
+  })
+
+  test.each([
+    [0n, '0000000000000000'],
+    [1n, '0000000000000001'],
+    [MAX_U64, 'ffffffffffffffff'],
+  ])('announceChange cap %s is 8 bytes big-endian', (cap, hex) => {
+    const txn = buildUnsignedAnnounceChangeTxn(APP_ID, multisigAddress, 'cap', cap, PARAMS)
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    expect(txn.applicationCall?.appIndex).toBe(APP_ID)
+    expect(txn.applicationCall?.onComplete).toBe(algosdk.OnApplicationComplete.NoOpOC)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(appArgs).toHaveLength(3)
+    expect(appArgs[0]).toEqual(selector('announceChange(string,byte[])void'))
+    expect(new algosdk.ABIStringType().decode(appArgs[1])).toBe('cap')
+    const value = algosdk.ABIType.from('byte[]').decode(appArgs[2]) as Uint8Array
+    expect(Buffer.from(value).toString('hex')).toBe(hex)
+  })
+
+  test.each(['ops', 'trs'] as const)('announceChange %s carries the 32 public-key bytes', (key) => {
+    const address = algosdk.generateAccount().addr.toString()
+    const txn = buildUnsignedAnnounceChangeTxn(APP_ID, multisigAddress, key, address, PARAMS)
+    const appArgs = txn.applicationCall?.appArgs ?? []
+    expect(new algosdk.ABIStringType().decode(appArgs[1])).toBe(key)
+    const value = algosdk.ABIType.from('byte[]').decode(appArgs[2]) as Uint8Array
+    expect(value).toHaveLength(32)
+    expect(Buffer.from(value).toString('hex')).toBe(
+      Buffer.from(algosdk.decodeAddress(address).publicKey).toString('hex'),
+    )
+  })
+
+  test('announceChange rejects an unknown key, a bad address and an out-of-range cap', () => {
+    const address = algosdk.generateAccount().addr.toString()
+    const build = (key: string, value: bigint | string) =>
+      buildUnsignedAnnounceChangeTxn(APP_ID, multisigAddress, key as 'cap', value, PARAMS)
+    expect(() => build('fee', address)).toThrow(/unknown change key "fee"/)
+    expect(() => build('ops', 'not-an-address')).toThrow(/valid Algorand address/)
+    expect(() => build('trs', 5n)).toThrow(/valid Algorand address/)
+    expect(() => build('cap', address)).toThrow(/cap change value must be a bigint/)
+    expect(() => build('cap', -1n)).toThrow(/cap must be between 0 and 2\^64-1/)
+    expect(() => build('cap', MAX_U64 + 1n)).toThrow(/cap must be between 0 and 2\^64-1/)
+  })
+
+  test('encodeChangeValue rejects an unknown key', () => {
+    expect(() => encodeChangeValue('', 1n)).toThrow(/unknown change key/)
+  })
+
+  test('applyChange has the selector only', () => {
+    const txn = buildUnsignedApplyChangeTxn(APP_ID, multisigAddress, PARAMS)
+    expect(txn.sender.toString()).toBe(multisigAddress)
+    expect(txn.applicationCall?.appIndex).toBe(APP_ID)
+    expect(txn.applicationCall?.onComplete).toBe(algosdk.OnApplicationComplete.NoOpOC)
+    expect(txn.applicationCall?.appArgs).toEqual([selector('applyChange()void')])
+  })
+})
+
+describe('payout cap and pending-change entry points', () => {
+  const saved = { ...process.env }
+  afterEach(() => {
+    process.env = { ...saved }
+  })
+
+  test('deployMultisigLowerPayoutCap fails without PAYOUT_CAP', async () => {
+    delete process.env.PAYOUT_CAP
+    await expect(deployMultisigLowerPayoutCap()).rejects.toThrow(/PAYOUT_CAP must be/)
+  })
+
+  test('deployMultisigAnnounceChange fails without CHANGE_KEY or CHANGE_VALUE', async () => {
+    delete process.env.CHANGE_KEY
+    delete process.env.CHANGE_VALUE
+    await expect(deployMultisigAnnounceChange()).rejects.toThrow(/CHANGE_KEY is not set/)
+    process.env.CHANGE_KEY = 'cap'
+    await expect(deployMultisigAnnounceChange()).rejects.toThrow(/CHANGE_VALUE is not set/)
+    process.env.CHANGE_KEY = 'fee'
+    process.env.CHANGE_VALUE = '1'
+    await expect(deployMultisigAnnounceChange()).rejects.toThrow(/CHANGE_KEY must be/)
+    process.env.CHANGE_KEY = 'cap'
+    process.env.CHANGE_VALUE = '-1'
+    await expect(deployMultisigAnnounceChange()).rejects.toThrow(/PAYOUT_CAP must be/)
+  })
+
+  test('deployMultisigApplyChange fails without the multisig addresses', async () => {
+    delete process.env.AUPM_ADMIN_MSIG_ADDRS
+    process.env.NETWORK = 'testnet'
+    await expect(deployMultisigApplyChange()).rejects.toThrow(/AUPM_ADMIN_MSIG_ADDRS is not set/)
   })
 })
 
