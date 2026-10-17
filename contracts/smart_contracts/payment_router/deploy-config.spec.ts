@@ -21,15 +21,14 @@ import {
   buildUnsignedCreateApplicationTxn,
   buildUnsignedExecuteReleaseTxn,
   buildUnsignedSetCrediterTxn,
-  buildUnsignedSetIdentityTxn,
   deploy,
   deriveAdminMultisigAddress,
   EXECUTE_RELEASE_MIN_FEE,
-  identityBoxName,
   parseAdminMultisigAddrs,
   parseAppId,
   parseCarryIn,
   parseNetwork,
+  parsePayoutCap,
   resolveClientConfig,
   resolveExecuteReleaseFee,
   writeUnsignedTxnFile,
@@ -84,16 +83,18 @@ describe('assertNetworkMatchesGenesis', () => {
 })
 
 describe('assertOptedIntoUsdc', () => {
-  test('refuses to map an address that is not opted into USDC', () => {
-    expect(() => assertOptedIntoUsdc('github:alice', 'ADDR1', false)).toThrow(/not opted into USDC/)
-  })
-
-  test('refuses to map the ops address when it is not opted into USDC', () => {
+  test('refuses the ops address when it is not opted into USDC', () => {
     expect(() => assertOptedIntoUsdc('ops', 'OPS_ADDR', false)).toThrow(/not opted into USDC/)
   })
 
+  test('refuses the treasury address when it is not opted into USDC', () => {
+    expect(() => assertOptedIntoUsdc('treasury', 'TRS_ADDR', false)).toThrow(
+      /treasury: that address is not opted into USDC/,
+    )
+  })
+
   test('passes when the address is opted into USDC', () => {
-    expect(() => assertOptedIntoUsdc('github:alice', 'ADDR1', true)).not.toThrow()
+    expect(() => assertOptedIntoUsdc('ops', 'OPS_ADDR', true)).not.toThrow()
   })
 })
 
@@ -362,23 +363,43 @@ describe('buildUnsignedCreateApplicationTxn', () => {
     flatFee: false,
   }
 
-  test('sets the sender to the multisig address and encodes payTo/usdcAsset as ABI args', () => {
+  const opsAddress = algosdk.generateAccount().addr.toString()
+  const treasuryAddress = algosdk.generateAccount().addr.toString()
+  const receivers = { opsAddress, treasuryAddress }
+
+  test('sets the sender to the multisig address and encodes all six ABI args', () => {
     const txn = buildUnsignedCreateApplicationTxn(
       multisigAddress,
       payToAddress,
       31566704,
       FAKE_SUGGESTED_PARAMS,
+      receivers,
+      5_000_000n,
     )
 
     expect(txn.sender.toString()).toBe(multisigAddress)
     const appArgs = txn.applicationCall?.appArgs ?? []
-    expect(appArgs).toHaveLength(4)
+    expect(appArgs).toHaveLength(7)
     expect(appArgs[0]).toEqual(
-      algosdk.ABIMethod.fromSignature('createApplication(address,uint64,uint64)void').getSelector(),
+      algosdk.ABIMethod.fromSignature(
+        'createApplication(address,uint64,uint64,address,address,uint64)void',
+      ).getSelector(),
     )
     expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(payToAddress)
     expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(31566704n)
     expect(new algosdk.ABIUintType(64).decode(appArgs[3])).toBe(0n)
+    expect(new algosdk.ABIAddressType().decode(appArgs[4])).toBe(opsAddress)
+    expect(new algosdk.ABIAddressType().decode(appArgs[5])).toBe(treasuryAddress)
+    expect(new algosdk.ABIUintType(64).decode(appArgs[6])).toBe(5_000_000n)
+  })
+
+  test('the signature matches the generated ARC-56 spec', () => {
+    expect(() =>
+      assertMethodSignatureMatchesSpec(
+        'createApplication(address,uint64,uint64,address,address,uint64)void',
+        APP_SPEC,
+      ),
+    ).not.toThrow()
   })
 
   test('encodes carryIn as the third ABI arg', () => {
@@ -387,6 +408,8 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       payToAddress,
       31566704,
       FAKE_SUGGESTED_PARAMS,
+      receivers,
+      0n,
       123_456n,
     )
     const appArgs = txn.applicationCall?.appArgs ?? []
@@ -400,11 +423,26 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       otherPayTo,
       10458941,
       FAKE_SUGGESTED_PARAMS,
+      receivers,
+      0n,
     )
     expect(txn.sender.toString()).toBe(multisigAddress)
     const appArgs = txn.applicationCall?.appArgs ?? []
     expect(new algosdk.ABIAddressType().decode(appArgs[1])).toBe(otherPayTo)
     expect(new algosdk.ABIUintType(64).decode(appArgs[2])).toBe(10458941n)
+  })
+})
+
+describe('parsePayoutCap', () => {
+  test('parses a non-negative integer', () => {
+    expect(parsePayoutCap('0')).toBe(0n)
+    expect(parsePayoutCap('5000000')).toBe(5_000_000n)
+  })
+
+  test('refuses unset, empty, negative and decimal values', () => {
+    for (const bad of [undefined, '', '-1', '1.5', 'abc']) {
+      expect(() => parsePayoutCap(bad)).toThrow(/PAYOUT_CAP must be a non-negative integer/)
+    }
   })
 })
 
@@ -434,15 +472,25 @@ describe('writeUnsignedTxnFile', () => {
     ]
     const multisigAddress = deriveAdminMultisigAddress(buildAdminMultisigParams(addrs))
     const payToAddress = algosdk.generateAccount().addr.toString()
-    const txn = buildUnsignedCreateApplicationTxn(multisigAddress, payToAddress, 31566704, {
-      fee: 0n,
-      minFee: 1000n,
-      firstValid: 100n,
-      lastValid: 1100n,
-      genesisID: 'mainnet-v1.0',
-      genesisHash: new Uint8Array(32),
-      flatFee: false,
-    })
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      {
+        fee: 0n,
+        minFee: 1000n,
+        firstValid: 100n,
+        lastValid: 1100n,
+        genesisID: 'mainnet-v1.0',
+        genesisHash: new Uint8Array(32),
+        flatFee: false,
+      },
+      {
+        opsAddress: algosdk.generateAccount().addr.toString(),
+        treasuryAddress: algosdk.generateAccount().addr.toString(),
+      },
+      0n,
+    )
 
     const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-msig-')), 'create.txn')
     writeUnsignedTxnFile(txn, outPath)
@@ -473,13 +521,6 @@ describe('parseAppId', () => {
 
   test('parses a positive integer', () => {
     expect(parseAppId('772553842')).toBe(772553842n)
-  })
-})
-
-describe('identityBoxName', () => {
-  test('encodes the "id:" prefix plus the identity, as literal utf8 bytes', () => {
-    expect(identityBoxName('treasury')).toEqual(new TextEncoder().encode('id:treasury'))
-    expect(identityBoxName('github:octocat')).toEqual(new TextEncoder().encode('id:github:octocat'))
   })
 })
 
@@ -576,34 +617,6 @@ describe('admin-call builders', () => {
     expect(txn.applicationCall?.boxes ?? []).toHaveLength(0)
   })
 
-  test('buildUnsignedSetIdentityTxn: ABI-encoded identity/address and every box it touches', () => {
-    const identityAddress = algosdk.generateAccount().addr.toString()
-    const txn = buildUnsignedSetIdentityTxn(
-      APP_ID,
-      multisigAddress,
-      'github:octocat',
-      identityAddress,
-      FAKE_SUGGESTED_PARAMS,
-    )
-    expect(txn.sender.toString()).toBe(multisigAddress)
-    const appArgs = txn.applicationCall?.appArgs ?? []
-    expect(appArgs[0]).toEqual(
-      algosdk.ABIMethod.fromSignature('setIdentity(string,address)void').getSelector(),
-    )
-    expect(new algosdk.ABIStringType().decode(appArgs[1])).toBe('github:octocat')
-    expect(new algosdk.ABIAddressType().decode(appArgs[2])).toBe(identityAddress)
-    const boxes = txn.applicationCall?.boxes ?? []
-    expect(boxes.map((b) => b.appIndex)).toEqual([0n, 0n, 0n, 0n])
-    const names = boxes.map((b) => new TextDecoder().decode(b.name))
-    expect(names).toEqual([
-      'id:github:octocat',
-      'bal:github:octocat',
-      'pa:github:octocat',
-      'pr:github:octocat',
-    ])
-    expect(new Uint8Array(boxes[0].name)).toEqual(identityBoxName('github:octocat'))
-  })
-
   test('buildUnsignedAnnounceReleaseTxn: ABI-encoded target address, no box or foreign refs', () => {
     const toAddress = algosdk.generateAccount().addr.toString()
     const txn = buildUnsignedAnnounceReleaseTxn(APP_ID, multisigAddress, toAddress, {
@@ -619,15 +632,12 @@ describe('admin-call builders', () => {
     expect(txn.applicationCall?.foreignAssets ?? []).toHaveLength(0)
   })
 
-  test('buildUnsignedExecuteReleaseTxn: no args, payTo/treasury accounts, USDC asset, treasury box', () => {
+  test('buildUnsignedExecuteReleaseTxn: no args, payTo as the only foreign account, no box', () => {
     const payToAddress = algosdk.generateAccount().addr.toString()
-    const treasuryAddress = algosdk.generateAccount().addr.toString()
     const txn = buildUnsignedExecuteReleaseTxn(
       APP_ID,
       multisigAddress,
       payToAddress,
-      treasuryAddress,
-      31566704,
       FAKE_SUGGESTED_PARAMS,
     )
     expect(txn.sender.toString()).toBe(multisigAddress)
@@ -638,24 +648,17 @@ describe('admin-call builders', () => {
     )
 
     const accounts = (txn.applicationCall?.accounts ?? []).map((a) => a.toString())
-    expect(accounts).toEqual([payToAddress, treasuryAddress])
-    expect(txn.applicationCall?.foreignAssets ?? []).toEqual([31566704n])
-
-    const boxes = txn.applicationCall?.boxes ?? []
-    expect(boxes).toHaveLength(1)
-    expect(boxes[0].appIndex).toBe(0n)
-    expect(new Uint8Array(boxes[0].name)).toEqual(identityBoxName('treasury'))
+    expect(accounts).toEqual([payToAddress])
+    expect(txn.applicationCall?.foreignAssets ?? []).toHaveLength(0)
+    expect(txn.applicationCall?.boxes ?? []).toHaveLength(0)
   })
 
   test('buildUnsignedExecuteReleaseTxn: flat fee is at least EXECUTE_RELEASE_MIN_FEE', () => {
     const payToAddress = algosdk.generateAccount().addr.toString()
-    const treasuryAddress = algosdk.generateAccount().addr.toString()
     const txn = buildUnsignedExecuteReleaseTxn(
       APP_ID,
       multisigAddress,
       payToAddress,
-      treasuryAddress,
-      31566704,
       FAKE_SUGGESTED_PARAMS,
     )
     expect(txn.fee).toBeGreaterThanOrEqual(BigInt(EXECUTE_RELEASE_MIN_FEE))
@@ -665,8 +668,6 @@ describe('admin-call builders', () => {
       APP_ID,
       multisigAddress,
       payToAddress,
-      treasuryAddress,
-      31566704,
       higherFeeParams,
     )
     expect(higherFeeTxn.fee).toBe(5_000n)
@@ -688,7 +689,14 @@ describe('assertSingleKeyDeployNotMainnet', () => {
 })
 
 describe('deploy() refuses MainNet before building any client or reading any mnemonic', () => {
-  const ENV_KEYS = ['NETWORK', 'CONFIRM_MAINNET', 'PAY_TO_ADDRESS', 'OPS_ADDRESS']
+  const ENV_KEYS = [
+    'NETWORK',
+    'CONFIRM_MAINNET',
+    'PAY_TO_ADDRESS',
+    'OPS_ADDRESS',
+    'TREASURY_ADDRESS',
+    'PAYOUT_CAP',
+  ]
   let savedEnv: Record<string, string | undefined>
 
   beforeEach(() => {
@@ -723,6 +731,8 @@ describe('deploy() refuses MainNet before building any client or reading any mne
     process.env.NETWORK = 'testnet'
     process.env.PAY_TO_ADDRESS = algosdk.generateAccount().addr.toString()
     process.env.OPS_ADDRESS = algosdk.generateAccount().addr.toString()
+    process.env.TREASURY_ADDRESS = algosdk.generateAccount().addr.toString()
+    process.env.PAYOUT_CAP = '5000000'
 
     // One fixed fake signer for both DEPLOYER and CREDITER: deployPaymentRouter's own
     // assertCrediterDistinct then refuses (crediter === deployer) once it runs — proof this

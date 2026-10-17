@@ -1,7 +1,7 @@
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { AlgorandClient, microAlgos } from '@algorandfoundation/algokit-utils'
+import { AlgorandClient } from '@algorandfoundation/algokit-utils'
 import type { TransactionSignerAccount } from '@algorandfoundation/algokit-utils/types/account'
 import type { Arc56Contract } from '@algorandfoundation/algokit-utils/types/app-arc56'
 import type { AlgoClientConfig } from '@algorandfoundation/algokit-utils/types/network-client'
@@ -91,18 +91,6 @@ const GENESIS_ID: Readonly<Record<'mainnet' | 'testnet', string>> = {
   testnet: 'testnet-v1.0',
 }
 
-// Fixed identity for the ops pool (contract.algo.ts's OPS_IDENTITY). The
-// admin maps it the same way it maps an auditor identity.
-const OPS_IDENTITY = 'ops'
-
-// Funds the app account once, at creation, for box minimum balance. Every
-// balances/identityAddress box (contract.algo.ts) needs MBR on the app's own
-// account, not on payTo — see the comment on the identity BoxMap: "R2's
-// deploy step must fund the app account before the first credit()". 1 ALGO
-// covers the identity boxes set below plus headroom for the first
-// several credit() batches at MVP scale.
-const APP_ACCOUNT_FUNDING = microAlgos(1_000_000)
-
 /**
  * Picks the network from NETWORK ("mainnet" | "testnet"), defaulting to
  * mainnet — the deploy target. scripts/network.mjs uses the same default,
@@ -182,20 +170,19 @@ export function assertCrediterDistinct(
 }
 
 /**
- * Refuses to map an identity to an address that is not opted into USDC
- * (every mapped address must be opted into USDC 31566704).
+ * Refuses a receiver address that is not opted into USDC. credit() sends USDC
+ * to the ops and treasury addresses, so a receiver without an opt-in fails
+ * every batch.
  * Pure: covered directly by deploy-config.spec.ts; the opt-in check itself
  * is an algod account lookup done by the caller.
  *
- * @param identity - the identity about to be mapped ("github:<login>" or "ops").
- * @param address - the address about to be mapped.
+ * @param role - the role of the address ("ops" or "treasury").
+ * @param address - the receiver address.
  * @param holdsAsset - whether that address's account already holds the USDC asset.
  */
-export function assertOptedIntoUsdc(identity: string, address: string, holdsAsset: boolean): void {
+export function assertOptedIntoUsdc(role: string, address: string, holdsAsset: boolean): void {
   if (!holdsAsset) {
-    throw new Error(
-      `refusing to map ${identity} to ${address}: that address is not opted into USDC`,
-    )
+    throw new Error(`refusing to use ${address} as ${role}: that address is not opted into USDC`)
   }
 }
 
@@ -207,8 +194,12 @@ export interface DeployPaymentRouterParams {
   payToAddress: string
   /** USDC micro-units at payTo that an earlier app did not pay out. Defaults to 0. */
   carryIn?: bigint
-  /** Every identity to map, ops included (contract.algo.ts's OPS_IDENTITY). */
-  identityMap: Map<string, string>
+  /** Receiver of the ops share of every batch. */
+  opsAddress: string
+  /** Receiver of the treasury cut, extra and unattributed money of every batch. */
+  treasuryAddress: string
+  /** Cap on the payouts of one cap period, in USDC micro-units. */
+  payoutCap: bigint
   /**
    * Overrides the app name algokit's idempotent `factory.deploy()` looks up
    * by (creator address + name). `deploy()` below leaves this unset and
@@ -256,10 +247,10 @@ export function assertAppCreatedFresh(operationPerformed: string): void {
  * asset does not match this deploy's own configuration. Pure: decoded
  * values are passed in — readExistingAppRouting below does the actual
  * (mockable) chain read. Call this — and let it pass — before any
- * setCrediter/setIdentity call (R3d): algokit's idempotent
+ * setCrediter call (R3d): algokit's idempotent
  * `factory.deploy()` reuses any existing app with the same creator +
  * appName, and this deployer may have already created an earlier
- * PaymentRouter for a different payTo — setting crediter/identities on that app would silently
+ * PaymentRouter for a different payTo — setting the crediter on that app would silently
  * repoint an unrelated deployment.
  *
  * @param appId - the reused app's id (message only).
@@ -306,7 +297,7 @@ async function readExistingAppRouting(appClient: {
  * Reads a reused app's routing and refuses if it does not match this
  * deploy's configuration (assertExistingAppMatchesConfig). The one call
  * site (deployPaymentRouter below) runs this before any
- * setCrediter/setIdentity call, on both the operator and rehearsal paths.
+ * setCrediter call, on both the operator and rehearsal paths.
  */
 export async function assertExistingAppSafeToReuse(
   appClient: {
@@ -321,8 +312,8 @@ export async function assertExistingAppSafeToReuse(
 }
 
 /**
- * Deploys PaymentRouter, funds the app account for box MBR, sets the
- * crediter key, and maps every identity in `identityMap`.
+ * Deploys PaymentRouter and sets the crediter key. The app holds no box, so
+ * the app account needs no funding.
  * Does not rekey payTo — that is scripts/rekey-payto.mjs, run
  * separately with the payTo key, after payTo already holds USDC.
  *
@@ -340,7 +331,9 @@ export async function deployPaymentRouter(
     crediterAddress,
     payToAddress,
     carryIn = 0n,
-    identityMap,
+    opsAddress,
+    treasuryAddress,
+    payoutCap,
     appName,
     requireFreshCreate,
   } = params
@@ -354,10 +347,13 @@ export async function deployPaymentRouter(
   })
 
   const usdcAssetId = USDC_ASSET_ID[network]
-  for (const [identity, address] of identityMap) {
+  for (const [role, address] of [
+    ['ops', opsAddress],
+    ['treasury', treasuryAddress],
+  ]) {
     const info = await algorand.client.algod.accountInformation(address).do()
     const holdsAsset = (info.assets ?? []).some((a) => Number(a.assetId) === usdcAssetId)
-    assertOptedIntoUsdc(identity, address, holdsAsset)
+    assertOptedIntoUsdc(role, address, holdsAsset)
   }
 
   const factory = algorand.client.getTypedAppFactory(PaymentRouterFactory, {
@@ -368,7 +364,14 @@ export async function deployPaymentRouter(
   const { appClient, result } = await factory.deploy({
     createParams: {
       method: 'createApplication',
-      args: { payTo: payToAddress, usdcAsset: usdcAssetId, carryIn },
+      args: {
+        payTo: payToAddress,
+        usdcAsset: usdcAssetId,
+        carryIn,
+        opsAddress,
+        treasuryAddress,
+        payoutCap,
+      },
     },
     onUpdate: 'append',
     onSchemaBreak: 'append',
@@ -386,22 +389,8 @@ export async function deployPaymentRouter(
     await assertExistingAppSafeToReuse(appClient, payToAddress, usdcAssetId)
   }
 
-  if (['create', 'replace'].includes(result.operationPerformed)) {
-    await algorand.send.payment({
-      sender: deployer.addr,
-      receiver: appClient.appAddress,
-      amount: APP_ACCOUNT_FUNDING,
-    })
-    console.log(`Funded app account ${appClient.appAddress} for box MBR.`)
-  }
-
   await appClient.send.setCrediter({ args: { addr: crediterAddress } })
   console.log(`Set crediter to ${crediterAddress}.`)
-
-  for (const [identity, address] of identityMap) {
-    await appClient.send.setIdentity({ args: { identity, addr: address } })
-    console.log(`Mapped ${identity} -> ${address}.`)
-  }
 
   console.log(
     `PaymentRouter app id: ${appClient.appId}. Next: fund payTo with USDC, then run ` +
@@ -434,7 +423,7 @@ async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<Algo
 //
 // Global.creatorAddress must be a 2-of-3 Algorand multisig, never one key:
 // no single lost or leaked key can call setCrediter,
-// setIdentity, announceRelease, or executeRelease alone. This workstation
+// announceRelease, or executeRelease alone. This workstation
 // never holds two of the three admin private keys at once, so the create
 // call — like every later admin call — cannot be signed here in one step.
 // The offline signing ceremony (`goal`, not algokit, since the holders sign
@@ -450,7 +439,7 @@ async function buildAlgorandClient(network: 'mainnet' | 'testnet'): Promise<Algo
 //      records the resulting app id as PAYMENT_ROUTER_APP_ID. Not
 //      `algokit goal clerk rawsend`: that goal runs in the LocalNet container
 //      and sends to LocalNet.
-// setCrediter/setIdentity/announceRelease/executeRelease follow the same
+// setCrediter/announceRelease/executeRelease follow the same
 // build-sign-submit shape afterwards (the deployMultisig* entry points below).
 
 export const ADMIN_MSIG_THRESHOLD = 2
@@ -521,10 +510,11 @@ export function parseCarryIn(carryInEnv: string | undefined): bigint {
   return BigInt(carryInEnv)
 }
 
-const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64,uint64)void'
+const CREATE_APPLICATION_METHOD_SIGNATURE =
+  'createApplication(address,uint64,uint64,address,address,uint64)void'
 
 /**
- * Builds the unsigned createApplication(payTo, usdcAsset, carryIn) call, sender set
+ * Builds the unsigned createApplication call, sender set
  * to the admin multisig address, ready for the offline goal signing flow
  * documented above. Reads the compiled approval/clear programs and the
  * global state schema straight off the generated ARC-56 spec — never
@@ -537,6 +527,8 @@ const CREATE_APPLICATION_METHOD_SIGNATURE = 'createApplication(address,uint64,ui
  * @param payToAddress - the payTo account this deploy fixes at creation.
  * @param usdcAssetId - the USDC asset id for the target network.
  * @param suggestedParams - the algod transaction params (fee, validity window, genesis).
+ * @param receivers - the ops and treasury receiver addresses.
+ * @param payoutCap - the cap on the payouts of one cap period, in USDC micro-units.
  * @param carryIn - USDC micro-units at payTo that an earlier app did not pay out. Defaults to 0.
  */
 export function buildUnsignedCreateApplicationTxn(
@@ -544,6 +536,8 @@ export function buildUnsignedCreateApplicationTxn(
   payToAddress: string,
   usdcAssetId: number,
   suggestedParams: algosdk.SuggestedParams,
+  receivers: { opsAddress: string; treasuryAddress: string },
+  payoutCap: bigint,
   carryIn: bigint = 0n,
 ): algosdk.Transaction {
   if (!APP_SPEC.byteCode) {
@@ -557,6 +551,9 @@ export function buildUnsignedCreateApplicationTxn(
     new algosdk.ABIAddressType().encode(payToAddress),
     new algosdk.ABIUintType(64).encode(usdcAssetId),
     new algosdk.ABIUintType(64).encode(carryIn),
+    new algosdk.ABIAddressType().encode(receivers.opsAddress),
+    new algosdk.ABIAddressType().encode(receivers.treasuryAddress),
+    new algosdk.ABIUintType(64).encode(payoutCap),
   ]
   const schema = APP_SPEC.state.schema
   return algosdk.makeApplicationCreateTxnFromObject({
@@ -586,6 +583,21 @@ export function writeUnsignedTxnFile(txn: algosdk.Transaction, outPath: string):
 }
 
 /**
+ * Parses PAYOUT_CAP (USDC micro-units per cap period, a non-negative integer). Pure: covered
+ * directly by deploy-config.spec.ts.
+ *
+ * @param payoutCapEnv - the raw PAYOUT_CAP environment value.
+ */
+export function parsePayoutCap(payoutCapEnv: string | undefined): bigint {
+  if (payoutCapEnv === undefined || !/^\d+$/.test(payoutCapEnv)) {
+    throw new Error(
+      `PAYOUT_CAP must be a non-negative integer, got ${JSON.stringify(payoutCapEnv)}`,
+    )
+  }
+  return BigInt(payoutCapEnv)
+}
+
+/**
  * CLI entry point: builds PaymentRouter's createApplication call for the
  * 2-of-3 admin multisig (AUPM_ADMIN_MSIG_ADDRS, threshold fixed at
  * ADMIN_MSIG_THRESHOLD) and writes it, unsigned, to
@@ -604,6 +616,12 @@ export async function deployMultisigCreate(): Promise<void> {
   const payToAddress = process.env.PAY_TO_ADDRESS
   if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
 
+  const opsAddress = process.env.OPS_ADDRESS
+  if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
+  const treasuryAddress = process.env.TREASURY_ADDRESS
+  if (!treasuryAddress) throw new Error('TREASURY_ADDRESS is not set')
+  const payoutCap = parsePayoutCap(process.env.PAYOUT_CAP)
+
   const algorand = await buildAlgorandClient(network)
   const suggestedParams = await algorand.client.algod.getTransactionParams().do()
   assertNetworkMatchesGenesis(network, suggestedParams.genesisID ?? '')
@@ -613,6 +631,8 @@ export async function deployMultisigCreate(): Promise<void> {
     payToAddress,
     USDC_ASSET_ID[network],
     suggestedParams,
+    { opsAddress, treasuryAddress },
+    payoutCap,
     parseCarryIn(process.env.CARRY_IN),
   )
 
@@ -625,45 +645,26 @@ export async function deployMultisigCreate(): Promise<void> {
 
 // --- 2-of-3 admin multisig: post-creation admin calls ------------------------------
 //
-// setCrediter, setIdentity, announceRelease and executeRelease are admin-only
+// setCrediter, announceRelease and executeRelease are admin-only
 // (contract.algo.ts: each asserts `Txn.sender.bytes === Global.creatorAddress.bytes`), so each
 // needs the same offline multisig flow as deployMultisigCreate above: build the unsigned call
 // here, write it to a file, two of the three holders sign it in turn with `goal clerk multisig
 // sign`, then whoever holds the twice-signed file POSTs it to the network's algod.
 //
-// The four signatures below are hand-written from contract.algo.ts's own method declarations.
+// The three signatures below are hand-written from contract.algo.ts's own method declarations.
 // assertMethodSignatureMatchesSpec fails loudly if the generated ARC-56 spec (APP_SPEC) ever
 // disagrees with any of them.
 
 const SET_CREDITER_METHOD_SIGNATURE = 'setCrediter(address)void'
-const SET_IDENTITY_METHOD_SIGNATURE = 'setIdentity(string,address)void'
 const ANNOUNCE_RELEASE_METHOD_SIGNATURE = 'announceRelease(address)void'
 const EXECUTE_RELEASE_METHOD_SIGNATURE = 'executeRelease()void'
 
-// Fixed identity for the migration sweep target (contract.algo.ts's TREASURY_IDENTITY).
-const TREASURY_IDENTITY = 'treasury'
-
 /**
- * The flat outer fee executeRelease() needs: it submits up to two inner transactions (the
- * treasury sweep axfer and the payTo rekey payment, contract.algo.ts's executeRelease), each
- * needing the network's own minimum fee pooled through the outer call, on top of the outer
- * call's own fee (at least 3,000 microALGO). Never read from the
- * environment — a smaller fee would leave a real inner transaction unfunded on-chain.
+ * The flat outer fee executeRelease() uses. It submits one inner transaction (the payTo rekey
+ * payment), which needs the network's own minimum fee pooled through the outer call, on top of
+ * the outer call's own fee. The flat value keeps headroom. Never read from the environment.
  */
 export const EXECUTE_RELEASE_MIN_FEE = 3_000
-
-/**
- * Box key encoding for `identityAddress = BoxMap<string, bytes>({ keyPrefix: 'id:' })`
- * (contract.algo.ts): the literal utf8 bytes of the identity string after the prefix, never
- * ARC-4 length-prefixed — the same encoding scripts/claim.mjs's identityBoxName and
- * proxy/src/claims/credit.ts's buildCreditCallRefs already use. Pure: covered directly by
- * deploy-config.spec.ts.
- *
- * @param identity - the identity string ("github:<login>", "ops" or "treasury").
- */
-export function identityBoxName(identity: string): Uint8Array {
-  return new TextEncoder().encode(`id:${identity}`)
-}
 
 /**
  * Refuses when a hand-written method signature disagrees with the same-named method in the
@@ -746,53 +747,6 @@ export function buildUnsignedSetCrediterTxn(
 }
 
 /**
- * Builds the unsigned setIdentity(identity, addr) call, sender set to the admin multisig
- * address. setIdentity reads the identity's `id:` and `bal:` boxes. It writes `id:` for a
- * first mapping, or the pending `pa:` and `pr:` boxes for a remap. All four go in as box
- * references, because the AVM rejects any box that the call does not name.
- *
- * @param appId - the deployed PaymentRouter app id (parseAppId).
- * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
- * @param identity - the identity to map ("github:<login>", "ops" or "treasury").
- * @param addr - the address to map the identity to.
- * @param suggestedParams - the algod transaction params.
- */
-export function buildUnsignedSetIdentityTxn(
-  appId: bigint,
-  multisigAddress: string,
-  identity: string,
-  addr: string,
-  suggestedParams: algosdk.SuggestedParams,
-): algosdk.Transaction {
-  assertMethodSignatureMatchesSpec(SET_IDENTITY_METHOD_SIGNATURE, APP_SPEC)
-  const method = algosdk.ABIMethod.fromSignature(SET_IDENTITY_METHOD_SIGNATURE)
-  return algosdk.makeApplicationCallTxnFromObject({
-    sender: multisigAddress,
-    appIndex: appId,
-    onComplete: algosdk.OnApplicationComplete.NoOpOC,
-    appArgs: [
-      method.getSelector(),
-      new algosdk.ABIStringType().encode(identity),
-      new algosdk.ABIAddressType().encode(addr),
-    ],
-    boxes: setIdentityBoxNames(identity).map((name) => ({ appIndex: 0, name })),
-    suggestedParams,
-  })
-}
-
-/**
- * The boxes that setIdentity(identity, addr) can touch: `id:`, `bal:`, `pa:` and `pr:`, each
- * followed by the utf8 identity. Pure: covered directly by deploy-config.spec.ts.
- *
- * @param identity - the identity string ("github:<login>", "ops" or "treasury").
- */
-export function setIdentityBoxNames(identity: string): Uint8Array[] {
-  return ['id:', 'bal:', 'pa:', 'pr:'].map((prefix) =>
-    new TextEncoder().encode(`${prefix}${identity}`),
-  )
-}
-
-/**
  * Builds the unsigned announceRelease(to) call, sender set to the admin multisig address. Reads
  * and writes only global state (contract.algo.ts's announcedTo/announcedRound), so it needs no
  * box or foreign reference beyond the app call itself.
@@ -822,18 +776,13 @@ export function buildUnsignedAnnounceReleaseTxn(
 
 /**
  * Builds the unsigned executeRelease() call, sender set to the admin multisig address. Sets a
- * flat outer fee of at least EXECUTE_RELEASE_MIN_FEE (resolveExecuteReleaseFee) to cover the two
- * inner transactions executeRelease() submits. Attaches the USDC asset, `payTo` and the
- * "treasury" identity's mapped address as foreign references (both accounts back an inner
- * transaction: `payTo` as sender, treasury as the sweep receiver), and the "treasury" identity
- * box (contract.algo.ts's executeRelease reads identityAddress(TREASURY_IDENTITY) before it can
- * build the sweep axfer).
+ * flat outer fee of at least EXECUTE_RELEASE_MIN_FEE (resolveExecuteReleaseFee) to cover the
+ * inner rekey transaction. Attaches `payTo` as a foreign account, because it is the sender of
+ * that inner transaction.
  *
  * @param appId - the deployed PaymentRouter app id (parseAppId).
  * @param multisigAddress - the 2-of-3 admin multisig address (deriveAdminMultisigAddress).
- * @param payToAddress - `payTo` (the sweep and rekey sender, contract.algo.ts's payTo).
- * @param treasuryAddress - the address mapped to the "treasury" identity (the sweep receiver).
- * @param usdcAssetId - the USDC asset id for the target network.
+ * @param payToAddress - `payTo` (the rekey sender, contract.algo.ts's payTo).
  * @param suggestedParams - the algod transaction params; its fee is overridden with a flat fee
  *   of at least EXECUTE_RELEASE_MIN_FEE.
  */
@@ -841,8 +790,6 @@ export function buildUnsignedExecuteReleaseTxn(
   appId: bigint,
   multisigAddress: string,
   payToAddress: string,
-  treasuryAddress: string,
-  usdcAssetId: number,
   suggestedParams: algosdk.SuggestedParams,
 ): algosdk.Transaction {
   assertMethodSignatureMatchesSpec(EXECUTE_RELEASE_METHOD_SIGNATURE, APP_SPEC)
@@ -853,9 +800,7 @@ export function buildUnsignedExecuteReleaseTxn(
     appIndex: appId,
     onComplete: algosdk.OnApplicationComplete.NoOpOC,
     appArgs: [method.getSelector()],
-    accounts: [payToAddress, treasuryAddress],
-    foreignAssets: [usdcAssetId],
-    boxes: [{ appIndex: 0, name: identityBoxName(TREASURY_IDENTITY) }],
+    accounts: [payToAddress],
     suggestedParams: { ...suggestedParams, flatFee: true, fee },
   })
 }
@@ -914,34 +859,6 @@ export async function deployMultisigSetCrediter(): Promise<void> {
 }
 
 /**
- * CLI entry point: builds setIdentity(identity, addr) for the admin multisig and writes it,
- * unsigned, to PAYMENT_ROUTER_MSIG_SET_IDENTITY_TXN_PATH (default one file per IDENTITY, e.g.
- * ./payment-router-set-identity-ops.txn) — run once per identity to map.
- */
-export async function deployMultisigSetIdentity(): Promise<void> {
-  const identity = process.env.IDENTITY
-  if (!identity) throw new Error('IDENTITY is not set')
-  const identityAddress = process.env.IDENTITY_ADDRESS
-  if (!identityAddress) throw new Error('IDENTITY_ADDRESS is not set')
-
-  const { multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
-  const txn = buildUnsignedSetIdentityTxn(
-    appId,
-    multisigAddress,
-    identity,
-    identityAddress,
-    suggestedParams,
-  )
-
-  const safeIdentity = identity.replace(/[^a-zA-Z0-9_-]/g, '-')
-  const outPath =
-    process.env.PAYMENT_ROUTER_MSIG_SET_IDENTITY_TXN_PATH ??
-    `./payment-router-set-identity-${safeIdentity}.txn`
-  writeUnsignedTxnFile(txn, outPath)
-  printMultisigSigningInstructions(`setIdentity(${identity})`, outPath)
-}
-
-/**
  * CLI entry point: builds announceRelease(to) for the admin multisig and writes it, unsigned, to
  * PAYMENT_ROUTER_MSIG_ANNOUNCE_RELEASE_TXN_PATH (default ./payment-router-announce-release.txn).
  */
@@ -970,18 +887,9 @@ export async function deployMultisigAnnounceRelease(): Promise<void> {
 export async function deployMultisigExecuteRelease(): Promise<void> {
   const payToAddress = process.env.PAY_TO_ADDRESS
   if (!payToAddress) throw new Error('PAY_TO_ADDRESS is not set')
-  const treasuryAddress = process.env.TREASURY_ADDRESS
-  if (!treasuryAddress) throw new Error('TREASURY_ADDRESS is not set')
 
-  const { network, multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
-  const txn = buildUnsignedExecuteReleaseTxn(
-    appId,
-    multisigAddress,
-    payToAddress,
-    treasuryAddress,
-    USDC_ASSET_ID[network],
-    suggestedParams,
-  )
+  const { multisigAddress, appId, suggestedParams } = await resolveMultisigCallContext()
+  const txn = buildUnsignedExecuteReleaseTxn(appId, multisigAddress, payToAddress, suggestedParams)
 
   const outPath =
     process.env.PAYMENT_ROUTER_MSIG_EXECUTE_RELEASE_TXN_PATH ??
@@ -1040,8 +948,9 @@ export async function deploy(): Promise<void> {
 
   const opsAddress = process.env.OPS_ADDRESS
   if (!opsAddress) throw new Error('OPS_ADDRESS is not set')
-
-  const identityMap = new Map([[OPS_IDENTITY, opsAddress]])
+  const treasuryAddress = process.env.TREASURY_ADDRESS
+  if (!treasuryAddress) throw new Error('TREASURY_ADDRESS is not set')
+  const payoutCap = parsePayoutCap(process.env.PAYOUT_CAP)
 
   await deployPaymentRouter({
     algorand,
@@ -1049,6 +958,8 @@ export async function deploy(): Promise<void> {
     deployer,
     crediterAddress: crediter.addr.toString(),
     payToAddress,
-    identityMap,
+    opsAddress,
+    treasuryAddress,
+    payoutCap,
   })
 }
