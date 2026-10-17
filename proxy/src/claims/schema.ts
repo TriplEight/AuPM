@@ -207,6 +207,58 @@ db.exec(`
   )
 `)
 
+// One row per payee with a payout address. credit() pays the address
+// directly. `last_optin_check` is the time (ms) of the last algod check of the
+// address; 0 means never. `last_payout_at` is NULL until the first payout:
+// the payout rules then count `onboarded_at` instead.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS payees (
+    identity         TEXT PRIMARY KEY,
+    payout_address   TEXT NOT NULL,
+    onboarded_at     INTEGER NOT NULL,
+    last_optin_check INTEGER NOT NULL DEFAULT 0,
+    last_payout_at   INTEGER
+  )
+`)
+
+// The payouts of one batch, written when the batch opens. A resend of a
+// pending batch pays exactly these addresses and amounts, even when the payee
+// table changed after the crash.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS batch_payouts (
+    app_id       INTEGER NOT NULL,
+    batch_seq    INTEGER NOT NULL,
+    identity     TEXT NOT NULL,
+    address      TEXT NOT NULL,
+    amount_micro INTEGER NOT NULL,
+    PRIMARY KEY (app_id, batch_seq, identity)
+  )
+`)
+
+// One row per UTC day: the matured, unfrozen, unpaid payee total at the end
+// of the nightly credit step, and how many days in a row it grew.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS backlog_days (
+    day          INTEGER PRIMARY KEY,
+    total_micro  INTEGER NOT NULL,
+    grew_streak  INTEGER NOT NULL
+  )
+`)
+
+export type PayeeRow = {
+  identity: string
+  payout_address: string
+  onboarded_at: number
+  last_optin_check: number
+  last_payout_at: number | null
+}
+
+export type BacklogRow = {
+  day: number
+  total_micro: number
+  grew_streak: number
+}
+
 export type AccrualRow = {
   settle_txid: string
   route: string

@@ -5,11 +5,14 @@ import {
   buildAccrualInputs,
   CUT_PER_1000,
   DEFAULT_HOLD_DAYS,
+  DEFAULT_PAYOUT_RULES,
   holdMsFromEnv,
+  isPayoutDue,
   mvpSplit,
   OPS_PER_1000,
   POOL_ROLES,
   POOL_SHARE_PER_1000,
+  payoutRulesFromEnv,
   sortPackages,
   splitPoolShare,
 } from './attribution-rules.js'
@@ -168,5 +171,51 @@ describe('buildAccrualInputs', () => {
       packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
     }
     expect(() => buildAccrualInputs(attribution)).toThrow()
+  })
+})
+
+describe('payoutRulesFromEnv', () => {
+  test('unset or empty values give 1,000,000, 100,000 and 10,000', () => {
+    const expected = { minMicro: 1_000_000, dustMicro: 100_000, floorMicro: 10_000 }
+    expect(DEFAULT_PAYOUT_RULES).toEqual(expected)
+    expect(payoutRulesFromEnv({})).toEqual(expected)
+    expect(payoutRulesFromEnv({ PAYOUT_MIN: '', PAYOUT_DUST: ' ' })).toEqual(expected)
+  })
+
+  test('each variable overrides its own threshold', () => {
+    expect(payoutRulesFromEnv({ PAYOUT_MIN: '5', PAYOUT_DUST: '4', PAYOUT_FLOOR: '3' })).toEqual({
+      minMicro: 5,
+      dustMicro: 4,
+      floorMicro: 3,
+    })
+  })
+
+  test.each(['0', '-1', '1.5', '1e6', 'abc', '9007199254740993'])('rejects "%s"', (raw) => {
+    expect(() => payoutRulesFromEnv({ PAYOUT_FLOOR: raw })).toThrow(/PAYOUT_FLOOR must be/)
+  })
+})
+
+describe('isPayoutDue', () => {
+  const rules = DEFAULT_PAYOUT_RULES
+
+  test('rule a: the minimum is due on any night, one below is not', () => {
+    expect(isPayoutDue(1_000_000, 0, 0, rules)).toBe(true)
+    expect(isPayoutDue(999_999, 0, 0, rules)).toBe(false)
+  })
+
+  test('rule b: the dust level is due at 7 days, not before', () => {
+    expect(isPayoutDue(100_000, 0, 7 * DAY_MS, rules)).toBe(true)
+    expect(isPayoutDue(100_000, 0, 7 * DAY_MS - 1, rules)).toBe(false)
+    expect(isPayoutDue(99_999, 0, 7 * DAY_MS, rules)).toBe(false)
+  })
+
+  test('rule c: the floor is due at 30 days, not before', () => {
+    expect(isPayoutDue(10_000, 0, 30 * DAY_MS, rules)).toBe(true)
+    expect(isPayoutDue(10_000, 0, 30 * DAY_MS - 1, rules)).toBe(false)
+    expect(isPayoutDue(9_999, 0, 30 * DAY_MS, rules)).toBe(false)
+  })
+
+  test('a balance of 0 is never due', () => {
+    expect(isPayoutDue(0, 0, 365 * DAY_MS, rules)).toBe(false)
   })
 })

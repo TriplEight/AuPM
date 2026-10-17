@@ -19,7 +19,7 @@ const {
   NIGHTLY_LEASE_STALE_MS,
 } = await import('./schema.js')
 const { runNightly, runNightlyWithLease } = await import('./nightly.js')
-const { writeAccruals } = await import('./ledger.js')
+const { upsertPayee, writeAccruals } = await import('./ledger.js')
 type IndexerClient = import('./reconcile.js').IndexerClient
 type CreditChainClient = import('./credit.js').CreditChainClient
 type Attribution = import('./attribution-rules.js').Attribution
@@ -30,18 +30,29 @@ function emptyIndexer(): IndexerClient {
   return { listUsdcInflows: vi.fn().mockResolvedValue([]) }
 }
 
-function stubCreditClient(): CreditChainClient {
+/** A stub chain: the on-chain batch number follows the batches submitted. */
+function stubCreditClient(
+  txidOf: (seq: number) => string = () => 'CREDIT-TXID',
+): CreditChainClient {
+  let onChain = 0
   return {
     isPayToRekeyed: vi.fn().mockResolvedValue(true),
-    submitCredit: vi.fn().mockResolvedValue('CREDIT-TXID'),
-    getOnChainLastBatchSeq: vi.fn().mockResolvedValue(0),
+    submitCredit: vi.fn(async (_app: bigint, seq: number) => {
+      onChain = seq
+      return txidOf(seq)
+    }),
+    getOnChainLastBatchSeq: vi.fn(async () => onChain),
     findCreditTxidByNote: vi.fn().mockResolvedValue(null),
+    checkPayoutAddress: vi.fn().mockResolvedValue('ok'),
   }
 }
 
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
   db.exec('DELETE FROM batches')
+  db.exec('DELETE FROM batch_payouts')
+  db.exec('DELETE FROM payees')
+  db.exec('DELETE FROM backlog_days')
   db.exec('DELETE FROM nightly_runs')
   db.exec('DELETE FROM nightly_lease')
 })
@@ -137,6 +148,7 @@ describe('runNightly: order and stop conditions', () => {
       submitCredit: vi.fn().mockResolvedValue('CREDIT-TXID'),
       getOnChainLastBatchSeq: vi.fn().mockResolvedValue(0),
       findCreditTxidByNote: vi.fn().mockResolvedValue(null),
+      checkPayoutAddress: vi.fn().mockResolvedValue('ok'),
     }
 
     await runNightly({
@@ -152,28 +164,25 @@ describe('runNightly: order and stop conditions', () => {
   })
 })
 
-describe('runNightly: credits every batch a large backlog needs (audit L2)', () => {
-  test('7 reviewers: three credit() batches in one run, onCredited once per batch', async () => {
+describe('runNightly: credits every batch a large backlog needs', () => {
+  test('120 payees: three credit() batches of 50, 50 and 20 in one run, onCredited once per batch', async () => {
+    const payees = Array.from({ length: 120 }, (_, i) => i)
     writeAccruals(
       {
         route: 'lockfile',
-        priceMicro: 7000,
-        packages: [0, 1, 2, 3, 4, 5, 6].map((i) => ({
+        priceMicro: 120_000,
+        packages: payees.map((i) => ({
           pkg: `nightly-pkg-${i}`,
           version: '1.0.0',
           auditor: `github:nightly-${i}`,
         })),
       },
-      'TXID-NIGHTLY-SEVEN',
+      'TXID-NIGHTLY-MANY',
       0, // settled long ago: every pool share has matured
       1000,
     )
-    const creditClient: CreditChainClient = {
-      isPayToRekeyed: vi.fn().mockResolvedValue(true),
-      submitCredit: vi.fn(async (_app: bigint, seq: number) => `CREDIT-${seq}`),
-      getOnChainLastBatchSeq: vi.fn().mockResolvedValue(0),
-      findCreditTxidByNote: vi.fn().mockResolvedValue(null),
-    }
+    for (const i of payees) upsertPayee(`github:nightly-${i}`, `ADDR-${i}`, 0, 0)
+    const creditClient = stubCreditClient((seq) => `CREDIT-${seq}`)
     const credited: [number, string][] = []
 
     await runNightly({
@@ -181,17 +190,158 @@ describe('runNightly: credits every batch a large backlog needs (audit L2)', () 
       backup: () => '/backup/audit-2026.db',
       creditClient,
       assertGenesisMatches: () => {},
-      env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
+      env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO, PAYOUT_MIN: '400' },
       log: () => {},
+      now: () => 5000,
       onCredited: (seq, txid) => credited.push([seq, txid]),
     })
 
     expect(creditClient.submitCredit).toHaveBeenCalledTimes(3)
+    const sizes = vi.mocked(creditClient.submitCredit).mock.calls.map((c) => c[2].payouts.length)
+    expect(sizes).toEqual([50, 50, 20])
     expect(credited).toEqual([
       [1, 'CREDIT-1'],
       [2, 'CREDIT-2'],
       [3, 'CREDIT-3'],
     ])
+  })
+
+  test('a failed group stops the run; the next run continues from the on-chain batch number', async () => {
+    const payees = Array.from({ length: 60 }, (_, i) => i)
+    writeAccruals(
+      {
+        route: 'lockfile',
+        priceMicro: 60_000,
+        packages: payees.map((i) => ({
+          pkg: `stop-pkg-${i}`,
+          version: '1.0.0',
+          auditor: `github:stop-${i}`,
+        })),
+      },
+      'TXID-NIGHTLY-STOP',
+      0,
+      1000,
+    )
+    for (const i of payees) upsertPayee(`github:stop-${i}`, `ADDR-${i}`, 0, 0)
+    let onChain = 0
+    const submit = vi.fn<CreditChainClient['submitCredit']>(async (_app, seq) => {
+      if (seq === 2) throw new Error('group rejected')
+      onChain = seq
+      return `CREDIT-${seq}`
+    })
+    const creditClient: CreditChainClient = {
+      ...stubCreditClient(),
+      submitCredit: submit,
+      getOnChainLastBatchSeq: vi.fn(async () => onChain),
+    }
+    const env = { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO, PAYOUT_MIN: '400' }
+    const deps = {
+      indexer: emptyIndexer(),
+      backup: () => '/backup/audit-2026.db',
+      creditClient,
+      assertGenesisMatches: () => {},
+      env,
+      log: () => {},
+      now: () => 5000,
+    }
+
+    await expect(runNightly(deps)).rejects.toThrow('group rejected')
+    expect(submit).toHaveBeenCalledTimes(2)
+
+    submit.mockImplementation(async (_app, seq) => {
+      onChain = seq
+      return `CREDIT-${seq}`
+    })
+    await runNightly(deps)
+    expect(submit.mock.calls.map((c) => c[1])).toEqual([1, 2, 2])
+    expect(submit.mock.calls[2]?.[2].payouts).toHaveLength(10)
+  })
+})
+
+describe('runNightly: backlog alert', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const ALERT = /ALERT matured unpaid payee total grew (\d+) nights in a row/
+
+  // A payee without an address is never paid, so its balance only grows.
+  function addBacklog(night: number): void {
+    writeAccruals(
+      {
+        route: 'single-attest',
+        priceMicro: 1000,
+        packages: [{ pkg: `backlog-${night}`, version: '1.0.0', auditor: 'github:stuck' }],
+      },
+      `TXID-BACKLOG-${night}`,
+      0,
+      1,
+    )
+  }
+
+  // One chain for every night: its batch number follows the submitted batches.
+  let chain = stubCreditClient()
+  beforeEach(() => {
+    chain = stubCreditClient()
+  })
+
+  async function nightAt(night: number, lines: string[]): Promise<void> {
+    await runNightly({
+      indexer: emptyIndexer(),
+      backup: () => '/backup/audit-2026.db',
+      creditClient: chain,
+      assertGenesisMatches: () => {},
+      env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
+      log: (line) => lines.push(line),
+      now: () => night * DAY + 1000,
+    })
+  }
+
+  test('fires on night 7 of growth, not on night 6', async () => {
+    const alerts: boolean[] = []
+    for (let night = 1; night <= 7; night++) {
+      addBacklog(night)
+      const lines: string[] = []
+      await nightAt(night, lines)
+      alerts.push(lines.some((line) => ALERT.test(line)))
+    }
+    expect(alerts).toEqual([false, false, false, false, false, false, true])
+  })
+
+  test('a night without growth resets the count', async () => {
+    for (let night = 1; night <= 6; night++) {
+      addBacklog(night)
+      await nightAt(night, [])
+    }
+    await nightAt(7, []) // same total as night 6: no growth
+    const lines: string[] = []
+    addBacklog(8)
+    await nightAt(8, lines)
+    expect(lines.some((line) => ALERT.test(line))).toBe(false)
+  })
+
+  test('a drop in the total resets the count', async () => {
+    for (let night = 1; night <= 6; night++) {
+      addBacklog(night)
+      await nightAt(night, [])
+    }
+    db.exec('UPDATE accruals SET frozen = 1') // the total falls to 0
+    await nightAt(7, [])
+    db.exec('UPDATE accruals SET frozen = 0')
+    const lines: string[] = []
+    await nightAt(8, lines)
+    expect(lines.some((line) => ALERT.test(line))).toBe(false)
+  })
+
+  test('two runs on one day count as one night', async () => {
+    for (let night = 1; night <= 6; night++) {
+      addBacklog(night)
+      await nightAt(night, [])
+    }
+    addBacklog(7)
+    await nightAt(7, [])
+    const lines: string[] = []
+    addBacklog(8)
+    await nightAt(7, lines) // second run on day 7, total grew again
+    expect(lines.filter((line) => ALERT.test(line))).toHaveLength(1)
+    expect(lines.join('\n')).toMatch(/grew 7 nights/)
   })
 })
 
