@@ -31,6 +31,22 @@ const INDEXER_TOKEN_HEADER = 'X-Indexer-API-Token'
 // 1's header does, alongside genesis-hash.
 const INDEXER_GENESIS_PATH = '/v2/blocks/1?header-only=true'
 
+/** Refuses when NETWORK does not match the genesis id that the algod node reports. */
+export function buildAlgodGenesisGuard(
+  algodServer: string,
+  algodToken: string,
+): () => Promise<void> {
+  return async () => {
+    const algodGenesisId = await fetchGenesisId(
+      algodServer,
+      '/v2/transactions/params',
+      algodToken,
+      ALGOD_TOKEN_HEADER,
+    )
+    assertGenesisMatchesNetwork('algod', NETWORK, algodGenesisId, algodServer, 'ALGOD_SERVER')
+  }
+}
+
 /**
  * Refuses when NETWORK does not match the connected algod's or indexer's
  * own reported genesis id (R3c). Fetches both over HTTP (genesis.ts's
@@ -44,14 +60,9 @@ function buildGenesisGuard(
   indexerUrl: string,
   indexerToken: string,
 ): () => Promise<void> {
+  const assertAlgod = buildAlgodGenesisGuard(algodServer, algodToken)
   return async () => {
-    const algodGenesisId = await fetchGenesisId(
-      algodServer,
-      '/v2/transactions/params',
-      algodToken,
-      ALGOD_TOKEN_HEADER,
-    )
-    assertGenesisMatchesNetwork('algod', NETWORK, algodGenesisId, algodServer, 'ALGOD_SERVER')
+    await assertAlgod()
 
     const indexerGenesisId = await fetchGenesisId(
       indexerUrl,
