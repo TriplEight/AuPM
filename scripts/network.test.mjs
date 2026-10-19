@@ -8,6 +8,7 @@ import {
   hasConfirmMainnetFlag,
   indexerEndpoint,
   parseNetworkFlag,
+  releaseRounds,
   usdcAssetId,
 } from './network.mjs'
 
@@ -122,4 +123,42 @@ test('assertMainnetConfirmed allows MainNet with --confirm-mainnet', () => {
 test('assertMainnetConfirmed is a no-op on TestNet, flag or not', () => {
   assert.doesNotThrow(() => assertMainnetConfirmed('testnet', []))
   assert.doesNotThrow(() => assertMainnetConfirmed('testnet', ['--confirm-mainnet']))
+})
+
+test('releaseRounds gives MainNet 216,000 and 216,000', () => {
+  assert.deepEqual(releaseRounds('mainnet', {}), { delay: 216_000, window: 216_000 })
+})
+
+test('releaseRounds accepts the MainNet values when env states them', () => {
+  const env = { RELEASE_DELAY_ROUNDS: '216000', RELEASE_WINDOW_ROUNDS: '216000' }
+  assert.deepEqual(releaseRounds('mainnet', env), { delay: 216_000, window: 216_000 })
+})
+
+test('releaseRounds refuses any other MainNet delay', () => {
+  assert.throws(
+    () => releaseRounds('mainnet', { RELEASE_DELAY_ROUNDS: '20' }),
+    /RELEASE_DELAY_ROUNDS=20 is not allowed on MainNet/,
+  )
+})
+
+test('releaseRounds refuses any other MainNet window', () => {
+  assert.throws(
+    () => releaseRounds('mainnet', { RELEASE_WINDOW_ROUNDS: '216001' }),
+    /RELEASE_WINDOW_ROUNDS=216001 is not allowed on MainNet/,
+  )
+})
+
+test('releaseRounds gives TestNet the short defaults 20 and 200', () => {
+  assert.deepEqual(releaseRounds('testnet', {}), { delay: 20, window: 200 })
+})
+
+test('releaseRounds lets env override TestNet', () => {
+  const env = { RELEASE_DELAY_ROUNDS: '5', RELEASE_WINDOW_ROUNDS: '60' }
+  assert.deepEqual(releaseRounds('testnet', env), { delay: 5, window: 60 })
+})
+
+test('releaseRounds refuses a non-integer, zero or negative value', () => {
+  for (const bad of ['1.5', '0', '-3', 'abc', '1e3']) {
+    assert.throws(() => releaseRounds('testnet', { RELEASE_DELAY_ROUNDS: bad }), /positive integer/)
+  }
 })

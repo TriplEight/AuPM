@@ -9,6 +9,7 @@ import {
   GlobalState,
   itxn,
   op,
+  TemplateVar,
   Txn,
   Uint64,
   type uint64,
@@ -25,15 +26,20 @@ const SPLIT_DEN = Uint64(1000)
 // new contract.
 const CAP_PERIOD_ROUNDS = Uint64(30_000)
 
-// Delay, in rounds, between an announcement and its use: announceRelease()
-// to executeRelease(), and announceChange() to applyChange(). About 7 days at
-// ~2.9s/round. Compiled in: a new value needs a new contract.
-const RELEASE_DELAY_ROUNDS = Uint64(216_000)
-
-// Rounds after the delay during which the announced action may run. About 7
-// days. After that the announcement expires and the admin must announce
-// again, which restarts the delay.
-const RELEASE_WINDOW_ROUNDS = Uint64(216_000)
+// Release timing is set when the app is deployed. The deploy step substitutes
+// both values into the programs, and createApplication() stores them in global
+// state so tools read them from the chain.
+//   TMPL_RELEASE_DELAY_ROUNDS   rounds between an announcement and its use:
+//                               announceRelease() to executeRelease(), and
+//                               announceChange() to applyChange().
+//   TMPL_RELEASE_WINDOW_ROUNDS  rounds after the delay in which the announced
+//                               action may run. After that the announcement
+//                               expires and the admin must announce again,
+//                               which restarts the delay.
+// MainNet uses 216,000 and 216,000 rounds (about 7 days each at ~2.9s/round).
+// TestNet uses short values so the path can be rehearsed in minutes. The
+// deploy tooling refuses any other MainNet value.
+// Each method reads the template values where it uses them.
 
 // Keys that announceChange() accepts.
 const CHANGE_CAP = 'cap'
@@ -95,6 +101,11 @@ export class PaymentRouter extends Contract {
   announcedRound = GlobalState<uint64>({ key: 'arn' })
   retired = GlobalState<boolean>({ key: 'ret' })
 
+  // The release delay and window this app was deployed with, in rounds.
+  // createApplication() copies them from the template values.
+  releaseDelay = GlobalState<uint64>({ key: 'rdl' })
+  releaseWindow = GlobalState<uint64>({ key: 'rwn' })
+
   // Runs once, at creation. payTo and the USDC asset id are fixed here and
   // never change afterwards. carryIn is the USDC at payTo that an earlier
   // app did not pay out. It starts as both pool money and declared money.
@@ -120,6 +131,8 @@ export class PaymentRouter extends Contract {
     this.pendingKey.value = ''
     this.pendingValue.value = Bytes()
     this.pendingRound.value = Uint64(0)
+    this.releaseDelay.value = TemplateVar<uint64>('RELEASE_DELAY_ROUNDS')
+    this.releaseWindow.value = TemplateVar<uint64>('RELEASE_WINDOW_ROUNDS')
   }
 
   // Admin-only. Authorises the hot key that can call credit().
@@ -155,17 +168,19 @@ export class PaymentRouter extends Contract {
     this.pendingRound.value = Global.round
   }
 
-  // Admin-only. Applies the pending change once RELEASE_DELAY_ROUNDS have
-  // passed and before RELEASE_WINDOW_ROUNDS have passed after that. Clears the
+  // Admin-only. Applies the pending change once the release delay has
+  // passed and before the release window has passed after that. Clears the
   // pending change. A 'cap' change may raise the cap.
   public applyChange(): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     const key: string = this.pendingKey.value
     assert(key !== '', 'no pending change')
-    const applicableFrom: uint64 = this.pendingRound.value + RELEASE_DELAY_ROUNDS
+    const delayRounds = TemplateVar<uint64>('RELEASE_DELAY_ROUNDS')
+    const windowRounds = TemplateVar<uint64>('RELEASE_WINDOW_ROUNDS')
+    const applicableFrom: uint64 = this.pendingRound.value + delayRounds
     assert(Global.round >= applicableFrom, 'change delay has not passed')
     assert(
-      Global.round < applicableFrom + RELEASE_WINDOW_ROUNDS,
+      Global.round < applicableFrom + windowRounds,
       'change window has expired; announce again',
     )
     if (key === CHANGE_CAP) {
@@ -277,8 +292,8 @@ export class PaymentRouter extends Contract {
   }
 
   // Admin-only. Records the migration target and the current round.
-  // executeRelease() may run once RELEASE_DELAY_ROUNDS have passed, for
-  // RELEASE_WINDOW_ROUNDS. A second call overwrites the target and restarts
+  // executeRelease() may run once the release delay has passed, for
+  // the release window. A second call overwrites the target and restarts
   // the delay from the new round: the delay always measures from
   // the most recent announcement, not the first one.
   public announceRelease(to: Account): void {
@@ -295,10 +310,12 @@ export class PaymentRouter extends Contract {
   public executeRelease(): void {
     assert(Txn.sender.bytes === Global.creatorAddress.bytes, 'admin only')
     assert(this.announcedTo.hasValue, 'no release announced')
-    const executableFrom: uint64 = this.announcedRound.value + RELEASE_DELAY_ROUNDS
+    const delayRounds = TemplateVar<uint64>('RELEASE_DELAY_ROUNDS')
+    const windowRounds = TemplateVar<uint64>('RELEASE_WINDOW_ROUNDS')
+    const executableFrom: uint64 = this.announcedRound.value + delayRounds
     assert(Global.round >= executableFrom, 'release delay has not passed')
     assert(
-      Global.round < executableFrom + RELEASE_WINDOW_ROUNDS,
+      Global.round < executableFrom + windowRounds,
       'release window has expired; announce again',
     )
 

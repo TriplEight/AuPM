@@ -2,7 +2,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { op } from '@algorandfoundation/algorand-typescript'
 import { TestExecutionContext } from '@algorandfoundation/algorand-typescript-testing'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { PaymentRouter } from './contract.algo'
 
 const DELAY = 216_000n
@@ -13,6 +13,15 @@ const itob = (n: bigint) => op.itob(n)
 
 describe('PaymentRouter', () => {
   const ctx = new TestExecutionContext()
+
+  const setReleaseRounds = (delay: bigint, window: bigint) => {
+    ctx.setTemplateVar('RELEASE_DELAY_ROUNDS', delay)
+    ctx.setTemplateVar('RELEASE_WINDOW_ROUNDS', window)
+  }
+
+  beforeEach(() => {
+    setReleaseRounds(DELAY, WINDOW)
+  })
 
   afterEach(() => {
     ctx.reset()
@@ -660,6 +669,109 @@ describe('PaymentRouter', () => {
       callInScope(contract, () => contract.executeRelease())
 
       expect(contract.retired.value).toEqual(true)
+    })
+  })
+
+  describe('release timing template values', () => {
+    const SHORT_DELAY = 20n
+    const SHORT_WINDOW = 200n
+
+    test('createApplication() stores the delay and the window in global state', () => {
+      setReleaseRounds(SHORT_DELAY, SHORT_WINDOW)
+      const { contract } = setup(0n)
+
+      expect(contract.releaseDelay.value).toEqual(SHORT_DELAY)
+      expect(contract.releaseWindow.value).toEqual(SHORT_WINDOW)
+    })
+
+    test('the stored values are the MainNet pair when the template is set to it', () => {
+      const { contract } = setup(0n)
+
+      expect(contract.releaseDelay.value).toEqual(216_000n)
+      expect(contract.releaseWindow.value).toEqual(216_000n)
+    })
+
+    describe('applyChange() with a short delay and window', () => {
+      const announced = () => {
+        setReleaseRounds(SHORT_DELAY, SHORT_WINDOW)
+        const fixture = setup(0n, 0n, 1_000n)
+        ctx.ledger.patchGlobalData({ round: 1_000n })
+        callInScope(fixture.contract, () => fixture.contract.announceChange('cap', itob(5_000n)))
+        return fixture.contract
+      }
+
+      test('fails one round before the delay', () => {
+        const contract = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + SHORT_DELAY - 1n })
+        expect(() => callInScope(contract, () => contract.applyChange())).toThrow(
+          'change delay has not passed',
+        )
+      })
+
+      test('works on the first and on the last round of the window', () => {
+        for (const round of [1_000n + SHORT_DELAY, 1_000n + SHORT_DELAY + SHORT_WINDOW - 1n]) {
+          const contract = announced()
+          ctx.ledger.patchGlobalData({ round })
+          callInScope(contract, () => contract.applyChange())
+          expect(contract.payoutCap.value).toEqual(5_000n)
+        }
+      })
+
+      test('fails when the window has expired', () => {
+        const contract = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + SHORT_DELAY + SHORT_WINDOW })
+        expect(() => callInScope(contract, () => contract.applyChange())).toThrow(
+          'change window has expired',
+        )
+      })
+    })
+
+    describe('executeRelease() with a short delay and window', () => {
+      const announced = () => {
+        setReleaseRounds(SHORT_DELAY, SHORT_WINDOW)
+        const fixture = setup(0n)
+        const releaseTo = ctx.any.account()
+        ctx.ledger.patchGlobalData({ round: 1_000n })
+        callInScope(fixture.contract, () => fixture.contract.announceRelease(releaseTo), {
+          sender: fixture.admin,
+        })
+        return { ...fixture, releaseTo }
+      }
+
+      test('fails one round before the delay', () => {
+        const { contract, admin } = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + SHORT_DELAY - 1n })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release delay has not passed')
+      })
+
+      test('works on the first and on the last round of the window', () => {
+        for (const round of [1_000n + SHORT_DELAY, 1_000n + SHORT_DELAY + SHORT_WINDOW - 1n]) {
+          const { contract, admin, releaseTo } = announced()
+          ctx.ledger.patchGlobalData({ round })
+          callInScope(contract, () => contract.executeRelease(), { sender: admin })
+          const rekeyTxn = ctx.txn.lastGroup.itxnGroups[0].getPaymentInnerTxn(0)
+          expect(rekeyTxn.rekeyTo).toEqual(releaseTo)
+        }
+      })
+
+      test('fails when the window has expired', () => {
+        const { contract, admin } = announced()
+        ctx.ledger.patchGlobalData({ round: 1_000n + SHORT_DELAY + SHORT_WINDOW })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release window has expired')
+      })
+
+      test('a program built with the MainNet pair still blocks a round the short pair allows', () => {
+        const { contract, admin } = announced()
+        setReleaseRounds(DELAY, WINDOW)
+        ctx.ledger.patchGlobalData({ round: 1_000n + SHORT_DELAY })
+        expect(() =>
+          callInScope(contract, () => contract.executeRelease(), { sender: admin }),
+        ).toThrow('release delay has not passed')
+      })
     })
   })
 
