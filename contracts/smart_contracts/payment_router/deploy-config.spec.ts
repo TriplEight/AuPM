@@ -28,6 +28,7 @@ import {
   deployMultisigAnnounceChange,
   deployMultisigApplyChange,
   deployMultisigLowerPayoutCap,
+  deployPaymentRouter,
   deriveAdminMultisigAddress,
   EXECUTE_RELEASE_MIN_FEE,
   encodeChangeValue,
@@ -38,8 +39,43 @@ import {
   parsePayoutCap,
   resolveClientConfig,
   resolveExecuteReleaseFee,
+  resolveReleaseRounds,
   writeUnsignedTxnFile,
 } from './deploy-config'
+
+const FAKE_PROGRAMS = { approval: new Uint8Array([1, 2, 3]), clear: new Uint8Array([4, 5]) }
+
+describe('resolveReleaseRounds', () => {
+  test('MainNet is 216,000 and 216,000', async () => {
+    expect(await resolveReleaseRounds('mainnet', {})).toEqual({ delay: 216_000, window: 216_000 })
+  })
+
+  test('MainNet accepts the same values stated in env', async () => {
+    const env = { RELEASE_DELAY_ROUNDS: '216000', RELEASE_WINDOW_ROUNDS: '216000' }
+    expect(await resolveReleaseRounds('mainnet', env)).toEqual({ delay: 216_000, window: 216_000 })
+  })
+
+  test('MainNet refuses a delay other than 216,000', async () => {
+    await expect(resolveReleaseRounds('mainnet', { RELEASE_DELAY_ROUNDS: '20' })).rejects.toThrow(
+      /RELEASE_DELAY_ROUNDS=20 is not allowed on MainNet/,
+    )
+  })
+
+  test('MainNet refuses a window other than 216,000', async () => {
+    await expect(resolveReleaseRounds('mainnet', { RELEASE_WINDOW_ROUNDS: '200' })).rejects.toThrow(
+      /RELEASE_WINDOW_ROUNDS=200 is not allowed on MainNet/,
+    )
+  })
+
+  test('TestNet defaults to delay 20 and window 200', async () => {
+    expect(await resolveReleaseRounds('testnet', {})).toEqual({ delay: 20, window: 200 })
+  })
+
+  test('TestNet takes an env override', async () => {
+    const env = { RELEASE_DELAY_ROUNDS: '5', RELEASE_WINDOW_ROUNDS: '60' }
+    expect(await resolveReleaseRounds('testnet', env)).toEqual({ delay: 5, window: 60 })
+  })
+})
 
 describe('parseNetwork', () => {
   test('defaults to mainnet when unset', () => {
@@ -382,6 +418,7 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       FAKE_SUGGESTED_PARAMS,
       receivers,
       5_000_000n,
+      FAKE_PROGRAMS,
     )
 
     expect(txn.sender.toString()).toBe(multisigAddress)
@@ -398,6 +435,36 @@ describe('buildUnsignedCreateApplicationTxn', () => {
     expect(new algosdk.ABIAddressType().decode(appArgs[4])).toBe(opsAddress)
     expect(new algosdk.ABIAddressType().decode(appArgs[5])).toBe(treasuryAddress)
     expect(new algosdk.ABIUintType(64).decode(appArgs[6])).toBe(5_000_000n)
+  })
+
+  test('sends the given compiled programs unchanged', () => {
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+      receivers,
+      0n,
+      FAKE_PROGRAMS,
+    )
+    expect(txn.applicationCall?.approvalProgram).toEqual(FAKE_PROGRAMS.approval)
+    expect(txn.applicationCall?.clearProgram).toEqual(FAKE_PROGRAMS.clear)
+  })
+
+  test('the global schema comes from the spec and holds the release timing keys', () => {
+    const txn = buildUnsignedCreateApplicationTxn(
+      multisigAddress,
+      payToAddress,
+      31566704,
+      FAKE_SUGGESTED_PARAMS,
+      receivers,
+      0n,
+      FAKE_PROGRAMS,
+    )
+    expect(txn.applicationCall?.numGlobalInts).toBe(APP_SPEC.state.schema.global.ints)
+    const keys = Object.values(APP_SPEC.state.keys.global).map((k) => k.key)
+    expect(keys).toContain(Buffer.from('rdl').toString('base64'))
+    expect(keys).toContain(Buffer.from('rwn').toString('base64'))
   })
 
   test('the signature matches the generated ARC-56 spec', () => {
@@ -417,6 +484,7 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       FAKE_SUGGESTED_PARAMS,
       receivers,
       0n,
+      FAKE_PROGRAMS,
       123_456n,
     )
     const appArgs = txn.applicationCall?.appArgs ?? []
@@ -432,6 +500,7 @@ describe('buildUnsignedCreateApplicationTxn', () => {
       FAKE_SUGGESTED_PARAMS,
       receivers,
       0n,
+      FAKE_PROGRAMS,
     )
     expect(txn.sender.toString()).toBe(multisigAddress)
     const appArgs = txn.applicationCall?.appArgs ?? []
@@ -497,6 +566,7 @@ describe('writeUnsignedTxnFile', () => {
         treasuryAddress: algosdk.generateAccount().addr.toString(),
       },
       0n,
+      FAKE_PROGRAMS,
     )
 
     const outPath = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'aupm-msig-')), 'create.txn')
@@ -898,5 +968,62 @@ describe('deploy() refuses MainNet before building any client or reading any mne
     expect((caught as Error).message).not.toMatch(/single-key deploy\(\) on MainNet/)
     expect(fromEnvironment).toHaveBeenCalledWith('DEPLOYER')
     expect(fromEnvironment).toHaveBeenCalledWith('CREDITER')
+  })
+})
+
+describe('deployPaymentRouter substitutes the release timing of the network', () => {
+  const deployWith = async (network: 'mainnet' | 'testnet') => {
+    const usdc = network === 'mainnet' ? 31566704 : 10458941
+    const deployCall = vi.fn().mockResolvedValue({
+      appClient: {
+        appId: 1n,
+        appAddress: { toString: () => 'APP' },
+        send: { setCrediter: vi.fn().mockResolvedValue({}) },
+      },
+      result: { operationPerformed: 'create' },
+    })
+    const algorand = {
+      client: {
+        algod: {
+          accountInformation: () => ({ do: async () => ({ assets: [{ assetId: BigInt(usdc) }] }) }),
+        },
+        getTypedAppFactory: () => ({ deploy: deployCall }),
+      },
+    } as unknown as AlgorandClient
+    await deployPaymentRouter({
+      algorand,
+      network,
+      deployer: { addr: { toString: () => 'DEPLOYER' } } as never,
+      crediterAddress: 'CREDITER',
+      payToAddress: 'PAYTO',
+      opsAddress: 'OPS',
+      treasuryAddress: 'TREASURY',
+      payoutCap: 5_000_000n,
+    })
+    return deployCall.mock.calls[0][0].deployTimeParams
+  }
+
+  afterEach(() => {
+    delete process.env.RELEASE_DELAY_ROUNDS
+    delete process.env.RELEASE_WINDOW_ROUNDS
+  })
+
+  test('TestNet deploys with delay 20 and window 200', async () => {
+    expect(await deployWith('testnet')).toEqual({
+      RELEASE_DELAY_ROUNDS: 20,
+      RELEASE_WINDOW_ROUNDS: 200,
+    })
+  })
+
+  test('MainNet deploys with delay 216,000 and window 216,000', async () => {
+    expect(await deployWith('mainnet')).toEqual({
+      RELEASE_DELAY_ROUNDS: 216_000,
+      RELEASE_WINDOW_ROUNDS: 216_000,
+    })
+  })
+
+  test('MainNet refuses another value from the environment before it deploys', async () => {
+    process.env.RELEASE_DELAY_ROUNDS = '20'
+    await expect(deployWith('mainnet')).rejects.toThrow(/not allowed on MainNet/)
   })
 })
