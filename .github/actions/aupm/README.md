@@ -124,9 +124,10 @@ The pinned SHA must contain PR #45 (merge
 builds the MainNet payment with TestNet parameters, and the facilitator
 rejects it.
 
-A run pays 1,000 microUSDC for each lockfile entry that has a review on the
-server of that network. The MainNet and TestNet servers have different
-review sets, so the same lockfile costs a different amount on each network.
+A run pays 10,000 microUSDC ($0.01) times the multiplier for each lockfile
+entry that has a review on the server of that network. The MainNet and
+TestNet servers have different review sets, so the same lockfile costs a
+different amount on each network.
 
 ## Inputs
 
@@ -136,6 +137,7 @@ review sets, so the same lockfile costs a different amount on each network.
 | `lockfile` | (empty) | Path to the lockfile. The install command runs in its directory. Empty means the Action uses the one of `package-lock.json`, `pnpm-lock.yaml` and `yarn.lock` in the working directory. |
 | `install` | `auto` | `auto` picks the tool from the lockfile name. `npm`, `pnpm` and `yarn` (classic) force one tool. Each installs through the AuPM registry, with fallback to the public registry. `none` skips the install. Any other value fails the step. |
 | `donate` | `false` | Set to `true` to donate to the reviewed packages. |
+| `multiplier` | (empty) | The donation per reviewed package, as a multiple of the base. Use a decimal from 0.1 to 100 with at most one fraction digit, for example `2.5`. Empty means x1. Base $0.01, minimum $0.001, maximum x100. Any other value fails the step. |
 | `donor-secret` | (empty) | The donor mnemonic (25 words, or a 24-word Universal Wallet phrase) from a GitHub secret. MainNet unless the job sets `NETWORK: testnet`. Read only when `donate` is `true`. |
 | `output` | `aupm-receipt.json` | Path where the Action writes the signed receipt. |
 | `fail-on-mismatch` | `false` | Set to `true` to fail the step on `integrityMismatch` above zero. |
@@ -268,8 +270,8 @@ network call. The Action never sends a bare mnemonic to any endpoint.
 CAUTION: never configure `donor-secret` for an account you cannot afford
 to spend from. The CLI enforces two limits:
 
-- It refuses to sign above 1,000 microUSDC per lockfile entry.
-  There is no fixed cap.
+- It refuses to sign above the multiplier price per lockfile entry.
+  There is no fixed cap on the lockfile total.
 - It refuses any asset other than the USDC ASA of the network.
 
 A compromised `endpoint` input can still misdirect a donated payment.

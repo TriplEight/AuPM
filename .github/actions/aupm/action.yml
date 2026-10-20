@@ -16,6 +16,10 @@ inputs:
     description: 'Set to "true" to donate to the reviewed packages in the lockfile. Off by default.'
     required: false
     default: 'false'
+  multiplier:
+    description: 'The donation per reviewed package as a multiple of the base $0.01. A decimal from 0.1 to 100 with at most one fraction digit, for example 2.5. Empty means x1. Any other value fails the step.'
+    required: false
+    default: ''
   donor-secret:
     description: 'The donor mnemonic (25 words) of a funded account, from a GitHub secret. MainNet unless the job sets NETWORK: testnet. Read only when donate is "true".'
     required: false
@@ -64,6 +68,7 @@ runs:
         FAIL_ON_MISMATCH: ${{ inputs.fail-on-mismatch }}
         OUTPUT: ${{ inputs.output }}
         DONATE: ${{ inputs.donate }}
+        MULTIPLIER: ${{ inputs.multiplier }}
         # WARNING: only set when donate is 'true'. Never argv, never a log line.
         DONOR_SECRET: ${{ inputs.donate == 'true' && inputs.donor-secret || '' }}
       run: node "${{ github.action_path }}/run.mjs"

@@ -15,6 +15,7 @@ import { test } from 'node:test'
 import {
   buildCliArgs,
   formatUsdc,
+  parseMultiplier,
   parseSummaryFromStdout,
   reportCounts,
   reportDonation,
@@ -43,6 +44,7 @@ fs.writeFileSync(${JSON.stringify(recordPath)}, JSON.stringify({
   hasMnemonicEnv: 'AUPM_DONOR_MNEMONIC' in process.env,
   mnemonicValue: process.env.AUPM_DONOR_MNEMONIC ?? null,
   proxyUrl: process.env.AUPM_PROXY_URL ?? null,
+  multiplier: process.env.AUPM_MULTIPLIER ?? null,
 }))
 const mode = ${JSON.stringify(mode)}
 if (mode === 'error') {
@@ -93,6 +95,7 @@ function baseOptions(overrides) {
     output: 'aupm-receipt.json',
     donate: false,
     donorSecret: '',
+    multiplier: '',
     cwd: process.cwd(),
     ...overrides,
   }
@@ -286,7 +289,7 @@ test('lockfile and output are resolved to absolute paths against cwd', () => {
   assert.deepEqual(args, [
     'exec',
     '--yes',
-    '--package=aupm-cli@0.4.5',
+    '--package=aupm-cli@0.5.0',
     '--',
     'aupm',
     'attest',
@@ -328,7 +331,7 @@ test('reportCounts writes the four counts and the offer without donate', (t) => 
   })
   const text = readFileSync(summaryPath, 'utf8')
   assert.match(text, /\| 2 \| 3 \| 1 \| 4 \|/)
-  assert.match(text, /A donation would be 0\.002000 USDC for 2 reviewed packages/)
+  assert.match(text, /A donation would be 0\.020000 USDC for 2 reviewed packages/)
   assert.match(text, /whole lockfile/)
 })
 
@@ -358,4 +361,71 @@ test('reportCounts shows a malformed count as unknown, never as 0', (t) => {
   })
   const text = readFileSync(summaryPath, 'utf8')
   assert.match(text, /\| 1 \| unknown \| unknown \| unknown \|/)
+})
+
+test('parseMultiplier gives integer tenths and treats empty as x1', () => {
+  assert.equal(parseMultiplier(''), 10)
+  assert.equal(parseMultiplier(undefined), 10)
+  assert.equal(parseMultiplier('0.1'), 1)
+  assert.equal(parseMultiplier('2.5'), 25)
+  assert.equal(parseMultiplier(' 100 '), 1000)
+})
+
+test('parseMultiplier rejects values outside x0.1 to x100 and names the range', () => {
+  for (const bad of ['0', '0.05', '1.25', '101', '-1', 'abc', '100.1']) {
+    assert.throws(() => parseMultiplier(bad), /x0\.1 to x100/, bad)
+  }
+})
+
+test('resolveOptions reads the multiplier from env and defaults to empty', () => {
+  assert.equal(resolveOptions([], { MULTIPLIER: '2.5' }).multiplier, '2.5')
+  assert.equal(resolveOptions([], {}).multiplier, '')
+})
+
+test('an empty multiplier does not set AUPM_MULTIPLIER for the CLI', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { binDir, recordPath } = makeFakeCli(dir, 'ok')
+
+  const code = await withFakeCliOnPath(binDir, () => run(baseOptions()))
+
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(readFileSync(recordPath, 'utf8')).multiplier, null)
+})
+
+test('a set multiplier reaches the CLI as AUPM_MULTIPLIER', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { binDir, recordPath } = makeFakeCli(dir, 'ok')
+
+  const code = await withFakeCliOnPath(binDir, () => run(baseOptions({ multiplier: '2.5' })))
+
+  assert.equal(code, 0)
+  assert.equal(JSON.parse(readFileSync(recordPath, 'utf8')).multiplier, '2.5')
+})
+
+test('a bad multiplier fails the step and never starts the CLI', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const { binDir, recordPath } = makeFakeCli(dir, 'ok')
+
+  for (const bad of ['0', '0.05', '101', 'abc']) {
+    const code = await withFakeCliOnPath(binDir, () => run(baseOptions({ multiplier: bad })))
+    assert.equal(code, 1, bad)
+  }
+  assert.throws(() => readFileSync(recordPath), 'the CLI must never be invoked in this case')
+})
+
+test('reportCounts previews 1000 x tenths x reviewed microUSDC', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aupm-run-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const summaryPath = join(dir, 'summary.md')
+  const env = { GITHUB_STEP_SUMMARY: summaryPath }
+  reportCounts(
+    { reviewed: 3, unreviewed: 0, integrityMismatch: 0, unresolvable: 0 },
+    false,
+    env,
+    25,
+  )
+  assert.match(readFileSync(summaryPath, 'utf8'), /A donation would be 0\.075000 USDC for 3/)
 })
