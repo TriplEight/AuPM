@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url'
 import * as ed from '@noble/ed25519'
 import { describe, expect, test } from 'vitest'
 import {
-  donationReceiptLine,
+  donationReceipt,
   type Envelope,
   pae,
   parseEnvelope,
@@ -539,7 +539,7 @@ describe('runVerify: yarn.lock subject', () => {
   })
 })
 
-describe('donationReceiptLine', () => {
+describe('donationReceipt', () => {
   function envelopeWith(predicate: unknown): Envelope {
     const statement = { subject: [], predicate }
     return {
@@ -550,24 +550,118 @@ describe('donationReceiptLine', () => {
   }
 
   test('shows the base, the multiplier and the total of the signed donation record', () => {
-    const envelope = envelopeWith({ donation: { multiplierTenths: 25, totalMicro: 50_000 } })
-    expect(donationReceiptLine(envelope)).toBe(
-      'donation: Base 0.001 USDC (x0.1). Multiplier x2.5. Total 0.05 USDC.',
-    )
+    const envelope = envelopeWith({
+      donation: { baseMicro: 1000, multiplierTenths: 25, totalMicro: 50_000 },
+    })
+    expect(donationReceipt(envelope)).toEqual({
+      ok: true,
+      line: 'donation: Base 0.001 USDC (x0.1). Multiplier x2.5. Total 0.05 USDC.',
+    })
   })
 
-  test.each([
-    [{}],
-    [{ donation: {} }],
-    [{ donation: { multiplierTenths: 1.5, totalMicro: 1000 } }],
-    [{ donation: { multiplierTenths: 10, totalMicro: '1000' } }],
-    [{ donation: { multiplierTenths: 0, totalMicro: 1000 } }],
-  ])('prints nothing for the predicate %j', (predicate) => {
-    expect(donationReceiptLine(envelopeWith(predicate))).toBeNull()
+  test('a lockfile total is a multiple of base times multiplier', () => {
+    const envelope = envelopeWith({
+      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 30_000 },
+    })
+    expect(donationReceipt(envelope)).toMatchObject({ ok: true })
+  })
+
+  test.each([[{}], [{ other: 1 }]])('prints nothing for the predicate %j', (predicate) => {
+    expect(donationReceipt(envelopeWith(predicate))).toBeNull()
   })
 
   test('prints nothing for a payload that is not JSON', () => {
     const envelope = { ...envelopeWith({}), payload: Buffer.from('not json').toString('base64') }
-    expect(donationReceiptLine(envelope)).toBeNull()
+    expect(donationReceipt(envelope)).toBeNull()
+  })
+
+  test.each([
+    [{}],
+    [null],
+    [{ baseMicro: 1000, multiplierTenths: 1.5, totalMicro: 1000 }],
+    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: '1000' }],
+    [{ baseMicro: 1000, multiplierTenths: 0, totalMicro: 1000 }],
+    [{ multiplierTenths: 10, totalMicro: 10_000 }],
+    [{ baseMicro: 1000, multiplierTenths: 1001, totalMicro: 1_001_000 }],
+    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: 15_000 }],
+    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: 5_000 }],
+  ])('rejects the malformed donation %j', (donation) => {
+    expect(donationReceipt(envelopeWith({ donation }))).toMatchObject({ ok: false })
+  })
+})
+
+describe('runVerify: signed donation record', () => {
+  const privateKey = ed.utils.randomSecretKey()
+  const KEYID = 'test-key-1'
+
+  async function runSigned(
+    predicate: Record<string, unknown>,
+    tamper?: (payload: string) => string,
+  ): Promise<{ code: number; output: string }> {
+    const payloadBytes = new TextEncoder().encode(
+      JSON.stringify({ _type: 'https://in-toto.io/Statement/v1', subject: [], predicate }),
+    )
+    const payloadType = 'application/vnd.in-toto+json'
+    const sig = await ed.signAsync(pae(payloadType, payloadBytes), privateKey)
+    const payload = Buffer.from(payloadBytes).toString('base64')
+    const envelope = {
+      payloadType,
+      payload: tamper ? tamper(payload) : payload,
+      signatures: [{ keyid: KEYID, sig: Buffer.from(sig).toString('base64') }],
+    }
+    const dir = mkdtempSync(join(tmpdir(), 'aupm-verify-donation-'))
+    const path = join(dir, 'attestation.json')
+    writeFileSync(path, JSON.stringify(envelope))
+    const publicKey = Buffer.from(await ed.getPublicKeyAsync(privateKey)).toString('base64')
+    const logs: string[] = []
+    const originalLog = console.log
+    console.log = (...args: unknown[]) => logs.push(args.join(' '))
+    try {
+      const code = await runVerify([path, '--key', `${KEYID}:${publicKey}`])
+      return { code, output: logs.join('\n') }
+    } finally {
+      console.log = originalLog
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  test('prints base, multiplier and total after a passing signature', async () => {
+    const { code, output } = await runSigned({
+      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 10_000 },
+    })
+    expect(code).toBe(0)
+    expect(output).toContain('donation: Base 0.001 USDC (x0.1). Multiplier x1. Total 0.01 USDC.')
+    expect(output).toContain('verify: PASS')
+  })
+
+  test('prints no donation line when the predicate has none', async () => {
+    const { code, output } = await runSigned({})
+    expect(code).toBe(0)
+    expect(output).not.toContain('donation')
+  })
+
+  test('rejects a malformed signed donation record', async () => {
+    const { code, output } = await runSigned({
+      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 15_000 },
+    })
+    expect(code).toBe(1)
+    expect(output).toContain('donation: FAIL')
+    expect(output).toContain('verify: FAIL')
+  })
+
+  test('changing the donation after signing breaks the signature and prints no receipt', async () => {
+    const { code, output } = await runSigned(
+      { donation: { baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 } },
+      (payload) =>
+        Buffer.from(
+          Buffer.from(payload, 'base64')
+            .toString('utf8')
+            .replace('"totalMicro":1000', '"totalMicro":9000'),
+        ).toString('base64'),
+    )
+    expect(code).toBe(1)
+    expect(output).toContain('signature')
+    expect(output).toContain('FAIL')
+    expect(output).not.toContain('donation: Base')
   })
 })

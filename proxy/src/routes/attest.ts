@@ -57,6 +57,7 @@ import {
   MULTIPLIER_ERROR,
   MULTIPLIER_HEADER,
   multiplierFromContext,
+  type PriceReceipt,
   parseMultiplier,
   priceReceipt,
   totalPriceMicro,
@@ -291,7 +292,11 @@ async function readLimitedBody(
  * A full (paid, or genuinely zero-coverage) attestation always has
  * `withheld: 0`.
  */
-function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record<string, unknown> {
+function lockfilePredicate(
+  analysis: LockfileAnalysis,
+  partial: boolean,
+  donation?: PriceReceipt,
+): Record<string, unknown> {
   const packages = partial
     ? analysis.packages.filter((pkg) => pkg.integrityMatch !== true)
     : analysis.packages
@@ -309,6 +314,8 @@ function lockfilePredicate(analysis: LockfileAnalysis, partial: boolean): Record
     // UNREVIEWED-or-withheld on a partial one — never the unreviewed
     // majority is listed either way.
     absentMeans: partial ? 'UNREVIEWED_OR_WITHHELD' : 'UNREVIEWED',
+    // Only a paid attestation signs the price. A free or partial one has no field.
+    ...(donation ? { donation } : {}),
   }
 }
 
@@ -322,12 +329,13 @@ async function signLockfileStatement(
   analysis: LockfileAnalysis,
   key: SigningKeyLike,
   partial: boolean,
+  donation?: PriceReceipt,
 ): ReturnType<typeof signEnvelope> {
   const statement = buildLockfileStatement({
     subjectName: LOCKFILE_SUBJECT_NAMES[analysis.format],
     sha256: analysis.sha256,
     predicateType: LOCKFILE_PREDICATE_TYPE,
-    predicate: lockfilePredicate(analysis, partial),
+    predicate: lockfilePredicate(analysis, partial, donation),
   })
   const payload = new TextEncoder().encode(JSON.stringify(statement))
   return signEnvelope(payload, PAYLOAD_TYPE, key)
@@ -640,14 +648,14 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (tenths === null) return multiplierError(c)
 
     const key = await options.getSigningKey()
-    const attestation = await signLockfileStatement(analysis, key, false)
+    const price = priceReceipt(analysis.reviewedPackageRefs.length, tenths)
+    const attestation = await signLockfileStatement(analysis, key, false, price)
 
     const packages: AttributionEntry[] = analysis.reviewedPackageRefs.map((ref) => ({
       pkg: ref.pkg,
       version: ref.version,
       auditor: ref.auditor,
     }))
-    const price = priceReceipt(analysis.reviewedPackageRefs.length, tenths)
     c.set('attribution', { route: 'lockfile', priceMicro: price.totalMicro, packages })
 
     return c.json({ summary: analysis.summary, attestation, price })
@@ -756,6 +764,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (tenths === null) return multiplierError(c)
 
     const key = await options.getSigningKey()
+    const price = priceReceipt(1, tenths)
 
     const statement = buildSinglePackageStatement({
       packageUrl: `pkg:npm/${name}@${version}`,
@@ -779,13 +788,13 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
         ],
         withheld: 0,
         absentMeans: 'UNREVIEWED',
+        donation: price,
       },
     })
     const payload = new TextEncoder().encode(JSON.stringify(statement))
     const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
 
     const packages: AttributionEntry[] = [{ pkg: name, version, auditor: reviewerIdentity(status) }]
-    const price = priceReceipt(1, tenths)
     c.set('attribution', { route: 'single-attest', priceMicro: price.totalMicro, packages })
 
     return c.json({ tier: status.status, attestation, price })

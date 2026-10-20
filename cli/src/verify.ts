@@ -258,22 +258,48 @@ function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
 }
 
+const MIN_MULTIPLIER_TENTHS = 1
+const MAX_MULTIPLIER_TENTHS = 1000
+
+export type DonationReceipt = { ok: true; line: string } | { ok: false; reason: string }
+
 /**
  * The base price, multiplier and total that the signed predicate records for a paid
- * attestation, or null when the predicate has no donation record. Display only.
+ * attestation. Returns null when the predicate has no donation record. Returns a
+ * failure when the record is malformed: a value that is not a positive integer, a
+ * multiplier outside 1 to 1000 tenths, or a total that is not a multiple of base times
+ * multiplier. Call it only after the signature check passed.
  */
-export function donationReceiptLine(envelope: Envelope): string | null {
-  let donation: Record<string, unknown> | undefined
+export function donationReceipt(envelope: Envelope): DonationReceipt | null {
+  let donation: unknown
   try {
     const payload = Buffer.from(envelope.payload, 'base64').toString('utf8')
-    donation = (JSON.parse(payload) as { predicate?: { donation?: Record<string, unknown> } })
-      .predicate?.donation
+    donation = (JSON.parse(payload) as { predicate?: { donation?: unknown } }).predicate?.donation
   } catch {
     return null
   }
-  const { multiplierTenths, totalMicro } = donation ?? {}
-  if (!isPositiveInteger(multiplierTenths) || !isPositiveInteger(totalMicro)) return null
-  return `donation: ${receiptLine(formatMultiplier(multiplierTenths), totalMicro)}`
+  if (donation === undefined) return null
+  const { baseMicro, multiplierTenths, totalMicro } = (donation ?? {}) as Record<string, unknown>
+  if (
+    !isPositiveInteger(baseMicro) ||
+    !isPositiveInteger(multiplierTenths) ||
+    !isPositiveInteger(totalMicro)
+  ) {
+    return {
+      ok: false,
+      reason: 'baseMicro, multiplierTenths and totalMicro must be positive integers',
+    }
+  }
+  if (multiplierTenths < MIN_MULTIPLIER_TENTHS || multiplierTenths > MAX_MULTIPLIER_TENTHS) {
+    return { ok: false, reason: 'multiplierTenths must be from 1 to 1000' }
+  }
+  if (totalMicro % (baseMicro * multiplierTenths) !== 0) {
+    return { ok: false, reason: 'totalMicro is not a multiple of baseMicro times multiplierTenths' }
+  }
+  return {
+    ok: true,
+    line: `donation: ${receiptLine(formatMultiplier(multiplierTenths), totalMicro, baseMicro)}`,
+  }
 }
 
 interface ParsedArgs {
@@ -413,8 +439,12 @@ export async function runVerify(argv: string[]): Promise<number> {
     if (!result.ok) allOk = false
   }
 
-  const receipt = donationReceiptLine(envelope)
-  if (allOk && receipt) console.log(receipt)
+  const receipt = allOk ? donationReceipt(envelope) : null
+  if (receipt?.ok) console.log(receipt.line)
+  if (receipt && !receipt.ok) {
+    console.log(`donation: FAIL - ${receipt.reason}`)
+    allOk = false
+  }
 
   console.log(allOk ? 'verify: PASS' : 'verify: FAIL')
   return allOk ? 0 : 1

@@ -45,9 +45,13 @@ export function formatMicro(micro: bigint): string {
 }
 
 /** `Base 0.001 USDC (x0.1). Multiplier x1. Total 0.01 USDC.` The base is the price at x0.1. */
-export function receiptLine(multiplierLabel: string, totalMicro: number): string {
+export function receiptLine(
+  multiplierLabel: string,
+  totalMicro: number,
+  baseMicro: number = PRICE_PER_ENTRY_MICRO,
+): string {
   return (
-    `Base ${formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))} USDC (x0.1). ` +
+    `Base ${formatMicro(BigInt(baseMicro))} USDC (x0.1). ` +
     `Multiplier ${multiplierLabel}. Total ${formatMicro(BigInt(totalMicro))} USDC.`
   )
 }

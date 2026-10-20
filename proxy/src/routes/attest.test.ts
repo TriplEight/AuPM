@@ -1565,4 +1565,94 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     })
     expect(partial.status).toBe(200)
   })
+
+  async function paidSingle(tenths: string) {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { [MULTIPLIER]: tenths },
+    })
+    return (await res.json()) as { attestation: Envelope }
+  }
+
+  async function paidLockfile(names: string[], tenths: string) {
+    for (const name of names) {
+      setStatus(name, '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    }
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: tenths },
+      body: lockfileBody(names),
+    })
+    return (await res.json()) as { attestation: Envelope }
+  }
+
+  test.each([
+    ['10', 10_000],
+    ['1000', 1_000_000],
+  ])('a paid single attestation signs the donation at multiplier %s', async (tenths, total) => {
+    const body = await paidSingle(tenths)
+    expect(decodeStatement(body.attestation).predicate.donation).toEqual({
+      baseMicro: 1000,
+      multiplierTenths: Number(tenths),
+      totalMicro: total,
+    })
+  })
+
+  test.each([
+    ['10', 30_000],
+    ['1000', 3_000_000],
+  ])(
+    'a paid lockfile of 3 reviewed entries signs the donation at multiplier %s',
+    async (tenths, total) => {
+      const body = await paidLockfile(['pkg-a', 'pkg-b', 'pkg-c'], tenths)
+      expect(decodeStatement(body.attestation).predicate.donation).toEqual({
+        baseMicro: 1000,
+        multiplierTenths: Number(tenths),
+        totalMicro: total,
+      })
+    },
+  )
+
+  test('free and partial attestations carry no donation field', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp()
+    const partialHeaders = { 'X-AuPM-Donate': '0' }
+    const responses = [
+      await app.request('/v1/attest?name=nope&version=1.0.0'),
+      await app.request('/v1/attest?name=ms&version=2.1.3', { headers: partialHeaders }),
+      await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: lockfileBody(['unreviewed-pkg']),
+      }),
+      await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...partialHeaders },
+        body: lockfileBody(['pkg']),
+      }),
+    ]
+    for (const res of responses) {
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { attestation: Envelope }
+      expect(decodeStatement(body.attestation).predicate).not.toHaveProperty('donation')
+    }
+  })
+
+  test('changing the signed donation breaks the signature', async () => {
+    const body = await paidSingle('10')
+    const keys = [{ keyid: signingKey.keyid, publicKey: signingKey.publicKey }]
+    expect(await verifyEnvelope(body.attestation, keys)).toBe(true)
+    const statement = decodeStatement(body.attestation)
+    const forged = {
+      ...statement.predicate,
+      donation: { baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 },
+    }
+    const payload = Buffer.from(JSON.stringify({ ...statement, predicate: forged })).toString(
+      'base64',
+    )
+    expect(await verifyEnvelope({ ...body.attestation, payload }, keys)).toBe(false)
+  })
 })
