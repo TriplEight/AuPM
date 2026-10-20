@@ -13,11 +13,37 @@ import { pathToFileURL } from 'node:url'
 const DEFAULT_LOCKFILE = 'package-lock.json'
 const DEFAULT_OUTPUT = 'aupm-receipt.json'
 
-export const CLI_PACKAGE = 'aupm-cli@0.4.5'
+export const CLI_PACKAGE = 'aupm-cli@0.5.0'
 
 /** Print a GitHub Actions warning annotation. */
 export function warn(message) {
   console.log(`::warning::${message}`)
+}
+
+const DEFAULT_MULTIPLIER_TENTHS = 10
+const MIN_MULTIPLIER_TENTHS = 1
+const MAX_MULTIPLIER_TENTHS = 1000
+// One tenth of the multiplier costs 1,000 microUSDC. The base, x1, is 10,000.
+const MICRO_PER_TENTH = 1000
+const MULTIPLIER_TEXT = /^(\d{1,3})(?:\.(\d))?$/
+
+/**
+ * Parse a multiplier such as "2.5" into integer tenths (25), without floats.
+ * An empty value means x1. Throws for anything outside x0.1 to x100.
+ */
+export function parseMultiplier(text) {
+  const trimmed = String(text ?? '').trim()
+  if (trimmed === '') return DEFAULT_MULTIPLIER_TENTHS
+  const match = MULTIPLIER_TEXT.exec(trimmed)
+  const tenths = match ? Number(match[1]) * 10 + Number(match[2] ?? 0) : Number.NaN
+  if (!(tenths >= MIN_MULTIPLIER_TENTHS && tenths <= MAX_MULTIPLIER_TENTHS)) {
+    throw new Error(
+      `Multiplier ${JSON.stringify(trimmed)} is not valid. The multiplier must be a decimal ` +
+        'from 0.1 to 100 (x0.1 to x100) with at most one fraction digit, ' +
+        'for example 0.1, 1 or 2.5.',
+    )
+  }
+  return tenths
 }
 
 const ALGORAND_TXID = /^[A-Z2-7]{52}$/
@@ -73,9 +99,15 @@ export function reportDonation(summary, env = process.env) {
 /**
  * Write the lockfile counts to the job summary: reviewed, not reviewed, integrity
  * mismatch and unresolvable. The same four counts show with and without donate.
- * Without donate, add the amount a donation would cost. Amounts are integer microUSDC.
+ * Without donate, add the amount a donation would cost at the multiplier `tenths`.
+ * Amounts are integer microUSDC.
  */
-export function reportCounts(summary, donate, env = process.env) {
+export function reportCounts(
+  summary,
+  donate,
+  env = process.env,
+  tenths = DEFAULT_MULTIPLIER_TENTHS,
+) {
   if (!env.GITHUB_STEP_SUMMARY || !summary) return
   const count = (value) => (Number.isInteger(value) && value >= 0 ? value : 'unknown')
   const reviewed = count(summary.reviewed)
@@ -88,8 +120,9 @@ export function reportCounts(summary, donate, env = process.env) {
     '',
   ]
   if (!donate && reviewed !== 'unknown' && reviewed > 0) {
+    const amount = formatUsdc(reviewed * MICRO_PER_TENTH * tenths)
     lines.push(
-      `A donation would be ${formatUsdc(reviewed * 1000)} USDC for ${reviewed} reviewed ` +
+      `A donation would be ${amount} USDC for ${reviewed} reviewed ` +
         "packages. Set donate: 'true' to send it. It pays for every reviewed package in the " +
         'whole lockfile.',
       '',
@@ -138,6 +171,7 @@ export function resolveOptions(argv, env) {
       cli['fail-on-mismatch'] ?? env.FAIL_ON_MISMATCH ?? env.INPUT_FAIL_ON_MISMATCH ?? 'false',
     output: cli.output ?? env.OUTPUT ?? env.INPUT_OUTPUT ?? DEFAULT_OUTPUT,
     donate: normalizeBool(cli.donate ?? env.DONATE ?? env.INPUT_DONATE ?? 'false'),
+    multiplier: cli.multiplier ?? env.MULTIPLIER ?? env.INPUT_MULTIPLIER ?? '',
     donorSecret: env.DONOR_SECRET ?? env.INPUT_DONOR_SECRET ?? '',
     cwd: cli.cwd ?? env.CWD ?? process.cwd(),
   }
@@ -217,8 +251,17 @@ export async function run(options, { spawnFn = spawn } = {}) {
     output = DEFAULT_OUTPUT,
     donate = false,
     donorSecret = '',
+    multiplier = '',
     cwd = process.cwd(),
   } = options
+
+  let tenths
+  try {
+    tenths = parseMultiplier(multiplier)
+  } catch (err) {
+    console.log(`::error::${err.message}`)
+    return 1
+  }
 
   try {
     if (!endpoint) {
@@ -234,6 +277,8 @@ export async function run(options, { spawnFn = spawn } = {}) {
     const args = buildCliArgs({ lockfile, donate, output, cwd })
     const env = { ...process.env, AUPM_PROXY_URL: endpoint }
     delete env.AUPM_DONOR_MNEMONIC
+    delete env.AUPM_MULTIPLIER
+    if (multiplier.trim() !== '') env.AUPM_MULTIPLIER = multiplier.trim()
     if (donate) env.AUPM_DONOR_MNEMONIC = donorSecret
 
     let result
@@ -265,7 +310,7 @@ export async function run(options, { spawnFn = spawn } = {}) {
       )
     }
 
-    reportCounts(summary, donate)
+    reportCounts(summary, donate, process.env, tenths)
     reportDonation(summary)
 
     const mismatchCount = summary?.integrityMismatch ?? 0
