@@ -2,6 +2,12 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-20
+- #140 `ebf4571`: the base donation is $0.01 per reviewed package. A donor sets a multiplier
+  from x0.1 ($0.001) to x100 in the header `X-AuPM-Multiplier`; the default is x1. A paid
+  attestation signs the price in `predicate.donation`. CLI 0.4.5 stops paying after the next
+  proxy deploy.
+
 ## 2026-10-16
 - #133 `d6ca46e`: a new PaymentRouter with a pool per package version, a rolling hold and
   freeze state per share. `credit()` checks the fixed ops and treasury shares per batch and the
