@@ -17,8 +17,8 @@ process.env.AUPM_ISSUER_URL = 'https://issuer.invalid'
 const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY, OG_DESCRIPTION } = await import(
   './routes.js'
 )
-const { TARBALL_ROUTE_KEY } = await import('./tarball.js')
-const { lockfileDynamicPrice } = await import('../routes/attest.js')
+const { TARBALL_ROUTE_KEY, tarballDynamicPrice } = await import('./tarball.js')
+const { lockfileDynamicPrice, singleAttestDynamicPrice } = await import('../routes/attest.js')
 
 const FEE_PAYER = 'FEEPAYERAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
@@ -52,20 +52,19 @@ describe('buildRoutes', () => {
     }
   })
 
-  test('lockfile route prices via lockfileDynamicPrice, single attest and tarball at $0.001', () => {
+  test('every paid route prices through a DynamicPrice that reads the multiplier', () => {
     const priceOf = (
       key: typeof LOCKFILE_ROUTE_KEY | typeof SINGLE_ATTEST_ROUTE_KEY | typeof TARBALL_ROUTE_KEY,
     ) => {
       const accepts = routes[key].accepts
       return Array.isArray(accepts) ? accepts[0]?.price : accepts.price
     }
-    // The lockfile route is 1,000 microUSDC x N reviewed
-    // entries, no cap, no discount — a DynamicPrice function, never a flat
-    // dollar string. The single-attest and tarball routes stay flat: each
-    // charges for exactly one reviewed package.
+    // Every route is 1,000 microUSDC x the donor multiplier (x N reviewed
+    // entries on the lockfile route, no cap, no discount) — a DynamicPrice
+    // function, never a flat dollar string.
     expect(priceOf(LOCKFILE_ROUTE_KEY)).toBe(lockfileDynamicPrice)
-    expect(priceOf(SINGLE_ATTEST_ROUTE_KEY)).toBe('$0.001')
-    expect(priceOf(TARBALL_ROUTE_KEY)).toBe('$0.001')
+    expect(priceOf(SINGLE_ATTEST_ROUTE_KEY)).toBe(singleAttestDynamicPrice)
+    expect(priceOf(TARBALL_ROUTE_KEY)).toBe(tarballDynamicPrice)
   })
 
   // Composed, not a literal, so this regression guard itself never trips
@@ -74,7 +73,7 @@ describe('buildRoutes', () => {
 
   test("the lockfile route's description states the per-package price, never the old flat rate", () => {
     const description = routes[LOCKFILE_ROUTE_KEY].description ?? ''
-    expect(description).toContain('$0.001 per reviewed package')
+    expect(description).toContain('suggested $0.01, minimum $0.001')
     expect(description).not.toContain(STALE_FLAT_LOCKFILE_PRICE)
   })
 
@@ -82,7 +81,7 @@ describe('buildRoutes', () => {
   // above: never write this misattribution while ops holds it.
   const OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER = ['20%', 'to maintainers'].join(' ')
 
-  test('every Bazaar description and og:description shows both splits and $0.001', () => {
+  test('every Bazaar description and og:description shows both splits and the minimum and suggested price', () => {
     const texts = [
       routes[LOCKFILE_ROUTE_KEY].description ?? '',
       routes[SINGLE_ATTEST_ROUTE_KEY].description ?? '',
@@ -90,7 +89,7 @@ describe('buildRoutes', () => {
       OG_DESCRIPTION,
     ]
     for (const text of texts) {
-      expect(text).toContain('$0.001')
+      expect(text).toContain('suggested $0.01, minimum $0.001')
       expect(text).toContain('Target split 40/10/25/20/5')
       expect(text).not.toContain('30/10/20/25/10/5')
       expect(text).toContain('30% to the auditor, 70% to the operator')

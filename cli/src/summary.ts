@@ -4,9 +4,14 @@
 // same shape with and without `--donate`. The counts come from the summary that the server
 // returns. This module never withholds an integrity mismatch or an unresolvable entry
 // Amounts are integer micro-units; no float touches an amount.
-import { EXPLORER_NETWORK, PRICE_PER_ENTRY_MICRO } from 'aupm-mcp/donor'
+import {
+  DEFAULT_MULTIPLIER_TENTHS,
+  describeMultiplier,
+  type MultiplierSetting,
+} from 'aupm-mcp/config'
+import { EXPLORER_NETWORK, entryPriceMicro } from 'aupm-mcp/donor'
 import { AUPM_DONOR_MNEMONIC_ENV, readDonorKeyFile } from 'aupm-mcp/donor-key'
-import { formatMicro } from './donor-text.js'
+import { formatMicro, receiptLine } from './donor-text.js'
 
 /** A count is `unknown` when the server value is not a non-negative integer. */
 export type Count = number | 'unknown'
@@ -26,6 +31,13 @@ export interface SummaryInput {
   hasDonorKey: boolean
   /** True when a donation was asked for and failed. The caller prints the reason; no offer. */
   donationFailed?: boolean
+  /** The donor multiplier. Without it, the summary uses the minimum multiplier. */
+  multiplier?: MultiplierSetting
+}
+
+const DEFAULT_MULTIPLIER: MultiplierSetting = {
+  tenths: DEFAULT_MULTIPLIER_TENTHS,
+  source: 'default',
 }
 
 /** True when the donor key comes from the environment or a key file exists. Reads no key. */
@@ -61,14 +73,20 @@ function isUnknown(counts: LockfileCounts): boolean {
   return Object.values(counts).includes('unknown')
 }
 
-function offerLines(reviewed: number, hasDonorKey: boolean): string[] {
-  const amount = formatMicro(BigInt(reviewed) * BigInt(PRICE_PER_ENTRY_MICRO))
+function offerLines(
+  reviewed: number,
+  hasDonorKey: boolean,
+  multiplier: MultiplierSetting,
+): string[] {
+  const totalMicro = reviewed * entryPriceMicro(multiplier.tenths)
+  const amount = formatMicro(BigInt(totalMicro))
   const how = hasDonorKey
     ? 'To donate, add --donate.'
     : 'To donate, run `aupm donor init` once, then add --donate.'
   return [
     `You can donate ${amount} USDC for ${packages(reviewed)}. This is optional. ${how}`,
     '--donate pays for all reviewed packages in the lockfile, not only the package you named.',
+    receiptLine(describeMultiplier(multiplier), totalMicro),
   ]
 }
 
@@ -79,6 +97,7 @@ export function summaryLines({
   settlement,
   hasDonorKey,
   donationFailed = false,
+  multiplier = DEFAULT_MULTIPLIER,
 }: SummaryInput): string[] {
   const lines = [
     `Reviewed: ${counts.reviewed}. Not reviewed: ${counts.unreviewed}. ` +
@@ -101,6 +120,7 @@ export function summaryLines({
   if (donate && settlement) {
     const amount = formatMicro(BigInt(settlement.amountMicro))
     lines.push(`Donated ${amount} USDC for ${packages(reviewed)}.`)
+    lines.push(receiptLine(describeMultiplier(multiplier), settlement.amountMicro))
     lines.push(
       `Settlement txid: ${settlement.txid} ` +
         `https://lora.algokit.io/${EXPLORER_NETWORK}/transaction/${settlement.txid}`,
@@ -111,7 +131,7 @@ export function summaryLines({
         'Run `aupm donor status` to check your donor wallet.',
     )
   } else {
-    lines.push(...offerLines(reviewed, hasDonorKey))
+    lines.push(...offerLines(reviewed, hasDonorKey, multiplier))
   }
   return lines
 }

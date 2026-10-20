@@ -140,7 +140,7 @@ describe('fetchWithDonation', () => {
     expect(seenHeaderValues).toEqual(['1', '1'])
   })
 
-  it('a lockfile with 25 entries scales the cap: a 402 for exactly 25,000 microUSDC is paid', async () => {
+  it('a lockfile with 25 entries scales the cap: a 402 for exactly 250,000 microUSDC is paid', async () => {
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     let paidRequestCount = 0
 
@@ -163,7 +163,7 @@ describe('fetchWithDonation', () => {
 
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') throw new Error('unreachable')
-    expect(result.settlement).toEqual({ txid: 'txid-25-entries-ok', amountMicro: 25_000 })
+    expect(result.settlement).toEqual({ txid: 'txid-25-entries-ok', amountMicro: 250_000 })
     expect(paidRequestCount).toBe(1)
   })
 
@@ -198,6 +198,73 @@ describe('fetchWithDonation', () => {
       await expect(fetchWithDonation(RESOURCE_URL, undefined, true)).rejects.toThrow(error)
     })
   }
+
+  it.each([
+    [1, 1_000],
+    [10, 10_000],
+    [1000, 1_000_000],
+  ])(
+    'at %i tenths the header carries the tenths and the cap is %i microUSDC',
+    async (tenths, cap) => {
+      process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+      const seen: (string | null)[] = []
+      const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = requestUrl(input)
+        if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+        const request = input instanceof Request ? input : new Request(url, init)
+        seen.push(request.headers.get('X-AuPM-Multiplier'))
+        if (!request.headers.get('PAYMENT-SIGNATURE')) {
+          return unpaid402(String(cap), USDC_MAINNET_ASA_ID)
+        }
+        return new Response(new Uint8Array([1]), {
+          status: 200,
+          headers: { 'PAYMENT-RESPONSE': settleResponseHeader('txid-multiplier-ok') },
+        })
+      })
+      vi.stubGlobal('fetch', mockFetch)
+
+      const result = await fetchWithDonation(RESOURCE_URL, undefined, true, 1, tenths)
+
+      expect(donationCapMicro(1, tenths)).toBe(BigInt(cap))
+      expect(seen).toEqual([String(tenths), String(tenths)])
+      if (result.kind !== 'response') throw new Error('unreachable')
+      expect(result.settlement?.amountMicro).toBe(cap)
+    },
+  )
+
+  it('a 402 one microUSDC over the multiplied cap is refused and never signed', async () => {
+    process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
+    const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = requestUrl(input)
+      if (url.includes('/v2/transactions/params')) return algodParamsResponse()
+      const request = input instanceof Request ? input : new Request(url, init)
+      if (request.headers.get('PAYMENT-SIGNATURE')) throw new Error('must never sign above the cap')
+      return unpaid402('10001', USDC_MAINNET_ASA_ID)
+    })
+    vi.stubGlobal('fetch', mockFetch)
+
+    await expect(fetchWithDonation(RESOURCE_URL, undefined, true, 1, 10)).rejects.toThrow(
+      DonationRefusedError,
+    )
+  })
+
+  it('without the opt-in, no multiplier header is sent', async () => {
+    const seen: (string | null)[] = []
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = input instanceof Request ? input : new Request(requestUrl(input), init)
+        seen.push(request.headers.get('X-AuPM-Multiplier'))
+        return new Response(null, { status: 200 })
+      }),
+    )
+    await fetchWithDonation(RESOURCE_URL, undefined, false, 1, 10)
+    expect(seen).toEqual([null])
+  })
+
+  it.each([0, 1001, 1.5, -1])('a multiplier of %s tenths throws and signs nothing', (tenths) => {
+    expect(() => donationCapMicro(1, tenths)).toThrow('multiplier must be an integer')
+  })
 
   it('a lockfile with 25 entries refuses a 402 one microUSDC over the scaled cap', async () => {
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC

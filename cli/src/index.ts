@@ -22,11 +22,15 @@ const USAGE_LINES = [
   '  aupm donor [status]  show the balances and the next step',
   '  aupm config set donate <true|false>   always donate (or never) without the flag',
   '  aupm config get donate               show the effective value and where it comes from',
+  '  aupm config set multiplier <x>       donation per reviewed package, x0.1 to x100 (default $0.01 = x1, minimum $0.001)',
+  '  aupm config get multiplier           show the effective multiplier and where it comes from',
   '',
   'Every first argument other than attest, verify, auditor, donor, config, pnpm, yarn and npx goes to npm unchanged.',
   'AuPM adds only --donate, --no-donate and --attest-out <path>; all are removed before npm, pnpm or yarn runs.',
   'Donation setting, highest first: --donate or --no-donate, env AUPM_DONATE=true|false,',
   'config file $XDG_CONFIG_HOME/aupm/config.toml (donate = true), off.',
+  'Multiplier setting, highest first: env AUPM_MULTIPLIER=<x>, config file (multiplier = "<x>"), x1.',
+  'A donation per reviewed package is the multiplier times 10,000 microUSDC: x1 is $0.01 (the default) and x0.1 is $0.001.',
   'attest and verify accept package-lock.json, pnpm-lock.yaml (lockfileVersion 9.0) and yarn.lock (yarn classic v1).',
 ]
 

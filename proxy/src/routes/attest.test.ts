@@ -385,7 +385,7 @@ describe('POST /v1/attest/lockfile', () => {
     const attribution = getAttribution()
     expect(attribution).toBeDefined()
     expect(attribution?.route).toBe('lockfile')
-    expect(attribution?.priceMicro).toBe(1_000) // 1,000 microUSDC x 1 reviewed entry
+    expect(attribution?.priceMicro).toBe(10_000) // 10,000 microUSDC (x1) x 1 reviewed entry
     // No `reviewer` login stored on the row (only the on-chain `auditor_addr`
     // was set): the auditor identity must be null, never the Algorand
     // address — the ledger keys strictly on `github:<login>` and could never
@@ -780,7 +780,7 @@ describe('GET /v1/attest', () => {
     expect(res.status).toBe(200)
     const attribution = getAttribution()
     expect(attribution?.route).toBe('single-attest')
-    expect(attribution?.priceMicro).toBe(1_000)
+    expect(attribution?.priceMicro).toBe(10_000)
     // No `reviewer` login stored (only auditor_addr): auditor must be null,
     // never the Algorand address the ledger cannot key on.
     expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
@@ -992,7 +992,7 @@ describe('GET /v1/attest: integrity-format gating', () => {
     expect(ok).toBe(true)
     expect(getAttribution()).toEqual({
       route: 'single-attest',
-      priceMicro: 1_000,
+      priceMicro: 10_000,
       packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
@@ -1061,7 +1061,7 @@ describe('GET /v1/attest: sha512 digest length gating', () => {
     expect(statement.subject[0]?.digest.sha512).toBe(SHA512_FIXTURE_HEX)
     expect(getAttribution()).toEqual({
       route: 'single-attest',
-      priceMicro: 1_000,
+      priceMicro: 10_000,
       packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
@@ -1301,7 +1301,7 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     expect(predicate.format).toBe('pnpm')
     expect(predicate.lockfileVersion).toBe('9.0')
     expect(body.summary).toMatchObject({ reviewed: 2, integrityMismatch: 1, unresolvable: 1 })
-    expect(getAttribution()?.priceMicro).toBe(2_000)
+    expect(getAttribution()?.priceMicro).toBe(20_000)
   })
 
   test('the same tree as a package-lock.json yields the same summary and price', async () => {
@@ -1468,5 +1468,194 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     const { app } = buildTestApp()
     const res = await postYaml(app, '')
     expect(res.status).toBe(400)
+  })
+})
+
+describe('donor multiplier: paid handlers and pre-middleware', () => {
+  const MULTIPLIER = 'X-AuPM-Multiplier'
+  const lockfileBody = (names: string[]) =>
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: Object.fromEntries(
+        names.map((name) => [`node_modules/${name}`, npmEntry('1.0.0')]),
+      ),
+    })
+
+  test('single attest receipt and attribution at the default multiplier', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 10_000 })
+    expect(getAttribution()?.priceMicro).toBe(10_000)
+  })
+
+  test.each([
+    ['1', 1_000],
+    ['10', 10_000],
+    ['1000', 1_000_000],
+  ])('single attest receipt at multiplier %s totals %i', async (tenths, total) => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { [MULTIPLIER]: tenths },
+    })
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({
+      baseMicro: 10_000,
+      multiplierTenths: Number(tenths),
+      totalMicro: total,
+    })
+    expect(getAttribution()?.priceMicro).toBe(total)
+  })
+
+  test('lockfile receipt and attribution scale by reviewed entries and multiplier', async () => {
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: '25' },
+      body: lockfileBody(['pkg']),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({ baseMicro: 10_000, multiplierTenths: 25, totalMicro: 25_000 })
+    expect(getAttribution()?.priceMicro).toBe(25_000)
+  })
+
+  test.each(['0', '1001', '01', '+5', '1.5', '', 'abc'])(
+    'a priced lockfile with multiplier %j is 400',
+    async (raw) => {
+      setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+      const { app } = buildTestApp()
+      const res = await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [MULTIPLIER]: raw },
+        body: lockfileBody(['pkg']),
+      })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('1 to 1000')
+    },
+  )
+
+  test('a zero-coverage lockfile and a partial lockfile ignore a bad multiplier', async () => {
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp()
+    const zero = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: 'abc' },
+      body: lockfileBody(['unreviewed-pkg']),
+    })
+    expect(zero.status).toBe(200)
+    const partial = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: 'abc', 'X-AuPM-Donate': '0' },
+      body: lockfileBody(['pkg']),
+    })
+    expect(partial.status).toBe(200)
+  })
+
+  test('single attest: bad multiplier is 400 when reviewed, ignored when free', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+    const headers = { [MULTIPLIER]: '1001' }
+    expect((await app.request('/v1/attest?name=ms&version=2.1.3', { headers })).status).toBe(400)
+    expect((await app.request('/v1/attest?name=nope&version=1.0.0', { headers })).status).toBe(200)
+    const partial = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { ...headers, 'X-AuPM-Donate': '0' },
+    })
+    expect(partial.status).toBe(200)
+  })
+
+  async function paidSingle(tenths: string) {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { [MULTIPLIER]: tenths },
+    })
+    return (await res.json()) as { attestation: Envelope }
+  }
+
+  async function paidLockfile(names: string[], tenths: string) {
+    for (const name of names) {
+      setStatus(name, '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    }
+    const { app } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: tenths },
+      body: lockfileBody(names),
+    })
+    return (await res.json()) as { attestation: Envelope }
+  }
+
+  test.each([
+    ['1', 1_000],
+    ['10', 10_000],
+    ['1000', 1_000_000],
+  ])('a paid single attestation signs the donation at multiplier %s', async (tenths, total) => {
+    const body = await paidSingle(tenths)
+    expect(decodeStatement(body.attestation).predicate.donation).toEqual({
+      baseMicro: 10_000,
+      multiplierTenths: Number(tenths),
+      totalMicro: total,
+    })
+  })
+
+  test.each([
+    ['1', 3_000],
+    ['10', 30_000],
+    ['1000', 3_000_000],
+  ])(
+    'a paid lockfile of 3 reviewed entries signs the donation at multiplier %s',
+    async (tenths, total) => {
+      const body = await paidLockfile(['pkg-a', 'pkg-b', 'pkg-c'], tenths)
+      expect(decodeStatement(body.attestation).predicate.donation).toEqual({
+        baseMicro: 10_000,
+        multiplierTenths: Number(tenths),
+        totalMicro: total,
+      })
+    },
+  )
+
+  test('free and partial attestations carry no donation field', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp()
+    const partialHeaders = { 'X-AuPM-Donate': '0' }
+    const responses = [
+      await app.request('/v1/attest?name=nope&version=1.0.0'),
+      await app.request('/v1/attest?name=ms&version=2.1.3', { headers: partialHeaders }),
+      await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: lockfileBody(['unreviewed-pkg']),
+      }),
+      await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...partialHeaders },
+        body: lockfileBody(['pkg']),
+      }),
+    ]
+    for (const res of responses) {
+      expect(res.status).toBe(200)
+      const body = (await res.json()) as { attestation: Envelope }
+      expect(decodeStatement(body.attestation).predicate).not.toHaveProperty('donation')
+    }
+  })
+
+  test('changing the signed donation breaks the signature', async () => {
+    const body = await paidSingle('10')
+    const keys = [{ keyid: signingKey.keyid, publicKey: signingKey.publicKey }]
+    expect(await verifyEnvelope(body.attestation, keys)).toBe(true)
+    const statement = decodeStatement(body.attestation)
+    const forged = {
+      ...statement.predicate,
+      donation: { baseMicro: 10_000, multiplierTenths: 1, totalMicro: 1000 },
+    }
+    const payload = Buffer.from(JSON.stringify({ ...statement, predicate: forged })).toString(
+      'base64',
+    )
+    expect(await verifyEnvelope({ ...body.attestation, payload }, keys)).toBe(false)
   })
 })

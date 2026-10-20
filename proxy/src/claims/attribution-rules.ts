@@ -205,15 +205,22 @@ function payeesOf(role: PoolRole, entry: AttributionEntry): string[] {
   return name === OPS_IDENTITY || name === TREASURY_IDENTITY ? [] : [name]
 }
 
-/** Every accrual row of one reviewed package for one payment of 1,000 micro-USDC. */
-function packageRows(route: Attribution['route'], entry: AttributionEntry): AccrualInput[] {
+/**
+ * Every accrual row of one reviewed package. `scale` is the donor multiplier
+ * in tenths: each share of the 1,000 micro-USDC split is multiplied by it.
+ */
+function packageRows(
+  route: Attribution['route'],
+  entry: AttributionEntry,
+  scale: number,
+): AccrualInput[] {
   const base = { route, pkg: entry.pkg, version: entry.version }
   const rows: AccrualInput[] = [
     {
       ...base,
       role: 'treasury',
       identity: TREASURY_IDENTITY,
-      amountMicro: CUT_PER_1000,
+      amountMicro: CUT_PER_1000 * scale,
       treasuryKind: 'cut',
       held: false,
     },
@@ -221,14 +228,14 @@ function packageRows(route: Attribution['route'], entry: AttributionEntry): Accr
       ...base,
       role: 'ops',
       identity: OPS_IDENTITY,
-      amountMicro: OPS_PER_1000,
+      amountMicro: OPS_PER_1000 * scale,
       treasuryKind: null,
       held: false,
     },
   ]
   for (const role of POOL_ROLES) {
     for (const share of splitPoolShare(POOL_SHARE_PER_1000[role], payeesOf(role, entry))) {
-      rows.push({ ...base, role, ...share, held: true })
+      rows.push({ ...base, role, ...share, amountMicro: share.amountMicro * scale, held: true })
     }
   }
   return rows
@@ -237,19 +244,22 @@ function packageRows(route: Attribution['route'], entry: AttributionEntry): Accr
 /**
  * Build every accrual row for one settled, paid request.
  *
- * Every route prices each reviewed package at exactly 1,000 microUSDC, so
- * every package in `attribution.packages` gets its own exact shares: cut 200
- * and ops 50 off the top, then the pool of that exact `name@version`
- * (reviewer line 400, contributor 100, maintainer 250). A pool role with no
- * payee goes to treasury as `unallocated`. Money is integer micro-units.
+ * Every route prices each reviewed package at 1,000 microUSDC times one
+ * integer multiplier k >= 1 per request, so every package in
+ * `attribution.packages` pays the same amount. Each package gets its own
+ * exact shares of the 1,000 split, times k: cut 200 and ops 50 off the top,
+ * then the pool of that exact `name@version` (reviewer line 400, contributor
+ * 100, maintainer 250). A pool role with no payee goes to treasury as
+ * `unallocated`. The rows of a request sum to `priceMicro` exactly. Money is
+ * integer micro-units.
  *
  * WARNING: never call this for a free request. Returns `[]` when
  * `priceMicro` is 0 or `packages` is empty, so the ledger writer never
  * accrues against an unpaid request.
  *
- * WARNING: throws if `priceMicro` does not equal `packages.length * 1000` —
- * the one invariant that keeps the charged amount and the ledgered amount
- * from ever disagreeing. A caller with a mismatched price has a bug
+ * WARNING: throws if `priceMicro` is not `packages.length * 1000 * k` for an
+ * integer k >= 1 — the one invariant that keeps the charged amount and the
+ * ledgered amount from ever disagreeing. A caller with a mismatched price has a bug
  * upstream; this never silently reconciles it.
  */
 export function buildAccrualInputs(attribution: Attribution): AccrualInput[] {
@@ -257,13 +267,14 @@ export function buildAccrualInputs(attribution: Attribution): AccrualInput[] {
   const packages = sortPackages(attribution.packages)
   if (packages.length === 0) return []
 
-  const expectedPriceMicro = packages.length * 1000
-  if (attribution.priceMicro !== expectedPriceMicro) {
+  const baseMicro = packages.length * 1000
+  const scale = attribution.priceMicro / baseMicro
+  if (!Number.isInteger(scale) || scale < 1) {
     throw new Error(
       `buildAccrualInputs: priceMicro ${attribution.priceMicro} does not match ` +
-        `${packages.length} reviewed package(s) at 1,000 microUSDC each ` +
-        `(expected ${expectedPriceMicro})`,
+        `${packages.length} reviewed package(s) at 1,000 microUSDC times a whole ` +
+        `multiplier each (expected a multiple of ${baseMicro})`,
     )
   }
-  return packages.flatMap((entry) => packageRows(attribution.route, entry))
+  return packages.flatMap((entry) => packageRows(attribution.route, entry, scale))
 }

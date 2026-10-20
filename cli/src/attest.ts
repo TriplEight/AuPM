@@ -6,7 +6,12 @@
 // the reviewed entries are withheld, not refused — the CLI still writes
 // the partial attestation, prints the withheld count, and exits 0.
 import fs from 'node:fs'
-import { ConfigError, resolveDonate } from 'aupm-mcp/config'
+import {
+  ConfigError,
+  type MultiplierSetting,
+  resolveDonate,
+  resolveMultiplier,
+} from 'aupm-mcp/config'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { attestLockfileTool } from 'aupm-mcp/tools/attest'
 import { countsFromSummary, donorKeyExists, summaryLines } from './summary.js'
@@ -77,8 +82,10 @@ export async function runAttest(argv: string[]): Promise<number> {
   }
 
   let donate: boolean
+  let multiplier: MultiplierSetting
   try {
     donate = resolveDonate(args.donateFlag).value
+    multiplier = resolveMultiplier()
   } catch (error) {
     if (!(error instanceof ConfigError)) throw error
     console.log(`usage error: ${error.message}`)
@@ -101,6 +108,7 @@ export async function runAttest(argv: string[]): Promise<number> {
         donationFailed: result.donationFailure !== undefined,
         settlement: null,
         hasDonorKey: donorKeyExists(),
+        multiplier,
       }
       for (const line of summaryLines(input)) console.log(line)
       if (result.donationFailure) console.log(result.donationFailure.reason)
@@ -131,6 +139,7 @@ export async function runAttest(argv: string[]): Promise<number> {
     donationFailed: donationFailure !== undefined,
     settlement,
     hasDonorKey: donorKeyExists(),
+    multiplier,
   }
   for (const line of summaryLines(input)) console.log(line)
   if (donationFailure) console.log(donationFailure.reason)

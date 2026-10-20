@@ -3,7 +3,7 @@
 // The words that `aupm donor` prints. Every function returns lines.
 // No function reads a key. No function prints the mnemonic.
 import { styleText } from 'node:util'
-import { EXPLORER_NETWORK, IS_TESTNET, PRICE_PER_ENTRY_MICRO, USDC_ASSET_ID } from 'aupm-mcp/donor'
+import { BASE_DONATION_MICRO, EXPLORER_NETWORK, IS_TESTNET, USDC_ASSET_ID } from 'aupm-mcp/donor'
 import { renderUnicodeCompact } from 'uqr'
 
 export const ALGO_MINIMUM_MICRO = 201_000n
@@ -44,6 +44,14 @@ export function formatMicro(micro: bigint): string {
   return fraction === '' ? `${whole}` : `${whole}.${fraction}`
 }
 
+/** `Base 0.01 USDC. Multiplier x1. Total 0.01 USDC.` The base is the donation at x1. */
+export function receiptLine(multiplierLabel: string, totalMicro: number): string {
+  return (
+    `Base ${formatMicro(BigInt(BASE_DONATION_MICRO))} USDC. ` +
+    `Multiplier ${multiplierLabel}. Total ${formatMicro(BigInt(totalMicro))} USDC.`
+  )
+}
+
 /** `100,000 microUSDC (0.1 USDC)`. Integer math only. */
 export function describeMicroUsdc(micro: bigint): string {
   return `${micro.toLocaleString('en-US')} microUSDC (${formatMicro(micro)} USDC)`
@@ -57,7 +65,7 @@ export function optInRequiredMicro(minBalance: bigint): bigint {
 
 /** How many reviewed packages a USDC balance pays for. */
 export function packagesCovered(usdcMicro: bigint): bigint {
-  return usdcMicro / BigInt(PRICE_PER_ENTRY_MICRO)
+  return usdcMicro / BigInt(BASE_DONATION_MICRO)
 }
 
 /** ARC-26 payment URI. `amount` is in micro-units of ALGO, or of the asset when `asset` is set. */
@@ -116,7 +124,7 @@ export function warningBlock(file: string, windows: boolean): string[] {
     `  ${file}`,
     '- The key is stored on this computer. Any program that runs as your user',
     '  can spend the funds.',
-    '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
+    '- Keep only small amounts here. 1 USDC pays for 100 reviewed packages at x1.',
     '- This file is the only copy. Back up the 25 words offline: on paper,',
     '  or on an external drive.',
     '- Never paste the key into a chat, an issue or a log.',
@@ -248,17 +256,33 @@ export function ciStep(
   ])
 }
 
+const MIN_PRICE_TEXT = 'default $0.01 (x1), minimum $0.001, maximum x100'
+const FUNDING_TEXT =
+  'A donation pays for each reviewed package in the lockfile. ' +
+  'Without --donate, every install is free, reviewed packages included.'
+
+export const PROMPT_MULTIPLIER = 'Multiplier (x0.1 to x100, for example 1):'
+export const PROMPT_RETRY_MULTIPLIER = 'Type a multiplier from 0.1 to 100, for example 1.'
+
+/** The text before the multiplier question. No default is selected. */
+export function multiplierPromptLines(): string[] {
+  return [
+    paint(['bold', 'cyan'], 'Donation multiplier.'),
+    ...wrap(`Price per reviewed package: ${MIN_PRICE_TEXT}.`),
+    ...wrap(FUNDING_TEXT),
+    ...wrap('Change it at any time with `aupm config set multiplier <x>`.'),
+  ]
+}
+
 export function donateStep(label: string): string[] {
-  const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
   const intro = 'Add --donate to an install or attest command:'
   return step(label, 'Donate.', intro, [
     `${COMMAND_INDENT}aupm install --donate   or   aupm attest package-lock.json --donate`,
+    ...wrap(`Price per reviewed package: ${MIN_PRICE_TEXT}.`),
+    ...wrap('Without --donate, every install is free, reviewed packages included.'),
     ...wrap(
-      `It pays ${price} USDC for each reviewed package in the lockfile. ` +
-        'Without --donate, every install is free, reviewed packages included.',
-    ),
-    ...wrap(
-      'To donate on every install, run `aupm config set donate true`, or set AUPM_DONATE=true.',
+      'To donate on every install, run `aupm config set donate true`. ' +
+        'Set the price with `aupm config set multiplier <x>`.',
     ),
   ])
 }

@@ -237,7 +237,7 @@ describe('attest_lockfile', () => {
     expect(paidRequestCount).toBe(1)
   })
 
-  it('a 402 above the cap (1,000 * entries + 1) is refused and nothing is signed', async () => {
+  it('a 402 above the cap (10,000 * entries + 1) is refused and nothing is signed', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = requestUrl(input)
       if (url.includes('/v2/transactions/params')) return algodParamsResponse()
@@ -247,7 +247,7 @@ describe('attest_lockfile', () => {
       }
       return new Response(null, {
         status: 402,
-        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('1001') },
+        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('10001') },
       })
     })
     vi.stubGlobal('fetch', mockFetch)
@@ -320,7 +320,7 @@ describe('attest_lockfile', () => {
     expect(result.status).toBe('donation_required')
     if (result.status !== 'donation_required') throw new Error('unreachable')
     expect(result.withheld).toBe(1)
-    expect(result.priceMicro).toBe(1000)
+    expect(result.priceMicro).toBe(10_000)
     expect(result.resourceUrl).toBe(RESOURCE_URL)
     expect(result.asset).toBe(USDC_MAINNET_ASA_ID)
     expect(result.summary).toMatchObject({ reviewed: 1 })
@@ -485,12 +485,12 @@ packages:
     expect(mockFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('counts pnpm entries for the donation cap: 1 entry refuses a 2,000 microUSDC price', async () => {
+  it('counts pnpm entries for the donation cap: 1 entry refuses a 20,000 microUSDC price', async () => {
     const mockFetch = vi.fn(async (input: RequestInfo | URL) => {
       if (requestUrl(input).includes('/v2/transactions/params')) return algodParamsResponse()
       return new Response(null, {
         status: 402,
-        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('2000') },
+        headers: { 'PAYMENT-REQUIRED': paymentRequiredHeader('20000') },
       })
     })
     vi.stubGlobal('fetch', mockFetch)

@@ -44,9 +44,10 @@ describe('summaryLines', () => {
     const lines = summaryLines({ counts: clean, donate: false, settlement: null, ...noKey })
     expect(lines).toEqual([
       countsLine,
-      'You can donate 0.003 USDC for 3 reviewed packages. This is optional. ' +
+      'You can donate 0.03 USDC for 3 reviewed packages. This is optional. ' +
         'To donate, run `aupm donor init` once, then add --donate.',
       '--donate pays for all reviewed packages in the lockfile, not only the package you named.',
+      'Base 0.01 USDC. Multiplier x1 (default). Total 0.03 USDC.',
     ])
   })
 
@@ -58,7 +59,7 @@ describe('summaryLines', () => {
       hasDonorKey: true,
     })
     expect(lines[1]).toBe(
-      'You can donate 0.003 USDC for 3 reviewed packages. This is optional. ' +
+      'You can donate 0.03 USDC for 3 reviewed packages. This is optional. ' +
         'To donate, add --donate.',
     )
     expect(lines.join('\n')).not.toContain('donor init')
@@ -68,15 +69,40 @@ describe('summaryLines', () => {
     const lines = summaryLines({
       counts: clean,
       donate: true,
-      settlement: { txid: 'TXID', amountMicro: 3_000 },
+      settlement: { txid: 'TXID', amountMicro: 30_000 },
       ...noKey,
     })
     expect(lines[0]).toBe(countsLine)
-    expect(lines[1]).toBe('Donated 0.003 USDC for 3 reviewed packages.')
-    expect(lines[2]).toMatch(
+    expect(lines[1]).toBe('Donated 0.03 USDC for 3 reviewed packages.')
+    expect(lines[2]).toBe('Base 0.01 USDC. Multiplier x1 (default). Total 0.03 USDC.')
+    expect(lines[3]).toMatch(
       /^Settlement txid: TXID https:\/\/lora\.algokit\.io\/\w+\/transaction\/TXID$/,
     )
-    expect(lines).toHaveLength(3)
+    expect(lines).toHaveLength(4)
+  })
+
+  it.each([
+    [1, 3_000, '0.003'],
+    [10, 30_000, '0.03'],
+    [1000, 3_000_000, '3'],
+  ])('at tenths %i the offer and the receipt show the multiplied total', (tenths, micro, usdc) => {
+    const multiplier = { tenths, source: 'file' as const }
+    const offer = summaryLines({
+      counts: clean,
+      donate: false,
+      settlement: null,
+      multiplier,
+      ...noKey,
+    })
+    expect(offer[1]).toContain(`You can donate ${usdc} USDC for 3 reviewed packages.`)
+    const paid = summaryLines({
+      counts: clean,
+      donate: true,
+      settlement: { txid: 'T', amountMicro: micro },
+      multiplier,
+      ...noKey,
+    })
+    expect(paid[2]).toBe(`Base 0.01 USDC. Multiplier x${tenths / 10}. Total ${usdc} USDC.`)
   })
 
   it('tells the user not to use a package with an integrity mismatch', () => {

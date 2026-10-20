@@ -42,9 +42,9 @@ describe('amounts', () => {
   })
 
   it('rounds the covered packages down', () => {
-    expect(packagesCovered(999n)).toBe(0n)
-    expect(packagesCovered(1_000_000n)).toBe(1000n)
-    expect(packagesCovered(1_999_999n)).toBe(1999n)
+    expect(packagesCovered(9_999n)).toBe(0n)
+    expect(packagesCovered(1_000_000n)).toBe(100n)
+    expect(packagesCovered(1_999_999n)).toBe(199n)
   })
 })
 
@@ -142,8 +142,10 @@ describe('network text', () => {
     expect(later).not.toContain('formerly')
   })
 
-  it('names the price of one reviewed package from the price constant', () => {
-    expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
+  it('names the default, the minimum and the maximum price, never one price alone', () => {
+    const text = donateStep('5.').join(' ').replace(/\s+/g, ' ')
+    expect(text).toContain('default $0.01 (x1), minimum $0.001, maximum x100')
+    expect(text).toContain('aupm config set multiplier <x>')
     expect(donateStep('5.').join('\n')).toContain('every install is free')
     expect(donateStep('5.').join('\n')).not.toContain('plain install')
   })
@@ -197,7 +199,7 @@ describe('interactive screens', () => {
     const text = allSetLines(funded, mainnet, 'donate = true (source: file /x)').join('\n')
     expect(text).toContain('All set.')
     expect(text).toContain('ALGO balance: 0.25 ALGO')
-    expect(text).toContain('USDC balance: 2.5 USDC (pays for 2500 reviewed packages)')
+    expect(text).toContain('USDC balance: 2.5 USDC (pays for 250 reviewed packages)')
     expect(text).toContain('Setting: donate = true (source: file /x)')
     expect(text).toContain('--no-donate')
     const off = allSetLines(funded, mainnet, 'donate = false (source: default)').join('\n')
