@@ -23,8 +23,15 @@ import healthRouter from './routes/health.js'
 import reviewsRouter from './routes/reviews.js'
 import statusRouter from './routes/status.js'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
+import {
+  DEFAULT_MULTIPLIER_TENTHS,
+  MULTIPLIER_HEADER,
+  PRICE_PER_REVIEWED_PACKAGE_MICRO,
+  parseMultiplier,
+  priceReceipt,
+} from './x402/multiplier.js'
 import { OG_DESCRIPTION } from './x402/routes.js'
-import { isTarballPath, parseTarballPath, TARBALL_PRICE_MICRO } from './x402/tarball.js'
+import { isTarballPath, parseTarballPath, tarballMultiplierGuard } from './x402/tarball.js'
 
 export type AppVariables = {
   settlementTxid?: string
@@ -176,6 +183,7 @@ export function createApp(
   // never pay for a malformed lockfile).
   app.post('/v1/attest/lockfile', attest.lockfilePreMiddleware)
   app.get('/v1/attest', attest.singleAttestPreMiddleware)
+  app.use('*', tarballMultiplierGuard)
 
   // x402 payment gate, registered *before* the paid attest handlers and the
   // npm passthrough below: for a configured paid route, the middleware
@@ -242,15 +250,19 @@ export function createApp(
     // header the same way.
     const donatedForPaidTier = !isFree(status.status) && c.req.header('X-AuPM-Donate') === '1'
 
+    // The multiplier guard above already rejected a bad value on the paid path.
+    const tenths = parseMultiplier(c.req.header(MULTIPLIER_HEADER)) ?? DEFAULT_MULTIPLIER_TENTHS
+    const price = priceReceipt(1, tenths)
+
     c.set(
       'attribution',
-      isFree(status.status)
-        ? { route: 'tarball', priceMicro: 0, packages: [] }
-        : {
+      donatedForPaidTier
+        ? {
             route: 'tarball',
-            priceMicro: TARBALL_PRICE_MICRO,
+            priceMicro: price.totalMicro,
             packages: [{ pkg: name, version, auditor: reviewerIdentity(status) }],
-          },
+          }
+        : { route: 'tarball', priceMicro: 0, packages: [] },
     )
 
     // proxyToNpm returns a fresh Response built from the upstream registry's
@@ -263,7 +275,12 @@ export function createApp(
     const headers = new Headers(upstream.headers)
     headers.set('X-AuPM-Tier', status.status)
     if (!isFree(status.status) && !donatedForPaidTier) {
-      headers.set('X-AuPM-Donate-Hint', String(TARBALL_PRICE_MICRO))
+      headers.set('X-AuPM-Donate-Hint', String(PRICE_PER_REVIEWED_PACKAGE_MICRO))
+    }
+    if (donatedForPaidTier) {
+      headers.set('X-AuPM-Price-Base', String(price.baseMicro))
+      headers.set('X-AuPM-Multiplier', String(price.multiplierTenths))
+      headers.set('X-AuPM-Price-Total', String(price.totalMicro))
     }
     return new Response(upstream.body, { status: upstream.status, headers })
   })

@@ -1470,3 +1470,99 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     expect(res.status).toBe(400)
   })
 })
+
+describe('donor multiplier: paid handlers and pre-middleware', () => {
+  const MULTIPLIER = 'X-AuPM-Multiplier'
+  const lockfileBody = (names: string[]) =>
+    JSON.stringify({
+      lockfileVersion: 3,
+      packages: Object.fromEntries(
+        names.map((name) => [`node_modules/${name}`, npmEntry('1.0.0')]),
+      ),
+    })
+
+  test('single attest receipt and attribution at the default multiplier', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3')
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({ baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 })
+    expect(getAttribution()?.priceMicro).toBe(1000)
+  })
+
+  test.each([
+    ['10', 10_000],
+    ['1000', 1_000_000],
+  ])('single attest receipt at multiplier %s totals %i', async (tenths, total) => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { [MULTIPLIER]: tenths },
+    })
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({
+      baseMicro: 1000,
+      multiplierTenths: Number(tenths),
+      totalMicro: total,
+    })
+    expect(getAttribution()?.priceMicro).toBe(total)
+  })
+
+  test('lockfile receipt and attribution scale by reviewed entries and multiplier', async () => {
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app, getAttribution } = buildTestApp()
+    const res = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: '25' },
+      body: lockfileBody(['pkg']),
+    })
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { price: unknown }
+    expect(body.price).toEqual({ baseMicro: 1000, multiplierTenths: 25, totalMicro: 25_000 })
+    expect(getAttribution()?.priceMicro).toBe(25_000)
+  })
+
+  test.each(['0', '1001', '01', '+5', '1.5', '', 'abc'])(
+    'a priced lockfile with multiplier %j is 400',
+    async (raw) => {
+      setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+      const { app } = buildTestApp()
+      const res = await app.request('/v1/attest/lockfile', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', [MULTIPLIER]: raw },
+        body: lockfileBody(['pkg']),
+      })
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { error: string }).error).toContain('1 to 1000')
+    },
+  )
+
+  test('a zero-coverage lockfile and a partial lockfile ignore a bad multiplier', async () => {
+    setStatus('pkg', '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', 'sha512-abc')
+    const { app } = buildTestApp()
+    const zero = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: 'abc' },
+      body: lockfileBody(['unreviewed-pkg']),
+    })
+    expect(zero.status).toBe(200)
+    const partial = await app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', [MULTIPLIER]: 'abc', 'X-AuPM-Donate': '0' },
+      body: lockfileBody(['pkg']),
+    })
+    expect(partial.status).toBe(200)
+  })
+
+  test('single attest: bad multiplier is 400 when reviewed, ignored when free', async () => {
+    setStatus('ms', '2.1.3', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID1', SHA512_FIXTURE_B64)
+    const { app } = buildTestApp()
+    const headers = { [MULTIPLIER]: '1001' }
+    expect((await app.request('/v1/attest?name=ms&version=2.1.3', { headers })).status).toBe(400)
+    expect((await app.request('/v1/attest?name=nope&version=1.0.0', { headers })).status).toBe(200)
+    const partial = await app.request('/v1/attest?name=ms&version=2.1.3', {
+      headers: { ...headers, 'X-AuPM-Donate': '0' },
+    })
+    expect(partial.status).toBe(200)
+  })
+})

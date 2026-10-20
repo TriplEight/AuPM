@@ -12,7 +12,7 @@ import {
   LOCKFILE_MAX_YAML_BYTES,
 } from './attest/lockfile.js'
 import { CAIP2_NETWORK, FACILITATOR_URL, ISSUER, PAY_TO, TAG, USDC_ASA_ID } from './config.js'
-import { PRICE_PER_REVIEWED_PACKAGE_MICRO } from './routes/attest.js'
+import { PRICE_PER_REVIEWED_PACKAGE_MICRO } from './x402/multiplier.js'
 import {
   LOCKFILE_DESCRIPTION,
   LOCKFILE_ROUTE_KEY,
@@ -20,7 +20,7 @@ import {
   MERCHANT_LOGO_PATH,
   MERCHANT_NAME,
   OG_DESCRIPTION,
-  PRICE_TEXT,
+  PRICE_PHRASE,
   SINGLE_ATTEST_DESCRIPTION,
   SINGLE_ATTEST_ROUTE_KEY,
   SPLIT_DISCLOSURE,
@@ -58,7 +58,7 @@ function groupDigits(micro: number): string {
 const PRICE_MICRO_TEXT = `${groupDigits(PRICE_PER_REVIEWED_PACKAGE_MICRO)} µUSDC`
 
 const LOCKFILE_DISCOVERY_DESCRIPTION =
-  `${LOCKFILE_DESCRIPTION} Price: ${PRICE_MICRO_TEXT} per reviewed entry. ` +
+  `${LOCKFILE_DESCRIPTION} Minimum price: ${PRICE_MICRO_TEXT} per reviewed entry. ` +
   '0 reviewed entries: free.'
 
 // The tarball route is not listed: its route key is a wildcard pattern, not
@@ -176,12 +176,13 @@ const READING_SECTION = `## How to read results
 function routesSection(issuer: string): string {
   return `## Paid routes
 
-Both routes answer \`{ summary, attestation }\`. \`summary\` is an unsigned copy.
-Verify \`attestation\`.
+Both routes answer with \`attestation\` and \`price\`. The lockfile route also answers with
+\`summary\`, an unsigned copy. Verify \`attestation\`. \`price\` holds the integers
+\`baseMicro\`, \`multiplierTenths\` and \`totalMicro\`.
 
 ### GET /v1/attest?name=@babel/core&version=7.25.2
 
-Price: ${PRICE_TEXT} when the version is reviewed. Free when it is not.
+Price: ${PRICE_PHRASE} when the version is reviewed. Free when it is not.
 
 \`\`\`bash
 curl -sS "${issuer}/v1/attest?name=@babel/core&version=7.25.2"
@@ -193,7 +194,7 @@ Body: the \`package-lock.json\` bytes, unchanged. For \`pnpm-lock.yaml\`, send t
 \`Content-Type: application/yaml\`. For a yarn classic (v1) \`yarn.lock\`, send the file bytes with
 \`Content-Type: text/plain\`. Yarn berry (v2 and later) is not accepted.
 Limits: ${LOCKFILE_LIMITS_TEXT}.
-Price: ${PRICE_TEXT} (${PRICE_MICRO_TEXT}) per reviewed entry. 0 reviewed entries: free.
+Price per reviewed entry: ${PRICE_PHRASE} (minimum ${PRICE_MICRO_TEXT}). 0 reviewed entries: free.
 There is no cap and no discount.
 
 \`\`\`bash
@@ -222,6 +223,7 @@ const OPTIONS_SECTION = `## Options
 |---|---|
 | \`X-AuPM-Donate: 1\` | On a reviewed tarball: pay for it. Without it, the tarball is free. |
 | \`X-AuPM-Donate: 0\` | On an attestation route: return a free partial attestation. |
+| \`X-AuPM-Multiplier: <tenths>\` | On a paid request: pay base price x tenths. Whole number 1 to 1000 (x0.1 to x100). 10 is x1. Default 1, the minimum. Any other value gets 400. |
 | \`X-AuPM-Tier\` | Response header on a tarball. It holds the status of the version. |
 
 An unreviewed package never returns 402.
@@ -346,7 +348,8 @@ ${SPLIT_DISCLOSURE}
 - Pay to: \`${PAY_TO}\`.
 - Facilitator: ${FACILITATOR_URL}.
 - Tag: \`${TAG}\`.
-- Price: ${PRICE_TEXT} (${PRICE_MICRO_TEXT}) per reviewed package.`
+- Price per reviewed package: ${PRICE_PHRASE}. The minimum is ${PRICE_MICRO_TEXT}.
+- Multiplier: send \`X-AuPM-Multiplier: <tenths>\` (1 to 1000). 10 is x1.`
 
 function linksSection(issuer: string): string {
   return `## Links

@@ -164,13 +164,79 @@ describe('buildAccrualInputs', () => {
     expect(rows.reduce((s, r) => s + r.amountMicro, 0)).toBe(3000)
   })
 
-  test('throws when priceMicro does not match packages.length * 1,000', () => {
-    const attribution: Attribution = {
-      route: 'lockfile',
-      priceMicro: 20000,
-      packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
-    }
-    expect(() => buildAccrualInputs(attribution)).toThrow()
+  test.each([[500], [1500], [2999]])(
+    'throws when priceMicro %i is not a whole multiple of packages.length * 1,000',
+    (priceMicro) => {
+      const attribution: Attribution = {
+        route: 'lockfile',
+        priceMicro,
+        packages: [
+          { pkg: 'ms', version: '2.1.3', auditor: 'github:alice' },
+          { pkg: 'ms', version: '2.1.4', auditor: 'github:alice' },
+        ],
+      }
+      expect(() => buildAccrualInputs(attribution)).toThrow(/priceMicro/)
+    },
+  )
+
+  test('throws when a multiplied price does not divide equally among the packages', () => {
+    expect(() =>
+      buildAccrualInputs({
+        route: 'lockfile',
+        priceMicro: 5000,
+        packages: [
+          { pkg: 'a', version: '1.0.0', auditor: null },
+          { pkg: 'b', version: '1.0.0', auditor: null },
+          { pkg: 'c', version: '1.0.0', auditor: null },
+        ],
+      }),
+    ).toThrow(/priceMicro/)
+  })
+
+  test.each([1, 10, 100, 1000])(
+    'a multiplier of %i tenths scales every share and sums exactly',
+    (tenths) => {
+      const packages = [
+        { pkg: 'alpha', version: '1.0.0', auditor: 'github:a' },
+        { pkg: 'mid', version: '1.0.0', auditor: null },
+      ]
+      const rows = buildAccrualInputs({
+        route: 'lockfile',
+        priceMicro: 2 * 1000 * tenths,
+        packages,
+      })
+      expect(rows).toHaveLength(10)
+      const base = buildAccrualInputs({ route: 'lockfile', priceMicro: 2000, packages })
+      expect(rows.map((r) => r.amountMicro)).toEqual(base.map((r) => r.amountMicro * tenths))
+      for (const pkg of ['alpha', 'mid']) {
+        const total = rows.filter((r) => r.pkg === pkg).reduce((s, r) => s + r.amountMicro, 0)
+        expect(total).toBe(1000 * tenths)
+      }
+      expect(rows.reduce((s, r) => s + r.amountMicro, 0)).toBe(2 * 1000 * tenths)
+    },
+  )
+
+  test('x0.1 (tenths 1) and x10 (tenths 100) give the per-1,000 shares times k', () => {
+    const entry = [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }]
+    const shares = (priceMicro: number) =>
+      buildAccrualInputs({ route: 'tarball', priceMicro, packages: entry }).map((r) => [
+        r.role,
+        r.amountMicro,
+      ])
+    expect(shares(1000)).toEqual([
+      ['treasury', 200],
+      ['ops', 50],
+      ['reviewer', 400],
+      ['contributor', 100],
+      ['maintainer', 250],
+    ])
+    expect(shares(100_000)).toEqual([
+      ['treasury', 20_000],
+      ['ops', 5_000],
+      ['reviewer', 40_000],
+      ['contributor', 10_000],
+      ['maintainer', 25_000],
+    ])
   })
 })
 

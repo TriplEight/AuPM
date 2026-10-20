@@ -9,7 +9,8 @@ import { declareDiscoveryExtension } from '@x402-avm/extensions'
 import { formatMicroUsd } from 'aupm-mcp/money'
 import { mvpSplit } from '../claims/attribution-rules.js'
 import { CAIP2_NETWORK, ISSUER, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
-import { lockfileDynamicPrice, PRICE_PER_REVIEWED_PACKAGE_MICRO } from '../routes/attest.js'
+import { lockfileDynamicPrice, singleAttestDynamicPrice } from '../routes/attest.js'
+import { PRICE_PER_REVIEWED_PACKAGE_MICRO, SUGGESTED_MULTIPLIER_TENTHS } from './multiplier.js'
 import { TARBALL_ROUTE_KEY, tarballPaymentOption } from './tarball.js'
 
 export const LOCKFILE_ROUTE_KEY = 'POST /v1/attest/lockfile'
@@ -20,7 +21,12 @@ export const SINGLE_ATTEST_ROUTE_KEY = 'GET /v1/attest'
 // out of sync). The `accepts`
 // price field stays a literal dollar string: that one is x402 protocol
 // data the facilitator parses, not display text.
+// The listed price is the minimum. A donor may pay more with `X-AuPM-Multiplier`.
 export const PRICE_TEXT = formatMicroUsd(PRICE_PER_REVIEWED_PACKAGE_MICRO)
+export const SUGGESTED_PRICE_TEXT = formatMicroUsd(
+  PRICE_PER_REVIEWED_PACKAGE_MICRO * SUGGESTED_MULTIPLIER_TENTHS,
+)
+export const PRICE_PHRASE = `minimum ${PRICE_TEXT}, suggested ${SUGGESTED_PRICE_TEXT}`
 
 // Disclosure rule: every public text (README, `og:description`,
 // Bazaar descriptions) shows both the target split and the MVP split.
@@ -41,7 +47,7 @@ export const SPLIT_DISCLOSURE =
 // with the Bazaar route descriptions below.
 export const OG_DESCRIPTION =
   'AuPM turns human code review into a paid, verifiable, on-chain-anchored ' +
-  `public good on Algorand. ${PRICE_TEXT} per reviewed package. ${SPLIT_DISCLOSURE}`
+  `public good on Algorand. Price per reviewed package: ${PRICE_PHRASE}. ${SPLIT_DISCLOSURE}`
 
 // The facilitator copies `info` of the `x402-merchant` extension into the
 // merchant record: the name, website and logo of the Bazaar merchant card.
@@ -78,11 +84,11 @@ export const LOCKFILE_DESCRIPTION =
   "pnpm-lock.yaml (lockfileVersion '9.0'; send Content-Type: application/yaml) or a " +
   'yarn classic v1 yarn.lock (send Content-Type: text/plain): human ' +
   'review tier, reviewer, tarball integrity match, and the Algorand txid anchoring ' +
-  `each review. ${PRICE_TEXT} per reviewed package; free when no package in the tree ` +
+  `each review. Price per reviewed package: ${PRICE_PHRASE}; free when no package in the tree ` +
   `is reviewed. ${SPLIT_DISCLOSURE}`
 export const SINGLE_ATTEST_DESCRIPTION =
   'Signed human-review attestation for one npm package version (query: name, ' +
-  `version). ${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`
+  `version). Price per reviewed package: ${PRICE_PHRASE}; free when unreviewed. ${SPLIT_DISCLOSURE}`
 
 // Merchant card values. The descriptor at /.well-known/x402 reads them too.
 export const MERCHANT_NAME = 'AuPM'
@@ -151,7 +157,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
       },
     },
     [SINGLE_ATTEST_ROUTE_KEY]: {
-      accepts: accepts('$0.001', feePayer),
+      accepts: accepts(singleAttestDynamicPrice, feePayer),
       description: SINGLE_ATTEST_DESCRIPTION,
       mimeType: 'application/json',
       extensions: {
@@ -170,7 +176,7 @@ export function buildRoutes(feePayer: string): Record<AupmRouteKey, RouteConfig>
       accepts: tarballPaymentOption(feePayer),
       description:
         'npm tarball download, gated for human-reviewed versions only. ' +
-        `${PRICE_TEXT} per reviewed package; free when unreviewed. ${SPLIT_DISCLOSURE}`,
+        `Price per reviewed package: ${PRICE_PHRASE}; free when unreviewed. ${SPLIT_DISCLOSURE}`,
       mimeType: 'application/octet-stream',
       extensions: {
         ...merchantExtension(),

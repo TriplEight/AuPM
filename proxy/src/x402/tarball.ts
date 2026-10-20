@@ -4,14 +4,24 @@
 // COMMUNITY_REVIEWED stays free, forever, with no wallet required. A static
 // x402 route config cannot express that, so this module supplies the
 // onProtectedRequest hook that grants access before payment is considered.
+
 import type {
   HTTPRequestContext,
   PaymentOption,
   ProtectedRequestHook,
   RouteConfig,
 } from '@x402-avm/core/http'
+import type { AssetAmount } from '@x402-avm/core/types'
+import type { MiddlewareHandler } from 'hono'
 import { CAIP2_NETWORK, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
 import { getStatusOrUnreviewed, isFree } from '../status.js'
+import {
+  MULTIPLIER_ERROR,
+  MULTIPLIER_HEADER,
+  multiplierFromContext,
+  parseMultiplier,
+  totalPriceMicro,
+} from './multiplier.js'
 
 // Route key for the paid tarball route. `*` is a multi-segment wildcard, so
 // this matches both unscoped (`/lodash/-/lodash-4.17.21.tgz`) and scoped
@@ -100,9 +110,6 @@ export function isTarballPath(path: string): boolean {
   return normalized.includes('/-/') && /\.tgz$/i.test(normalized)
 }
 
-/** Integer micro-USDC charged for one reviewed tarball download ($0.001). */
-export const TARBALL_PRICE_MICRO = 1_000
-
 /**
  * Request header that opts a tarball download into payment. Read
  * case-insensitively through HTTPAdapter#getHeader (see tarballFreeTierHook
@@ -186,12 +193,37 @@ export const tarballFreeTierHook: ProtectedRequestHook = async (
   return context.adapter.getHeader(DONATE_HEADER) === '1' ? undefined : { grantAccess: true }
 }
 
+/**
+ * DynamicPrice for a reviewed tarball: 1,000 microUSDC x the donor
+ * multiplier in tenths (`X-AuPM-Multiplier`, default 1). Integer math only.
+ */
+export function tarballDynamicPrice(context: HTTPRequestContext): AssetAmount {
+  const amountMicro = totalPriceMicro(1, multiplierFromContext(context))
+  return { asset: USDC_ASA_ID, amount: String(amountMicro) }
+}
+
+/**
+ * Answers 400 for a bad `X-AuPM-Multiplier` before the payment gate runs.
+ * It checks only a request that the gate would charge: a resolvable tarball
+ * path, a reviewed version, and `X-AuPM-Donate: 1`. Every other request is
+ * free, and a free request never fails because of this header.
+ */
+export const tarballMultiplierGuard: MiddlewareHandler = async (c, next) => {
+  if (c.req.header(DONATE_HEADER) !== '1' || !isTarballPath(c.req.path)) return next()
+  const { name, version } = parseTarballPath(c.req.path)
+  if (isFree(getStatusOrUnreviewed(name, version).status)) return next()
+  if (parseMultiplier(c.req.header(MULTIPLIER_HEADER)) === null) {
+    return c.json({ error: MULTIPLIER_ERROR }, 400)
+  }
+  return next()
+}
+
 export function tarballPaymentOption(feePayer: string): PaymentOption {
   return {
     scheme: 'exact',
     network: CAIP2_NETWORK,
     payTo: PAY_TO,
-    price: '$0.001', // TARBALL_PRICE_MICRO (1,000 microUSDC), kept in sync by hand
+    price: tarballDynamicPrice,
     maxTimeoutSeconds: MAX_TIMEOUT_SECONDS,
     extra: {
       asset: USDC_ASA_ID,

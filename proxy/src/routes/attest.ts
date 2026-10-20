@@ -1,11 +1,11 @@
 // proxy/src/routes/attest.ts
 //
 // Handlers for the two paid attestation routes:
-//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC per
-//                                reviewed entry, free
+//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC x the
+//                                donor multiplier per reviewed entry, free
 //                                when the tree has zero reviewed packages.
-//   GET  /v1/attest           — single-package attestation, $0.001 (query:
-//                                name, version). Free when the requested
+//   GET  /v1/attest           — single-package attestation, 1,000 microUSDC x
+//                                the donor multiplier (query: name, version). Free when the requested
 //                                version resolves below COMMUNITY_REVIEWED,
 //                                including a paid-tier row with no stored
 //                                integrity (an incomplete review).
@@ -53,15 +53,16 @@ import {
   USDC_ASA_ID,
 } from '../config.js'
 import { getStatusOrUnreviewed, isReviewedWithIntegrity, reviewerIdentity } from '../status.js'
+import {
+  MULTIPLIER_ERROR,
+  MULTIPLIER_HEADER,
+  multiplierFromContext,
+  parseMultiplier,
+  priceReceipt,
+  totalPriceMicro,
+} from '../x402/multiplier.js'
 
 type AttestContext = Context<{ Variables: AppVariables }>
-
-/**
- * Integer micro-USDC owed for one reviewed package, on every route. Used directly for the
- * single-attest route's flat price, and multiplied by N (the reviewed-entry
- * count) for the lockfile route's DynamicPrice below.
- */
-export const PRICE_PER_REVIEWED_PACKAGE_MICRO = 1_000
 
 const PAYLOAD_TYPE = 'application/vnd.in-toto+json'
 
@@ -173,6 +174,18 @@ function clientIp(c: AttestContext): string {
   // unspoofable socket address; only when that is genuinely unavailable do
   // every caller share one bucket.
   return socketAddress(c) ?? 'unknown'
+}
+
+/**
+ * The donor multiplier in tenths, or null when the header holds an invalid
+ * value. A missing header gives the default.
+ */
+function multiplierOf(c: AttestContext): number | null {
+  return parseMultiplier(c.req.header(MULTIPLIER_HEADER))
+}
+
+function multiplierError(c: AttestContext): Response {
+  return c.json({ error: MULTIPLIER_ERROR }, 400)
 }
 
 /**
@@ -346,8 +359,17 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
 }
 
 /**
+ * DynamicPrice for `GET /v1/attest`: 1,000 microUSDC x the donor multiplier
+ * in tenths (`X-AuPM-Multiplier`, default 1). Integer math only.
+ */
+export function singleAttestDynamicPrice(context: HTTPRequestContext): AssetAmount {
+  const amountMicro = totalPriceMicro(1, multiplierFromContext(context))
+  return { asset: USDC_ASA_ID, amount: String(amountMicro) }
+}
+
+/**
  * DynamicPrice for `POST /v1/attest/lockfile`: 1,000
- * microUSDC × N, where N is `analysis.reviewedPackageRefs.length` — the
+ * microUSDC × the donor multiplier in tenths × N, where N is `analysis.reviewedPackageRefs.length` — the
  * identical count `lockfileHandler` below uses to build the signed
  * attestation, so the price and the attestation can never disagree.
  *
@@ -368,7 +390,10 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
 export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
   const honoContext = honoContextFrom(context)
   if (honoContext?.get(EMPTY_REQUEST_KEY)) {
-    return { asset: USDC_ASA_ID, amount: String(PRICE_PER_REVIEWED_PACKAGE_MICRO) }
+    return {
+      asset: USDC_ASA_ID,
+      amount: String(totalPriceMicro(1, multiplierFromContext(context))),
+    }
   }
   const analysis = honoContext?.get(ANALYSIS_KEY)
   if (!analysis) {
@@ -376,7 +401,10 @@ export function lockfileDynamicPrice(context: HTTPRequestContext): AssetAmount {
       'internal error: lockfile analysis missing when the x402 gate resolved the price',
     )
   }
-  const amountMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
+  const amountMicro = totalPriceMicro(
+    analysis.reviewedPackageRefs.length,
+    multiplierFromContext(context),
+  )
   return { asset: USDC_ASA_ID, amount: String(amountMicro) }
 }
 
@@ -540,6 +568,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       // A bodyless or `{}` probe gets the 402 challenge, unless the
       // caller asked for the free path, which never returns 402.
       if (requestedPartial(c)) return c.json({ error: EMPTY_LOCKFILE_ERROR }, 400)
+      if (multiplierOf(c) === null) return multiplierError(c)
       c.set(EMPTY_REQUEST_KEY, true)
       await next()
       return
@@ -587,9 +616,11 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     }
 
     // At least one reviewed package and no partial-attestation opt-out: the
-    // route is genuinely priced. Hand the already-parsed analysis to the
+    // route is genuinely priced, so only now is the multiplier validated.
+    // The free paths above never read it. Hand the already-parsed analysis to the
     // paid handler so the body — already consumed above — is never re-read
     // or re-parsed.
+    if (multiplierOf(c) === null) return multiplierError(c)
     c.set(ANALYSIS_KEY, analysis)
     await next()
   }
@@ -605,6 +636,9 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       return c.json({ error: 'internal error: lockfile analysis missing' }, 500)
     }
 
+    const tenths = multiplierOf(c)
+    if (tenths === null) return multiplierError(c)
+
     const key = await options.getSigningKey()
     const attestation = await signLockfileStatement(analysis, key, false)
 
@@ -613,10 +647,10 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       version: ref.version,
       auditor: ref.auditor,
     }))
-    const priceMicro = analysis.reviewedPackageRefs.length * PRICE_PER_REVIEWED_PACKAGE_MICRO
-    c.set('attribution', { route: 'lockfile', priceMicro, packages })
+    const price = priceReceipt(analysis.reviewedPackageRefs.length, tenths)
+    c.set('attribution', { route: 'lockfile', priceMicro: price.totalMicro, packages })
 
-    return c.json({ summary: analysis.summary, attestation })
+    return c.json({ summary: analysis.summary, attestation, price })
   }
 
   const singleAttestPreMiddleware: MiddlewareHandler<{ Variables: AppVariables }> = async (
@@ -628,6 +662,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     if (!name && !version && !requestedPartial(c)) {
       // A probe with no input gets the 402 challenge. The
       // handler answers it with 400, so a paid retry is never settled.
+      if (multiplierOf(c) === null) return multiplierError(c)
       await next()
       return
     }
@@ -689,6 +724,7 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       return c.json({ tier: status.status, attestation })
     }
 
+    if (multiplierOf(c) === null) return multiplierError(c)
     await next()
   }
 
@@ -715,6 +751,9 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
       // fail-closed guard, never removed.
       return c.json({ error: 'internal error: stored integrity is not a valid sha512 value' }, 500)
     }
+
+    const tenths = multiplierOf(c)
+    if (tenths === null) return multiplierError(c)
 
     const key = await options.getSigningKey()
 
@@ -746,13 +785,10 @@ export function buildAttestRoutes(options: AttestRoutesOptions): AttestRoutes {
     const attestation = await signEnvelope(payload, PAYLOAD_TYPE, key)
 
     const packages: AttributionEntry[] = [{ pkg: name, version, auditor: reviewerIdentity(status) }]
-    c.set('attribution', {
-      route: 'single-attest',
-      priceMicro: PRICE_PER_REVIEWED_PACKAGE_MICRO,
-      packages,
-    })
+    const price = priceReceipt(1, tenths)
+    c.set('attribution', { route: 'single-attest', priceMicro: price.totalMicro, packages })
 
-    return c.json({ tier: status.status, attestation })
+    return c.json({ tier: status.status, attestation, price })
   }
 
   return { lockfilePreMiddleware, lockfileHandler, singleAttestPreMiddleware, singleAttestHandler }

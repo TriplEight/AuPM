@@ -1079,7 +1079,7 @@ describe('discovery routes', () => {
     const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } = await import(
       './x402/routes.js'
     )
-    const { PRICE_PER_REVIEWED_PACKAGE_MICRO } = await import('./routes/attest.js')
+    const { PRICE_PER_REVIEWED_PACKAGE_MICRO } = await import('./x402/multiplier.js')
     const routes = buildRoutes(FEE_PAYER)
     const body = (await (await app.request('/.well-known/x402')).json()) as {
       resources: Record<string, unknown>[]
@@ -1120,7 +1120,7 @@ describe('discovery routes', () => {
   })
 
   test('llms.txt carries the split disclosure and the one price text', async () => {
-    const { PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
+    const { PRICE_TEXT, SUGGESTED_PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
     const text = await (await app.request('/llms.txt')).text()
     const { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./attest/lockfile.js')
     expect(text.split(SPLIT_DISCLOSURE)).toHaveLength(2)
@@ -1139,8 +1139,8 @@ describe('discovery routes', () => {
     ]) {
       expect(text).toContain(required)
     }
-    const prices = text.match(/\$\d[\d.,]*/g) ?? []
-    expect(new Set(prices)).toEqual(new Set([PRICE_TEXT]))
+    const prices = text.match(/\$\d+\.\d+/g) ?? []
+    expect(new Set(prices)).toEqual(new Set([PRICE_TEXT, SUGGESTED_PRICE_TEXT]))
   })
 
   test('front page links both discovery documents', async () => {
@@ -1545,5 +1545,184 @@ describe('POST /v1/attest/lockfile with a yarn classic yarn.lock', () => {
     expect(res.status).toBe(status)
     expect(res.headers.get('Retry-After')).toBe(retryAfter)
     expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+})
+
+describe('donor multiplier', () => {
+  const MULTIPLIER = 'X-AuPM-Multiplier'
+
+  async function quotedAmount(res: Response): Promise<string | undefined> {
+    expect(res.status).toBe(402)
+    const header = res.headers.get('PAYMENT-REQUIRED')
+    const required = decodePaymentRequiredHeader(header as string) as unknown as {
+      accepts: Array<{ amount?: string }>
+    }
+    return required.accepts[0]?.amount
+  }
+
+  function lockfileRequest(names: string[], headers: Record<string, string> = {}) {
+    const packages = Object.fromEntries(
+      names.map((name) => [
+        `node_modules/${name}`,
+        {
+          version: '1.0.0',
+          resolved: `https://registry.npmjs.org/${name}/-/${name}-1.0.0.tgz`,
+          integrity: REVIEWED_INTEGRITY,
+        },
+      ]),
+    )
+    return app.request('/v1/attest/lockfile', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ lockfileVersion: 3, packages }),
+    })
+  }
+
+  function review(...names: string[]) {
+    for (const name of names) {
+      setStatus(name, '1.0.0', 'COMMUNITY_REVIEWED', 'AUDITOR_ADDR', 'TXID', REVIEWED_INTEGRITY)
+    }
+  }
+
+  const tarballPath = '/lodash/-/lodash-4.17.21.tgz'
+
+  test.each([
+    [undefined, '1000'],
+    ['1', '1000'],
+    ['10', '10000'],
+    ['1000', '1000000'],
+  ])('reviewed tarball with donate and multiplier %s quotes %s', async (tenths, amount) => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const headers: Record<string, string> = { 'X-AuPM-Donate': '1' }
+    if (tenths !== undefined) headers[MULTIPLIER] = tenths
+    expect(await quotedAmount(await app.request(tarballPath, { headers }))).toBe(amount)
+  })
+
+  test.each([
+    [undefined, '1000'],
+    ['10', '10000'],
+    ['1000', '1000000'],
+  ])('single attest with multiplier %s quotes %s', async (tenths, amount) => {
+    review('ms')
+    const headers: Record<string, string> = tenths === undefined ? {} : { [MULTIPLIER]: tenths }
+    const res = await app.request('/v1/attest?name=ms&version=1.0.0', { headers })
+    expect(await quotedAmount(res)).toBe(amount)
+  })
+
+  test.each([
+    [undefined, '3000'],
+    ['10', '30000'],
+    ['1000', '3000000'],
+  ])('lockfile with 3 reviewed entries and multiplier %s quotes %s', async (tenths, amount) => {
+    review('pkg-a', 'pkg-b', 'pkg-c')
+    const headers: Record<string, string> = tenths === undefined ? {} : { [MULTIPLIER]: tenths }
+    const res = await lockfileRequest(['pkg-a', 'pkg-b', 'pkg-c'], headers)
+    expect(await quotedAmount(res)).toBe(amount)
+  })
+
+  test('the 402 keeps the explicit asset, fee payer and tag at a multiplied price', async () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request(tarballPath, {
+      headers: { 'X-AuPM-Donate': '1', [MULTIPLIER]: '100' },
+    })
+    expect(res.status).toBe(402)
+    const required = decodePaymentRequiredHeader(
+      res.headers.get('PAYMENT-REQUIRED') as string,
+    ) as unknown as { accepts: Array<{ extra?: Record<string, string> }> }
+    expect(required.accepts[0]?.extra).toMatchObject({
+      asset: USDC_ASA_ID,
+      feePayer: FEE_PAYER,
+      tag: TAG,
+    })
+  })
+
+  const BAD = ['0', '1001', '01', '+5', '1.5', '', 'abc']
+
+  test.each(BAD)('reviewed tarball with donate and multiplier %j: 400, no 402', async (raw) => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const res = await app.request(tarballPath, {
+      headers: { 'X-AuPM-Donate': '1', [MULTIPLIER]: raw },
+    })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+    expect(((await res.json()) as { error: string }).error).toContain('1 to 1000')
+  })
+
+  test.each(BAD)('single attest with multiplier %j: 400', async (raw) => {
+    review('ms')
+    const res = await app.request('/v1/attest?name=ms&version=1.0.0', {
+      headers: { [MULTIPLIER]: raw },
+    })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test.each(BAD)('lockfile with a reviewed entry and multiplier %j: 400', async (raw) => {
+    review('pkg-a')
+    const res = await lockfileRequest(['pkg-a'], { [MULTIPLIER]: raw })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('PAYMENT-REQUIRED')).toBeNull()
+  })
+
+  test('free paths ignore a bad multiplier', async () => {
+    review('ms')
+    const bad = { [MULTIPLIER]: 'abc' }
+    // Unreviewed tarball with donate: free.
+    const unreviewed = await app.request('/never-reviewed/-/never-reviewed-1.0.0.tgz', {
+      headers: { 'X-AuPM-Donate': '1', ...bad },
+    })
+    expect(unreviewed.status).not.toBe(400)
+    expect(unreviewed.status).not.toBe(402)
+    // Reviewed tarball without donate: free.
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const noDonate = await app.request(tarballPath, { headers: bad })
+    expect(noDonate.status).not.toBe(400)
+    expect(noDonate.status).not.toBe(402)
+    // Single attest: unreviewed, and reviewed with donate 0.
+    const single = await app.request('/v1/attest?name=unknown-pkg&version=1.0.0', { headers: bad })
+    expect(single.status).toBe(200)
+    const partial = await app.request('/v1/attest?name=ms&version=1.0.0', {
+      headers: { 'X-AuPM-Donate': '0', ...bad },
+    })
+    expect(partial.status).toBe(200)
+    // Lockfile: zero reviewed entries, and a partial attestation.
+    const zero = await lockfileRequest(['not-reviewed-x'], bad)
+    expect(zero.status).toBe(200)
+    const lockPartial = await lockfileRequest(['ms'], { 'X-AuPM-Donate': '0', ...bad })
+    expect(lockPartial.status).toBe(200)
+  })
+
+  test('a multiplied paid tarball response reports base, multiplier and total', async () => {
+    setStatus('lodash', '4.17.21', 'COMMUNITY_REVIEWED', null, null)
+    const paidServer = buildHttpServer(
+      stubSuccessFacilitatorClient('MULT-TX-100'),
+      FEE_PAYER,
+    ).httpServer
+    const paidApp = createApp(paidServer)
+    const headers = { 'X-AuPM-Donate': '1', [MULTIPLIER]: '100' }
+    const challenge = await paidApp.request(tarballPath, { headers })
+    const required = decodePaymentRequiredHeader(
+      challenge.headers.get('PAYMENT-REQUIRED') as string,
+    )
+    const option = (required as unknown as { accepts: unknown[] }).accepts[0]
+    const signature = encodePaymentSignatureHeader({
+      x402Version: 2,
+      accepted: option,
+      payload: {},
+    } as unknown as Parameters<typeof encodePaymentSignatureHeader>[0])
+    const spy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('tgz'))
+    try {
+      const res = await paidApp.request(tarballPath, {
+        headers: { ...headers, 'PAYMENT-SIGNATURE': signature },
+      })
+      expect(res.status).toBe(200)
+      expect(res.headers.get('X-AuPM-Price-Base')).toBe('1000')
+      expect(res.headers.get('X-AuPM-Multiplier')).toBe('100')
+      expect(res.headers.get('X-AuPM-Price-Total')).toBe('100000')
+      const rows = getAccrualsForTxid('MULT-TX-100')
+      expect(rows.reduce((sum, row) => sum + row.amount_micro, 0)).toBe(100_000)
+    } finally {
+      spy.mockRestore()
+    }
   })
 })
