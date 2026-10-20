@@ -1,13 +1,20 @@
 // mcp/src/tools/attest.ts
 import fs from 'node:fs'
 import path from 'node:path'
-import { DONATION_SETTING_TEXT, resolveDonate } from '../config.js'
+import {
+  DONATION_SETTING_TEXT,
+  type MultiplierSetting,
+  resolveDonate,
+  resolveMultiplier,
+} from '../config.js'
 import {
   DonationFailure,
   type DonationFailureReport,
   type DonationFetchResult,
+  type DonationReceipt,
+  donationReceipt,
+  entryPriceMicro,
   fetchWithDonation,
-  PRICE_PER_ENTRY_MICRO,
   type Settlement,
   USDC_ASSET_ID,
 } from '../donor.js'
@@ -30,6 +37,8 @@ export type AttestLockfileOutcome =
       attestation: unknown
       /** The donation that paid for this attestation, or null when it was free. */
       settlement: Settlement | null
+      /** Base price, multiplier and total of the donation. Set when a donation paid. */
+      receipt?: DonationReceipt
       /** Set when a donation was asked for and failed. The result is then the free one. */
       donationFailure?: DonationFailureReport
     }
@@ -38,6 +47,8 @@ export type AttestLockfileOutcome =
       priceMicro: number
       resourceUrl: string
       asset: string
+      /** Base price, multiplier and the total that the donation would cost. */
+      receipt?: DonationReceipt
       /** Set only when the server already answered with a partial attestation. */
       withheld?: number
       summary?: unknown
@@ -126,6 +137,7 @@ type AttestRequest = {
 async function postWithRetry(
   request: AttestRequest,
   donate: boolean,
+  tenths: number,
 ): Promise<DonationFetchResult> {
   const post = () =>
     fetchWithDonation(
@@ -137,6 +149,7 @@ async function postWithRetry(
       },
       donate,
       request.entryCount,
+      tenths,
     )
   const result = await post()
   // 503 means another YAML parse runs; the server sends it before any 402,
@@ -152,6 +165,7 @@ async function outcomeFromResult(
   result: DonationFetchResult,
   donate: boolean,
   kind: LockfileKind,
+  multiplier: MultiplierSetting,
 ): Promise<AttestLockfileOutcome> {
   if (result.kind === 'donation_required') {
     return {
@@ -159,6 +173,7 @@ async function outcomeFromResult(
       priceMicro: result.requirement.priceMicro,
       resourceUrl: result.requirement.resourceUrl,
       asset: result.requirement.asset,
+      receipt: donationReceipt(multiplier, result.requirement.priceMicro),
     }
   }
   const res = result.response
@@ -180,9 +195,10 @@ async function outcomeFromResult(
     if (withheld > 0) {
       return {
         status: 'donation_required',
-        priceMicro: withheld * PRICE_PER_ENTRY_MICRO,
+        priceMicro: withheld * entryPriceMicro(multiplier.tenths),
         resourceUrl: lockfileAttestUrl(),
         asset: USDC_ASSET_ID,
+        receipt: donationReceipt(multiplier, withheld * entryPriceMicro(multiplier.tenths)),
         withheld,
         summary: body.summary,
         attestation: body.attestation,
@@ -195,6 +211,9 @@ async function outcomeFromResult(
     summary: body.summary,
     attestation: body.attestation,
     settlement: result.settlement,
+    ...(result.settlement
+      ? { receipt: donationReceipt(multiplier, result.settlement.amountMicro) }
+      : {}),
   }
 }
 
@@ -207,7 +226,8 @@ export const attestLockfileTool = {
     'receive the full attestation. Without a donation opt-in, the reviewed entries are ' +
     "withheld and the result reports status: 'donation_required' with the partial " +
     'attestation, the withheld count, the price, and the resource URL — never a 402. ' +
-    'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid. ' +
+    'A paid attestation reports settlement: the settlement txid and the microUSDC amount paid, ' +
+    'and receipt: { baseMicro, multiplier, totalMicro }. ' +
     'When a donation was asked for and failed, the result is the free one and carries ' +
     'donationFailure: { code, reason }. Nothing was paid. ' +
     DONATION_SETTING_TEXT,
@@ -220,6 +240,7 @@ export const attestLockfileTool = {
     allowDonation?: boolean
   }): Promise<AttestLockfileResult> {
     const donate = resolveDonate(allowDonation).value
+    const multiplier = resolveMultiplier()
     const lockfileBytes = fs.readFileSync(lockfilePath)
     const kind = lockfileKind(lockfilePath)
     if (kind !== 'json' && lockfileBytes.byteLength > PNPM_LOCKFILE_MAX_BYTES) {
@@ -234,14 +255,14 @@ export const attestLockfileTool = {
     let failure: DonationFailureReport | undefined
     let result: DonationFetchResult
     try {
-      result = await postWithRetry(request, donate)
+      result = await postWithRetry(request, donate, multiplier.tenths)
     } catch (error) {
       if (!donate || !(error instanceof DonationFailure)) throw error
       // The paid attempt failed. The free request below sends X-AuPM-Donate: 0 and cannot pay.
       failure = error.report()
-      result = await postWithRetry(request, false)
+      result = await postWithRetry(request, false, multiplier.tenths)
     }
-    const outcome = await outcomeFromResult(result, donate && !failure, kind)
+    const outcome = await outcomeFromResult(result, donate && !failure, kind, multiplier)
     return failure ? { ...outcome, donationFailure: failure } : outcome
   },
 }

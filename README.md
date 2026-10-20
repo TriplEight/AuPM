@@ -34,8 +34,8 @@ reviews.
 Open-source funding depends on people who visit a project's page and click "Sponsor". Today,
 agents and CI pipelines choose and install most packages, and no person sees that page.
 
-Have you ever thought you can thank the open source you use as you install it, just $0.001 at
-a time? Add `--donate` to an install. AuPM pays for a human review of each reviewed package in
+Have you ever thought you can thank the open source you use as you install it, from $0.001 at
+a time (suggested $0.01)? Add `--donate` to an install. AuPM pays for a human review of each reviewed package in
 your lockfile. Today that donation pays the auditor who read the tarball (30%) and runs AuPM
 (70%). The planned split also pays maintainers and contributors. See
 [How donations work](#how-donations-work).
@@ -155,9 +155,11 @@ If one of these fits you, please join:
 Everything above is free. This section is for people who want to fund reviews.
 
 A donation pays an auditor to read one exact tarball and match it against the published npm
-release. It costs $0.001 (1,000 microUSDC) per reviewed package, in USDC on Algorand, on
-every paid route. A lockfile donation costs $0.001 times the number of reviewed packages in
-that lockfile, with no cap and no discount. A donation always pays for a reviewed version,
+release. Per reviewed package, the minimum is $0.001 (1,000 microUSDC) and the suggested
+donation is $0.01, in USDC on Algorand, on every paid route. You set a multiplier from x0.1
+($0.001) to x100 with `aupm config set multiplier <x>`. A lockfile donation costs the
+per-package donation times the number of reviewed packages in that lockfile, with no cap and
+no discount. A donation always pays for a reviewed version,
 never for an unreviewed one.
 
 Only these opt-ins donate:

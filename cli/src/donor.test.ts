@@ -105,7 +105,7 @@ function scriptedInput(answers: Answer[]) {
   const io = captureIo()
   const queue = [...answers]
   io.out.mockImplementation((line) => {
-    if (!/^(Press Enter|Type yes)/.test(line)) return
+    if (!/^(Press Enter|Type yes|Type a multiplier|Multiplier \()/.test(line)) return
     const next = queue.shift()
     if (next === undefined) input.end()
     else input.write(`${typeof next === 'function' ? next() : next}\n`)
@@ -181,6 +181,7 @@ beforeEach(() => {
   keyFile = path.join(configHome, 'aupm', 'donor.key')
   vi.stubEnv('NO_COLOR', undefined)
   vi.stubEnv('FORCE_COLOR', undefined)
+  vi.stubEnv('AUPM_MULTIPLIER', '1')
 })
 
 afterEach(() => {
@@ -261,9 +262,12 @@ describe('aupm donor init', () => {
     expect(text).toContain('5. Donate. Add --donate to an install or attest command:')
     expect(text).toContain('aupm install --donate   or   aupm attest package-lock.json --donate')
     expect(text).toContain('aupm attest package-lock.json --donate')
-    expect(text).toContain('It pays 0.001 USDC for each reviewed package in the lockfile.')
+    expect(text).toContain('minimum $0.001 (x0.1), suggested $0.01 (x1).')
     expect(text).toContain('every install is free, reviewed packages included.')
-    expect(text).toContain('To donate on every install, run `aupm config set donate true`, or set')
+    expect(text).toContain('To donate on every install, run `aupm config set donate true`.')
+    expect(text.replace(/\s+/g, ' ')).toContain(
+      'Set the price with `aupm config set multiplier <x>`.',
+    )
     expect(text).not.toContain('plain install')
     expect(text).not.toMatch(/exchange.*(binance|coinbase|kraken)/i)
   })
@@ -1045,5 +1049,59 @@ describe('aupm donor usage', () => {
     expect(allText(io)).toContain(
       'status   Show the balances and the next step. This is the default.',
     )
+  })
+})
+
+describe('aupm donor init: multiplier', () => {
+  const configFile = () => path.join(configHome, 'aupm', 'config.toml')
+
+  beforeEach(() => {
+    vi.stubEnv('AUPM_MULTIPLIER', '')
+  })
+
+  it('shows the minimum, the suggested price and the funding text, asks again on an empty answer, and writes the config', async () => {
+    installFakeAlgod(freshState(0n))
+    const { io, options } = guided(['', '2.5', 'yes'])
+    expect(await runDonor(['init'], options)).toBe(0)
+    const text = allText(io).replace(/\s+/g, ' ')
+    expect(text).toContain('minimum $0.001 (x0.1), suggested $0.01 (x1)')
+    expect(text).toContain('A donation pays for each reviewed package')
+    expect(text).toContain('Type a multiplier from 0.1 to 100')
+    expect(fs.readFileSync(configFile(), 'utf8')).toContain('multiplier = "2.5"\n')
+    expect(fs.existsSync(keyFile)).toBe(true)
+  })
+
+  it('asks again on a bad answer and names the range', async () => {
+    installFakeAlgod(freshState(0n))
+    const { io, options } = guided(['0.05', '1', 'yes'])
+    await runDonor(['init'], options)
+    expect(allText(io)).toContain('from 0.1 to 100')
+    expect(fs.readFileSync(configFile(), 'utf8')).toContain('multiplier = "1"\n')
+  })
+
+  it('stops and writes nothing when the input closes before an answer', async () => {
+    installFakeAlgod(freshState(0n))
+    const { options } = guided([])
+    expect(await runDonor(['init'], options)).toBe(0)
+    expect(fs.existsSync(configFile())).toBe(false)
+    expect(fs.existsSync(keyFile)).toBe(false)
+  })
+
+  it('does not ask when a multiplier is already set', async () => {
+    installFakeAlgod(freshState(0n))
+    vi.stubEnv('AUPM_MULTIPLIER', '3')
+    const { io, options } = guided(['yes'])
+    await runDonor(['init'], options)
+    expect(allText(io)).not.toContain('Donation multiplier.')
+    expect(fs.existsSync(configFile())).toBe(false)
+  })
+
+  it('with --yes or without a terminal, asks nothing and writes no multiplier', async () => {
+    installFakeAlgod(freshState(0n))
+    const { options } = guided([])
+    expect(await runDonor(['init', '--yes'], options)).toBe(0)
+    fs.rmSync(keyFile)
+    expect(await runDonor(['init'], { io: captureIo(), interactive: false })).toBe(0)
+    expect(fs.existsSync(configFile())).toBe(false)
   })
 })

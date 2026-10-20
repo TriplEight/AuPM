@@ -13,7 +13,7 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { ConfigError, resolveDonate } from 'aupm-mcp/config'
+import { ConfigError, resolveDonate, resolveMultiplier } from 'aupm-mcp/config'
 import { YARN_BERRY_MESSAGE } from 'aupm-mcp/lockfile-entries'
 import { proxyUrl } from 'aupm-mcp/proxy-url'
 import { type AttestLockfileOutcome, attestLockfileTool } from 'aupm-mcp/tools/attest'
@@ -286,6 +286,7 @@ export async function printPostInstallSummary(
     settlement,
     hasDonorKey: donorKeyExists(),
     donationFailed: donationFailure !== undefined,
+    multiplier: resolveMultiplier(),
   }
   summaryLines(input).forEach((line, index) => {
     console.log(`aupm: ${line}`)
@@ -320,6 +321,7 @@ export async function runWrapper(tool: Tool, argv: string[]): Promise<number> {
   if (tool !== 'npx') {
     try {
       allowDonation = resolveDonate(donateFlag).value
+      if (allowDonation) resolveMultiplier()
     } catch (error) {
       if (!(error instanceof ConfigError)) throw error
       console.error(`aupm: ${error.message} The command did not run.`)

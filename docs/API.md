@@ -29,8 +29,13 @@ curl https://aupm.fyi/api/v1/status/ms/2.1.3
 
 | Route | Price |
 |---|---|
-| `GET /v1/attest?name=<name>&version=<version>` | 1,000 microUSDC for a reviewed package. Free for other packages. |
-| `POST /v1/attest/lockfile` | 1,000 microUSDC times the reviewed entries. Free for a lockfile with no reviewed entry. |
+| `GET /v1/attest?name=<name>&version=<version>` | 1,000 microUSDC × multiplier for a reviewed package. Free for other packages. |
+| `POST /v1/attest/lockfile` | 1,000 microUSDC × multiplier × the reviewed entries. Free for a lockfile with no reviewed entry. |
+
+The multiplier is the request header `X-AuPM-Multiplier`: a whole number of tenths from 1 to
+1000 (x0.1 to x100). Without the header, the multiplier is 1, the minimum: $0.001 per reviewed
+package. The suggested value is 10 ($0.01). A malformed or out-of-range value on a paid request
+gets HTTP 400. Each paid response reports the base, the multiplier and the total.
 
 The lockfile route accepts `package-lock.json`, `pnpm-lock.yaml` (lockfileVersion 9.0) and
 `yarn.lock` (yarn classic v1), each at most 2 MiB.

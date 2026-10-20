@@ -142,8 +142,10 @@ describe('network text', () => {
     expect(later).not.toContain('formerly')
   })
 
-  it('names the price of one reviewed package from the price constant', () => {
-    expect(donateStep('5.').join('\n')).toContain('It pays 0.001 USDC for each reviewed package')
+  it('names the minimum and the suggested price, never one price alone', () => {
+    const text = donateStep('5.').join(' ').replace(/\s+/g, ' ')
+    expect(text).toContain('minimum $0.001 (x0.1), suggested $0.01 (x1)')
+    expect(text).toContain('aupm config set multiplier <x>')
     expect(donateStep('5.').join('\n')).toContain('every install is free')
     expect(donateStep('5.').join('\n')).not.toContain('plain install')
   })

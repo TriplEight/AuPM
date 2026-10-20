@@ -16,7 +16,12 @@
 import readline from 'node:readline'
 import type { Readable } from 'node:stream'
 import algosdk from 'algosdk'
-import { ConfigError } from 'aupm-mcp/config'
+import {
+  ConfigError,
+  parseMultiplier,
+  resolveMultiplier,
+  writeConfigMultiplier,
+} from 'aupm-mcp/config'
 import { donorAlgodUrl } from 'aupm-mcp/donor'
 import {
   AUPM_DONOR_MNEMONIC_ENV,
@@ -41,11 +46,14 @@ import {
   envNoticeLines,
   formatMicro,
   initNextSteps,
+  multiplierPromptLines,
   type Network,
   optedInLines,
   optInRequiredMicro,
   PROMPT_ENTER_ALGO,
   PROMPT_ENTER_USDC,
+  PROMPT_MULTIPLIER,
+  PROMPT_RETRY_MULTIPLIER,
   PROMPT_RETRY_YES,
   PROMPT_YES,
   paint,
@@ -259,6 +267,25 @@ async function waitForYes({ io, ask }: Session): Promise<boolean> {
   }
 }
 
+/** Asks for the multiplier until the answer is valid, then writes it. An empty answer asks again. */
+async function askMultiplier({ io, ask }: Session): Promise<boolean> {
+  emit(io, [...multiplierPromptLines(), ''])
+  io.out(PROMPT_MULTIPLIER)
+  for (;;) {
+    const answer = await ask()
+    if (answer === null) return false
+    try {
+      const file = writeConfigMultiplier(parseMultiplier(answer))
+      emit(io, [`Multiplier saved to ${file}.`, ''])
+      return true
+    } catch (error) {
+      if (!(error instanceof ConfigError)) throw error
+      if (answer.trim() !== '') io.out(error.message)
+      io.out(PROMPT_RETRY_MULTIPLIER)
+    }
+  }
+}
+
 /** The line of the donate setting. A malformed config file gives its message instead. */
 function donateSetting(): string {
   try {
@@ -404,6 +431,9 @@ async function runInit(io: DonorIo, network: Network, options: InitOptions): Pro
   }
   return await withAnswers(options.input, async (ask) => {
     const session: Session = { io, ask, network }
+    if (resolveMultiplier().source === 'default' && !(await askMultiplier(session))) {
+      return stopped(io)
+    }
     if (exists) return await guideExistingWallet(session, file)
     return await guideNewWallet(session, file)
   })

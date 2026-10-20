@@ -24,7 +24,7 @@ The HTTP routes, the status lookup and the offline check of an attestation are i
 |---|---|
 | AuPM origin | `https://aupm.fyi` |
 | USDC asset id | `31566704` (6 decimals) |
-| Price | 1,000 microUSDC (0.001 USDC) per reviewed package |
+| Price | Per reviewed package: minimum 1,000 microUSDC ($0.001, x0.1), suggested 10,000 ($0.01, x1) |
 
 WARNING: other assets use the name "USDC". Always select the USDC asset by the id `31566704`.
 
@@ -193,9 +193,9 @@ in it. Do not use an account that holds anything else.
    aupm install --donate
    ```
 
-   The cost is 1,000 microUSDC times the reviewed entries in the lockfile. There is no cap and no
-   discount. A lockfile with no reviewed entry is free. Without `--donate`, the install summary
-   says that a donation is optional. If you have no donor key, it tells you to run
+   The cost is 1,000 microUSDC times your multiplier in tenths times the reviewed entries in the
+   lockfile. There is no cap and no discount. A lockfile with no reviewed entry is free. Without
+   `--donate`, the install summary says that a donation is optional. If you have no donor key, it tells you to run
    `aupm donor init` once.
 8. Check the payment. A paid run prints the settlement txid. Open it in an Algorand explorer, for
    example `https://lora.algokit.io/mainnet/transaction/<txid>`.
@@ -217,7 +217,8 @@ file, then off. `aupm config` manages AuPM settings only. For npm settings, use 
   file. `init` and `status` tell you. If the value is not a valid phrase, they tell you to run
   `unset AUPM_DONOR_MNEMONIC`.
 - `aupm` refuses a key file with a mode wider than 0600. To correct it, run `chmod 600 <path>`.
-- `aupm` refuses to sign more than 1,000 microUSDC per lockfile entry. It refuses any asset other
+- `aupm` refuses to sign more than 1,000 microUSDC times your multiplier in tenths per lockfile
+  entry. It refuses any asset other
   than USDC.
 - If you lose the key file and all copies of the 25 words, you lose the USDC in the donor
   account.

@@ -20,6 +20,7 @@ import { x402Client } from '@x402-avm/core/client'
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from '@x402-avm/core/http'
 import type { PaymentRequirements } from '@x402-avm/core/types'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
+import { describeMultiplier, type MultiplierSetting } from './config.js'
 import { AUPM_DONOR_MNEMONIC_ENV, loadDonorMnemonic } from './donor-key.js'
 import { signerFromMnemonic } from './signer.js'
 
@@ -42,25 +43,43 @@ export function donorAlgodUrl(): string {
   return override || DONOR_ALGOD_URL
 }
 
-/**
- * Price of one reviewed entry, in microUSDC. The
- * spend cap and the withheld-entry price are both multiples of this value.
- * No config knob.
- */
+/** Base price of one reviewed entry, in microUSDC. The donor multiplier scales it in tenths. */
 export const PRICE_PER_ENTRY_MICRO = 1_000
 
+/** Price of one reviewed entry at a multiplier of `tenths` tenths, in microUSDC. */
+export function entryPriceMicro(tenths: number): number {
+  if (!Number.isInteger(tenths) || tenths < 1 || tenths > 1000) {
+    throw new Error(`multiplier must be an integer from 1 to 1000 tenths, got ${tenths}`)
+  }
+  return PRICE_PER_ENTRY_MICRO * tenths
+}
+
 /**
- * A donation never signs above `PRICE_PER_ENTRY_MICRO * entryCount`
- * microUSDC: 1,000 for a tarball or a single attestation,
- * or 1,000 times the number of entries in a lockfile. No fixed cap and no
- * config knob — the only limit is this formula and the donor account
+ * A donation never signs above `PRICE_PER_ENTRY_MICRO * tenths * entryCount`
+ * microUSDC: one entry for a tarball or a single attestation,
+ * or the number of entries in a lockfile. The only other limit is the donor account
  * balance.
  */
-export function donationCapMicro(entryCount: number): bigint {
+export function donationCapMicro(entryCount: number, tenths = 1): bigint {
   if (!Number.isInteger(entryCount) || entryCount < 0) {
     throw new Error(`entryCount must be a non-negative integer, got ${entryCount}`)
   }
-  return BigInt(PRICE_PER_ENTRY_MICRO) * BigInt(entryCount)
+  return BigInt(entryPriceMicro(tenths)) * BigInt(entryCount)
+}
+
+/** What a donation costs: the base price, the multiplier text and the total, in microUSDC. */
+export type DonationReceipt = {
+  baseMicro: number
+  multiplier: string
+  totalMicro: number
+}
+
+export function donationReceipt(setting: MultiplierSetting, totalMicro: number): DonationReceipt {
+  return {
+    baseMicro: PRICE_PER_ENTRY_MICRO,
+    multiplier: describeMultiplier(setting),
+    totalMicro,
+  }
 }
 
 /** A decoded PAYMENT-REQUIRED requirement, used to report a price without paying it. */
@@ -328,14 +347,21 @@ export function readSettlementTxid(res: Response): string | null {
 
 /** Header name AuPM clients send on every request. */
 export const DONATE_HEADER = 'X-AuPM-Donate'
+export const MULTIPLIER_HEADER = 'X-AuPM-Multiplier'
 
 // Attaches X-AuPM-Donate: 1 (opt-in) or X-AuPM-Donate: 0 (opt-out) to init,
+// plus X-AuPM-Multiplier: <tenths> with the opt-in,
 // preserving any headers the caller already set. wrapFetchWithPayment
 // clones the same Request for its paid retry, so this header carries
 // through to both the initial request and the retry unchanged.
-function withDonateHeader(init: RequestInit | undefined, allowDonation: boolean): RequestInit {
+function withDonateHeader(
+  init: RequestInit | undefined,
+  allowDonation: boolean,
+  tenths: number,
+): RequestInit {
   const headers = new Headers(init?.headers)
   headers.set(DONATE_HEADER, allowDonation ? '1' : '0')
+  if (allowDonation) headers.set(MULTIPLIER_HEADER, String(tenths))
   return { ...init, headers }
 }
 
@@ -397,8 +423,9 @@ export type DonationFetchResult =
  * requirement never signs and never retries.
  *
  * `entryCount` is the number of lockfile entries the caller is sending (1
- * for a tarball or a single attestation). It sets the spend cap:
- * `PRICE_PER_ENTRY_MICRO * entryCount` microUSDC — never a fixed cap.
+ * for a tarball or a single attestation). `tenths` is the donor multiplier, 1 to 1000.
+ * Both set the spend cap: `PRICE_PER_ENTRY_MICRO * tenths * entryCount` microUSDC.
+ * The request carries `X-AuPM-Multiplier: <tenths>` with the opt-in.
  *
  * A paid response carries `settlement`: the settlement txid from
  * PAYMENT-RESPONSE and the amount of the requirement the donor signed.
@@ -409,8 +436,9 @@ export async function fetchWithDonation(
   init: RequestInit | undefined,
   allowDonation: boolean,
   entryCount = 1,
+  tenths = 1,
 ): Promise<DonationFetchResult> {
-  const requestInit = withDonateHeader(init, allowDonation)
+  const requestInit = withDonateHeader(init, allowDonation, tenths)
 
   if (!allowDonation) {
     const res = await fetch(url, requestInit)
@@ -421,7 +449,7 @@ export async function fetchWithDonation(
   const approved: { micro: number | null } = { micro: null }
   const trace: FailureTrace = {}
   const client = buildDonationClient(
-    donationCapMicro(entryCount),
+    donationCapMicro(entryCount, tenths),
     (amountMicro) => {
       approved.micro = amountMicro
     },

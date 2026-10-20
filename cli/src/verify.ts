@@ -18,6 +18,8 @@ import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import * as ed from '@noble/ed25519'
+import { formatMultiplier } from 'aupm-mcp/config'
+import { receiptLine } from './donor-text.js'
 
 const PNPM_LOCKFILE_NAME = 'pnpm-lock.yaml'
 const YARN_LOCKFILE_NAME = 'yarn.lock'
@@ -252,6 +254,28 @@ export function verifyLockfileDigest(
   return { ok: true, line: 'lockfile digest: OK (sha256 matches)' }
 }
 
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0
+}
+
+/**
+ * The base price, multiplier and total that the signed predicate records for a paid
+ * attestation, or null when the predicate has no donation record. Display only.
+ */
+export function donationReceiptLine(envelope: Envelope): string | null {
+  let donation: Record<string, unknown> | undefined
+  try {
+    const payload = Buffer.from(envelope.payload, 'base64').toString('utf8')
+    donation = (JSON.parse(payload) as { predicate?: { donation?: Record<string, unknown> } })
+      .predicate?.donation
+  } catch {
+    return null
+  }
+  const { multiplierTenths, totalMicro } = donation ?? {}
+  if (!isPositiveInteger(multiplierTenths) || !isPositiveInteger(totalMicro)) return null
+  return `donation: ${receiptLine(formatMultiplier(multiplierTenths), totalMicro)}`
+}
+
 interface ParsedArgs {
   envelopePath?: string
   lockfilePath?: string
@@ -388,6 +412,9 @@ export async function runVerify(argv: string[]): Promise<number> {
     console.log(result.line)
     if (!result.ok) allOk = false
   }
+
+  const receipt = donationReceiptLine(envelope)
+  if (allOk && receipt) console.log(receipt)
 
   console.log(allOk ? 'verify: PASS' : 'verify: FAIL')
   return allOk ? 0 : 1

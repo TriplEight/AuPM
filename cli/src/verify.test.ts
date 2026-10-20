@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url'
 import * as ed from '@noble/ed25519'
 import { describe, expect, test } from 'vitest'
 import {
+  donationReceiptLine,
   type Envelope,
   pae,
   parseEnvelope,
@@ -535,5 +536,38 @@ describe('runVerify: yarn.lock subject', () => {
     const { code, output } = await verifyYarn('package-lock.json', YARN_BODY, YARN_BODY)
     expect(code).toBe(1)
     expect(output).toContain('no yarn.lock subject digest')
+  })
+})
+
+describe('donationReceiptLine', () => {
+  function envelopeWith(predicate: unknown): Envelope {
+    const statement = { subject: [], predicate }
+    return {
+      payloadType: 'application/vnd.in-toto+json',
+      payload: Buffer.from(JSON.stringify(statement)).toString('base64'),
+      signatures: [],
+    }
+  }
+
+  test('shows the base, the multiplier and the total of the signed donation record', () => {
+    const envelope = envelopeWith({ donation: { multiplierTenths: 25, totalMicro: 50_000 } })
+    expect(donationReceiptLine(envelope)).toBe(
+      'donation: Base 0.001 USDC (x0.1). Multiplier x2.5. Total 0.05 USDC.',
+    )
+  })
+
+  test.each([
+    [{}],
+    [{ donation: {} }],
+    [{ donation: { multiplierTenths: 1.5, totalMicro: 1000 } }],
+    [{ donation: { multiplierTenths: 10, totalMicro: '1000' } }],
+    [{ donation: { multiplierTenths: 0, totalMicro: 1000 } }],
+  ])('prints nothing for the predicate %j', (predicate) => {
+    expect(donationReceiptLine(envelopeWith(predicate))).toBeNull()
+  })
+
+  test('prints nothing for a payload that is not JSON', () => {
+    const envelope = { ...envelopeWith({}), payload: Buffer.from('not json').toString('base64') }
+    expect(donationReceiptLine(envelope)).toBeNull()
   })
 })

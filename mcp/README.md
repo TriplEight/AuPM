@@ -25,8 +25,12 @@ Node 22.14.0 or later. Add the server to an MCP client:
 
 ## Donation opt-in
 
-Donation is off by default. A donation costs 1,000 microUSDC per reviewed package. A lockfile
-costs 1,000 microUSDC times the number of reviewed entries. A package with no review is free.
+Donation is off by default. A donation per reviewed package is the multiplier times 10,000
+microUSDC: minimum $0.001 (x0.1), suggested $0.01 (x1), at most x100. Set it with
+`multiplier = "1"` in `$XDG_CONFIG_HOME/aupm/config.toml` or the env var `AUPM_MULTIPLIER`.
+Without a multiplier, the donation is x0.1. A lockfile costs that price times the number of
+reviewed entries. A package with no review is free. Each result carries a receipt with the base
+price, the multiplier and the total.
 The donor key is the environment variable `AUPM_DONOR_MNEMONIC`, or the key file that
 `aupm donor init` writes (mode 0600). The key is 25 words (Algorand mnemonic) or 24 words
 (Pera Universal Wallet phrase, derivation 1). The server uses the key only when the donation

@@ -44,6 +44,14 @@ export function formatMicro(micro: bigint): string {
   return fraction === '' ? `${whole}` : `${whole}.${fraction}`
 }
 
+/** `Base 0.001 USDC (x0.1). Multiplier x1. Total 0.01 USDC.` The base is the price at x0.1. */
+export function receiptLine(multiplierLabel: string, totalMicro: number): string {
+  return (
+    `Base ${formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))} USDC (x0.1). ` +
+    `Multiplier ${multiplierLabel}. Total ${formatMicro(BigInt(totalMicro))} USDC.`
+  )
+}
+
 /** `100,000 microUSDC (0.1 USDC)`. Integer math only. */
 export function describeMicroUsdc(micro: bigint): string {
   return `${micro.toLocaleString('en-US')} microUSDC (${formatMicro(micro)} USDC)`
@@ -116,7 +124,7 @@ export function warningBlock(file: string, windows: boolean): string[] {
     `  ${file}`,
     '- The key is stored on this computer. Any program that runs as your user',
     '  can spend the funds.',
-    '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages.',
+    '- Keep only small amounts here. 1 USDC pays for 1,000 reviewed packages at x0.1.',
     '- This file is the only copy. Back up the 25 words offline: on paper,',
     '  or on an external drive.',
     '- Never paste the key into a chat, an issue or a log.',
@@ -248,17 +256,35 @@ export function ciStep(
   ])
 }
 
+const MIN_PRICE_TEXT = 'minimum $0.001 (x0.1), suggested $0.01 (x1)'
+const FUNDING_TEXT =
+  'A donation pays for each reviewed package in the lockfile. ' +
+  'Without --donate, every install is free, reviewed packages included.'
+
+export const PROMPT_MULTIPLIER = 'Multiplier (x0.1 to x100, for example 1):'
+export const PROMPT_RETRY_MULTIPLIER = 'Type a multiplier from 0.1 to 100, for example 1.'
+
+/** The text before the multiplier question. No default is selected. */
+export function multiplierPromptLines(): string[] {
+  return [
+    paint(['bold', 'cyan'], 'Donation multiplier.'),
+    ...wrap(`Price per reviewed package: ${MIN_PRICE_TEXT}.`),
+    ...wrap(FUNDING_TEXT),
+    ...wrap('Change it at any time with `aupm config set multiplier <x>`.'),
+  ]
+}
+
 export function donateStep(label: string): string[] {
-  const price = formatMicro(BigInt(PRICE_PER_ENTRY_MICRO))
   const intro = 'Add --donate to an install or attest command:'
   return step(label, 'Donate.', intro, [
     `${COMMAND_INDENT}aupm install --donate   or   aupm attest package-lock.json --donate`,
     ...wrap(
-      `It pays ${price} USDC for each reviewed package in the lockfile. ` +
+      `Price per reviewed package: ${MIN_PRICE_TEXT}. ` +
         'Without --donate, every install is free, reviewed packages included.',
     ),
     ...wrap(
-      'To donate on every install, run `aupm config set donate true`, or set AUPM_DONATE=true.',
+      'To donate on every install, run `aupm config set donate true`. ' +
+        'Set the price with `aupm config set multiplier <x>`.',
     ),
   ])
 }
