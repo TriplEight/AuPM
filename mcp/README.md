@@ -26,9 +26,9 @@ Node 22.14.0 or later. Add the server to an MCP client:
 ## Donation opt-in
 
 Donation is off by default. A donation per reviewed package is the multiplier times 10,000
-microUSDC: minimum $0.001 (x0.1), suggested $0.01 (x1), at most x100. Set it with
+microUSDC: default $0.01 (x1), minimum $0.001 (x0.1), at most x100. Set it with
 `multiplier = "1"` in `$XDG_CONFIG_HOME/aupm/config.toml` or the env var `AUPM_MULTIPLIER`.
-Without a multiplier, the donation is x0.1. A lockfile costs that price times the number of
+Without a multiplier, the donation is x1. A lockfile costs that price times the number of
 reviewed entries. A package with no review is free. Each result carries a receipt with the base
 price, the multiplier and the total.
 The donor key is the environment variable `AUPM_DONOR_MNEMONIC`, or the key file that

@@ -261,7 +261,7 @@ describe('aupm install with a payment failure', () => {
     const exit = await install([])
 
     expect(exit).toBe(0)
-    expect(lines().join('\n')).toMatch(/You can donate 0\.001 USDC for 1 reviewed package/)
+    expect(lines().join('\n')).toMatch(/You can donate 0\.01 USDC for 1 reviewed package/)
     expect(lines().join('\n')).toMatch(/all reviewed packages in the lockfile/)
   })
 })

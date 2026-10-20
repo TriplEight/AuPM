@@ -24,9 +24,9 @@ import reviewsRouter from './routes/reviews.js'
 import statusRouter from './routes/status.js'
 import { getStatusOrUnreviewed, isFree, reviewerIdentity } from './status.js'
 import {
+  BASE_DONATION_MICRO,
   DEFAULT_MULTIPLIER_TENTHS,
   MULTIPLIER_HEADER,
-  PRICE_PER_REVIEWED_PACKAGE_MICRO,
   parseMultiplier,
   priceReceipt,
 } from './x402/multiplier.js'
@@ -275,7 +275,7 @@ export function createApp(
     const headers = new Headers(upstream.headers)
     headers.set('X-AuPM-Tier', status.status)
     if (!isFree(status.status) && !donatedForPaidTier) {
-      headers.set('X-AuPM-Donate-Hint', String(PRICE_PER_REVIEWED_PACKAGE_MICRO))
+      headers.set('X-AuPM-Donate-Hint', String(BASE_DONATION_MICRO))
     }
     if (donatedForPaidTier) {
       headers.set('X-AuPM-Price-Base', String(price.baseMicro))

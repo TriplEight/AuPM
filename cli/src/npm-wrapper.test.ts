@@ -268,7 +268,7 @@ describe('runWrapper', () => {
       'aupm: Reviewed: 2. Not reviewed: 1. Integrity mismatch: 0. Unresolvable: 0.',
     )
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: You can donate 0.002 USDC for 2 reviewed packages. This is optional. ' +
+      'aupm: You can donate 0.02 USDC for 2 reviewed packages. This is optional. ' +
         'To donate, run `aupm donor init` once, then add --donate.',
     )
     expect(logSpy).toHaveBeenCalledWith(
@@ -472,7 +472,7 @@ describe('runWrapper with pnpm and npx', () => {
       allowDonation: false,
     })
     expect(logSpy).toHaveBeenCalledWith(
-      'aupm: You can donate 0.001 USDC for 1 reviewed package. This is optional. ' +
+      'aupm: You can donate 0.01 USDC for 1 reviewed package. This is optional. ' +
         'To donate, run `aupm donor init` once, then add --donate.',
     )
     logSpy.mockRestore()

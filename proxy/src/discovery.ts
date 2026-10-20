@@ -12,7 +12,7 @@ import {
   LOCKFILE_MAX_YAML_BYTES,
 } from './attest/lockfile.js'
 import { CAIP2_NETWORK, FACILITATOR_URL, ISSUER, PAY_TO, TAG, USDC_ASA_ID } from './config.js'
-import { PRICE_PER_REVIEWED_PACKAGE_MICRO } from './x402/multiplier.js'
+import { BASE_DONATION_MICRO, MICRO_PER_TENTH, MIN_MULTIPLIER_TENTHS } from './x402/multiplier.js'
 import {
   LOCKFILE_DESCRIPTION,
   LOCKFILE_ROUTE_KEY,
@@ -55,10 +55,12 @@ function groupDigits(micro: number): string {
   return String(micro).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
-const PRICE_MICRO_TEXT = `${groupDigits(PRICE_PER_REVIEWED_PACKAGE_MICRO)} µUSDC`
+const PRICE_MICRO_TEXT = `${groupDigits(BASE_DONATION_MICRO)} µUSDC`
+const MIN_MICRO_TEXT = `${groupDigits(MICRO_PER_TENTH * MIN_MULTIPLIER_TENTHS)} µUSDC`
 
 const LOCKFILE_DISCOVERY_DESCRIPTION =
-  `${LOCKFILE_DESCRIPTION} Minimum price: ${PRICE_MICRO_TEXT} per reviewed entry. ` +
+  `${LOCKFILE_DESCRIPTION} Price: ${PRICE_MICRO_TEXT} per reviewed entry ` +
+  `(minimum ${MIN_MICRO_TEXT}). ` +
   '0 reviewed entries: free.'
 
 // The tarball route is not listed: its route key is a wildcard pattern, not
@@ -67,7 +69,7 @@ function paidResources(issuer: string): DiscoveryResource[] {
   const common = {
     network: CAIP2_NETWORK,
     asset: USDC_ASA_ID,
-    amount: String(PRICE_PER_REVIEWED_PACKAGE_MICRO),
+    amount: String(BASE_DONATION_MICRO),
     payTo: PAY_TO,
     tags: [TAG],
   }
@@ -194,7 +196,7 @@ Body: the \`package-lock.json\` bytes, unchanged. For \`pnpm-lock.yaml\`, send t
 \`Content-Type: application/yaml\`. For a yarn classic (v1) \`yarn.lock\`, send the file bytes with
 \`Content-Type: text/plain\`. Yarn berry (v2 and later) is not accepted.
 Limits: ${LOCKFILE_LIMITS_TEXT}.
-Price per reviewed entry: ${PRICE_PHRASE} (minimum ${PRICE_MICRO_TEXT}). 0 reviewed entries: free.
+Price per reviewed entry: ${PRICE_PHRASE} (minimum ${MIN_MICRO_TEXT}). 0 reviewed entries: free.
 There is no cap and no discount.
 
 \`\`\`bash
@@ -223,7 +225,7 @@ const OPTIONS_SECTION = `## Options
 |---|---|
 | \`X-AuPM-Donate: 1\` | On a reviewed tarball: pay for it. Without it, the tarball is free. |
 | \`X-AuPM-Donate: 0\` | On an attestation route: return a free partial attestation. |
-| \`X-AuPM-Multiplier: <tenths>\` | On a paid request: pay base price x tenths. Whole number 1 to 1000 (x0.1 to x100). 10 is x1. Default 1, the minimum. Any other value gets 400. |
+| \`X-AuPM-Multiplier: <tenths>\` | On a paid request: pay 1,000 microUSDC x tenths per reviewed package. Whole number 1 to 1000 (x0.1 to x100). 10 is x1. Without the header, the multiplier is 10 (x1, $0.01). Any other value gets 400. |
 | \`X-AuPM-Tier\` | Response header on a tarball. It holds the status of the version. |
 
 An unreviewed package never returns 402.
@@ -348,7 +350,7 @@ ${SPLIT_DISCLOSURE}
 - Pay to: \`${PAY_TO}\`.
 - Facilitator: ${FACILITATOR_URL}.
 - Tag: \`${TAG}\`.
-- Price per reviewed package: ${PRICE_PHRASE}. The minimum is ${PRICE_MICRO_TEXT}.
+- Price per reviewed package: ${PRICE_PHRASE}. The base is ${PRICE_MICRO_TEXT}. The minimum is ${MIN_MICRO_TEXT}.
 - Multiplier: send \`X-AuPM-Multiplier: <tenths>\` (1 to 1000). 10 is x1.`
 
 function linksSection(issuer: string): string {

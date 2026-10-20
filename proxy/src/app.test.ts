@@ -219,7 +219,7 @@ describe('x402 gate', () => {
     const res = await app.request('/lodash/-/lodash-4.17.21.tgz')
     expect(res.status).toBe(200)
     expect(res.headers.get('X-AuPM-Tier')).toBe('COMMUNITY_REVIEWED')
-    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('10000')
   })
 
   // Any header value other than the exact string "1" does not opt in
@@ -231,7 +231,7 @@ describe('x402 gate', () => {
       headers: { 'X-AuPM-Donate': '0' },
     })
     expect(res.status).toBe(200)
-    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('10000')
   })
 
   test('reviewed tarball path, X-AuPM-Donate: 1: returns 402', async () => {
@@ -338,7 +338,7 @@ describe('x402 gate', () => {
     const res = await app.request('/@scope/pkg/-/pkg-1.0.0.tgz')
     expect(res.status).not.toBe(402)
     expect(res.headers.get('X-AuPM-Tier')).toBe('COMMUNITY_REVIEWED')
-    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('1000')
+    expect(res.headers.get('X-AuPM-Donate-Hint')).toBe('10000')
   })
 
   // Paywall-bypass regression, driven through the *real* app (the x402
@@ -541,7 +541,7 @@ describe('x402 gate', () => {
     const paymentRequired = decodePaymentRequiredHeader(header as string) as unknown as {
       accepts: Array<{ amount?: string; asset?: string }>
     }
-    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+    expect(paymentRequired.accepts[0]?.amount).toBe('30000')
     expect(paymentRequired.accepts[0]?.asset).toBe(USDC_ASA_ID)
   })
 
@@ -566,7 +566,7 @@ describe('x402 gate', () => {
     const paymentRequired = decodePaymentRequiredHeader(
       res.headers.get('PAYMENT-REQUIRED') as string,
     ) as unknown as { accepts: Array<{ amount?: string }> }
-    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+    expect(paymentRequired.accepts[0]?.amount).toBe('30000')
   })
 
   test('POST /v1/attest/lockfile: a pnpm lockfile with 0 reviewed entries is a free 200', async () => {
@@ -629,7 +629,7 @@ describe('x402 gate', () => {
     const paymentRequired = decodePaymentRequiredHeader(header as string) as unknown as {
       accepts: Array<{ amount?: string }>
     }
-    expect(paymentRequired.accepts[0]?.amount).toBe('3000')
+    expect(paymentRequired.accepts[0]?.amount).toBe('30000')
   })
 
   // Defect this pins: the free-path limiter only guarded the zero-coverage
@@ -804,7 +804,7 @@ describe('claims ledger, wired into the real app', () => {
     const accruals = getAccrualsForTxid('INTEGRATION-TX-1')
     const reviewerRow = accruals.find((row) => row.role === 'reviewer')
     expect(reviewerRow?.identity).toBe('github:alice')
-    expect(reviewerRow?.amount_micro).toBe(400)
+    expect(reviewerRow?.amount_micro).toBe(4000)
 
     const earningsRes = await paidApp.request('/api/v1/earnings/github/alice')
     expect(earningsRes.status).toBe(200)
@@ -862,7 +862,7 @@ describe('claims ledger, wired into the real app', () => {
       accepts: Array<Record<string, unknown>>
     }
     const accepted = paymentRequired.accepts[0]
-    expect(accepted?.amount).toBe('3000')
+    expect(accepted?.amount).toBe('30000')
 
     const paymentSignature = encodePaymentSignatureHeader({
       x402Version: 2,
@@ -883,7 +883,7 @@ describe('claims ledger, wired into the real app', () => {
 
     const accruals = getAccrualsForTxid('INTEGRATION-TX-LOCKFILE')
     expect(accruals).toHaveLength(15) // 5 rows x 3 packages
-    expect(accruals.reduce((sum, row) => sum + row.amount_micro, 0)).toBe(3000)
+    expect(accruals.reduce((sum, row) => sum + row.amount_micro, 0)).toBe(30000)
 
     for (const [pkg, login] of [
       ['pkg-a', 'alice'],
@@ -892,15 +892,15 @@ describe('claims ledger, wired into the real app', () => {
     ] as const) {
       const pkgRows = accruals.filter((row) => row.pkg === pkg)
       const byRole = Object.fromEntries(pkgRows.map((row) => [row.role, row]))
-      expect(byRole.reviewer?.amount_micro).toBe(400)
+      expect(byRole.reviewer?.amount_micro).toBe(4000)
       expect(byRole.reviewer?.identity).toBe(`github:${login}`)
-      expect(byRole.contributor?.amount_micro).toBe(100)
+      expect(byRole.contributor?.amount_micro).toBe(1000)
       expect(byRole.contributor?.identity).toBe('treasury')
-      expect(byRole.maintainer?.amount_micro).toBe(250)
+      expect(byRole.maintainer?.amount_micro).toBe(2500)
       expect(byRole.maintainer?.identity).toBe('treasury')
-      expect(byRole.treasury?.amount_micro).toBe(200)
+      expect(byRole.treasury?.amount_micro).toBe(2000)
       expect(byRole.treasury?.treasury_kind).toBe('cut')
-      expect(byRole.ops?.amount_micro).toBe(50)
+      expect(byRole.ops?.amount_micro).toBe(500)
       expect(byRole.ops?.identity).toBe('ops')
     }
   })
@@ -957,7 +957,7 @@ describe('claims ledger, wired into the real app', () => {
     expect(accruals.every((row) => row.route === 'tarball')).toBe(true)
     const reviewerRow = accruals.find((row) => row.role === 'reviewer')
     expect(reviewerRow?.identity).toBe('github:carol')
-    expect(reviewerRow?.amount_micro).toBe(400)
+    expect(reviewerRow?.amount_micro).toBe(4000)
   })
 
   test('GET /api/v1/earnings/github/:login: 200, never 402, no payment header', async () => {
@@ -1079,7 +1079,7 @@ describe('discovery routes', () => {
     const { buildRoutes, LOCKFILE_ROUTE_KEY, SINGLE_ATTEST_ROUTE_KEY } = await import(
       './x402/routes.js'
     )
-    const { PRICE_PER_REVIEWED_PACKAGE_MICRO } = await import('./x402/multiplier.js')
+    const { BASE_DONATION_MICRO } = await import('./x402/multiplier.js')
     const routes = buildRoutes(FEE_PAYER)
     const body = (await (await app.request('/.well-known/x402')).json()) as {
       resources: Record<string, unknown>[]
@@ -1098,7 +1098,7 @@ describe('discovery routes', () => {
         method,
         network: accepts.network,
         asset: accepts.extra.asset,
-        amount: String(PRICE_PER_REVIEWED_PACKAGE_MICRO),
+        amount: String(BASE_DONATION_MICRO),
         payTo: accepts.payTo,
       }
     })
@@ -1115,12 +1115,12 @@ describe('discovery routes', () => {
     keys.forEach((key, index) => {
       expect(body.resources[index]?.description).toContain(routes[key].description as string)
     })
-    expect(body.resources[0]?.description).toContain('1,000 µUSDC per reviewed entry')
+    expect(body.resources[0]?.description).toContain('10,000 µUSDC per reviewed entry')
     expect(body.resources[0]?.description).toContain('0 reviewed entries: free')
   })
 
   test('llms.txt carries the split disclosure and the one price text', async () => {
-    const { PRICE_TEXT, SUGGESTED_PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
+    const { PRICE_TEXT, MIN_PRICE_TEXT, SPLIT_DISCLOSURE } = await import('./x402/routes.js')
     const text = await (await app.request('/llms.txt')).text()
     const { LOCKFILE_MAX_BYTES, LOCKFILE_MAX_ENTRIES } = await import('./attest/lockfile.js')
     expect(text.split(SPLIT_DISCLOSURE)).toHaveLength(2)
@@ -1140,7 +1140,7 @@ describe('discovery routes', () => {
       expect(text).toContain(required)
     }
     const prices = text.match(/\$\d+\.\d+/g) ?? []
-    expect(new Set(prices)).toEqual(new Set([PRICE_TEXT, SUGGESTED_PRICE_TEXT]))
+    expect(new Set(prices)).toEqual(new Set([PRICE_TEXT, MIN_PRICE_TEXT]))
   })
 
   test('front page links both discovery documents', async () => {
@@ -1265,7 +1265,7 @@ describe('empty attestation request (402 first)', () => {
         res.headers.get('PAYMENT-REQUIRED') as string,
       ) as unknown as Challenge
       const option = challenge.accepts[0]
-      expect(option?.amount).toBe('1000')
+      expect(option?.amount).toBe('10000')
       expect(option?.asset).toBe(USDC_ASA_ID)
       expect(option?.extra?.asset).toBe(USDC_ASA_ID)
       expect(option?.extra?.feePayer).toBe(FEE_PAYER)
@@ -1283,7 +1283,7 @@ describe('empty attestation request (402 first)', () => {
         res.headers.get('PAYMENT-REQUIRED') as string,
       ) as unknown as Challenge
       const option = challenge.accepts[0]
-      expect(option?.amount).toBe('1000')
+      expect(option?.amount).toBe('10000')
       expect(option?.extra?.asset).toBe(USDC_ASA_ID)
       expect(option?.extra?.feePayer).toBe(FEE_PAYER)
       expect(option?.extra?.tag).toBe(TAG)
@@ -1440,7 +1440,7 @@ describe('POST /v1/attest/lockfile with a yarn classic yarn.lock', () => {
     const required = decodePaymentRequiredHeader(
       res.headers.get('PAYMENT-REQUIRED') as string,
     ) as unknown as { accepts: Array<{ amount?: string }> }
-    expect(required.accepts[0]?.amount).toBe('3000')
+    expect(required.accepts[0]?.amount).toBe('30000')
   })
 
   test('0 reviewed entries is a free 200 with subject yarn.lock and the body sha256', async () => {
@@ -1587,7 +1587,7 @@ describe('donor multiplier', () => {
   const tarballPath = '/lodash/-/lodash-4.17.21.tgz'
 
   test.each([
-    [undefined, '1000'],
+    [undefined, '10000'],
     ['1', '1000'],
     ['10', '10000'],
     ['1000', '1000000'],
@@ -1599,7 +1599,8 @@ describe('donor multiplier', () => {
   })
 
   test.each([
-    [undefined, '1000'],
+    [undefined, '10000'],
+    ['1', '1000'],
     ['10', '10000'],
     ['1000', '1000000'],
   ])('single attest with multiplier %s quotes %s', async (tenths, amount) => {
@@ -1610,7 +1611,8 @@ describe('donor multiplier', () => {
   })
 
   test.each([
-    [undefined, '3000'],
+    [undefined, '30000'],
+    ['1', '3000'],
     ['10', '30000'],
     ['1000', '3000000'],
   ])('lockfile with 3 reviewed entries and multiplier %s quotes %s', async (tenths, amount) => {
@@ -1716,7 +1718,7 @@ describe('donor multiplier', () => {
         headers: { ...headers, 'PAYMENT-SIGNATURE': signature },
       })
       expect(res.status).toBe(200)
-      expect(res.headers.get('X-AuPM-Price-Base')).toBe('1000')
+      expect(res.headers.get('X-AuPM-Price-Base')).toBe('10000')
       expect(res.headers.get('X-AuPM-Multiplier')).toBe('100')
       expect(res.headers.get('X-AuPM-Price-Total')).toBe('100000')
       const rows = getAccrualsForTxid('MULT-TX-100')

@@ -14,7 +14,7 @@ const TEST_MNEMONIC =
   'empower weekend pioneer arctic analyst off visa clay reveal ocean chaos price wear suit energy april cradle trigger awful crew scissors panic noodle absorb mom'
 const PAY_TO = 'J6DSQYYXYO53B7PC6MZ5M2OO7V3RM4MIWTV7KCH5IQBUXF7KMGPVFWIRAM'
 const FEE_PAYER = 'EA4DXI4WJWSSJQAAKG5ZFNVA6U26NT7DBWHUKP5C3HSVKBAQ3KGPKVEN5A'
-const NOT_SET = 'x0.1 (not set; aupm config set multiplier <x>)'
+const DEFAULT_LABEL = 'x1 (default)'
 
 function algodParamsResponse(): Response {
   return new Response(
@@ -116,12 +116,16 @@ describe('donor multiplier in the MCP tools', () => {
     return await attestLockfileTool.handler({ lockfilePath, allowDonation: true })
   }
 
-  it('with no multiplier set, sends tenths 1, pays x0.1 and the receipt says not set', async () => {
+  it('with no multiplier set, sends tenths 10, pays x1 and the receipt says default', async () => {
     stubServer(() => new Uint8Array([1]))
     const result = await install()
-    expect(multiplierHeaders).toEqual(['1', '1'])
+    expect(multiplierHeaders).toEqual(['10', '10'])
     if (result.status !== 'paid') throw new Error(`unexpected ${result.status}`)
-    expect(result.receipt).toEqual({ baseMicro: 1_000, multiplier: NOT_SET, totalMicro: 1_000 })
+    expect(result.receipt).toEqual({
+      baseMicro: 10_000,
+      multiplier: DEFAULT_LABEL,
+      totalMicro: 10_000,
+    })
   })
 
   it.each([
@@ -136,7 +140,7 @@ describe('donor multiplier in the MCP tools', () => {
       const result = await install()
       expect(multiplierHeaders).toEqual([tenths, tenths])
       if (result.status !== 'paid') throw new Error(`unexpected ${result.status}`)
-      expect(result.receipt).toEqual({ baseMicro: 1_000, multiplier: label, totalMicro: total })
+      expect(result.receipt).toEqual({ baseMicro: 10_000, multiplier: label, totalMicro: total })
     },
   )
 
@@ -146,7 +150,7 @@ describe('donor multiplier in the MCP tools', () => {
     const result = await attest()
     expect(multiplierHeaders).toEqual(['25', '25'])
     if (result.status !== 'attested') throw new Error(`unexpected ${result.status}`)
-    expect(result.receipt).toEqual({ baseMicro: 1_000, multiplier: 'x2.5', totalMicro: 25_000 })
+    expect(result.receipt).toEqual({ baseMicro: 10_000, multiplier: 'x2.5', totalMicro: 25_000 })
   })
 
   it('a 402 above the multiplied cap is refused: the donation fails and nothing is paid', async () => {
@@ -184,10 +188,11 @@ describe('donor multiplier in the MCP tools', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('the tool descriptions state the minimum and the suggested price', () => {
+  it('the tool descriptions state the default, the minimum and the maximum price', () => {
     for (const description of [installTool.description, attestLockfileTool.description]) {
+      expect(description).toContain('default is x1 ($0.01)')
       expect(description).toContain('minimum is x0.1 ($0.001)')
-      expect(description).toContain('suggested value is x1 ($0.01)')
+      expect(description).toContain('maximum is x100')
     }
   })
 })

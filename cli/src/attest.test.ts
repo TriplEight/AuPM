@@ -84,7 +84,7 @@ describe('aupm attest', () => {
     expect(printed).toContain(
       'Reviewed: 2. Not reviewed: 0. Integrity mismatch: 0. Unresolvable: 0.',
     )
-    expect(printed).toContain('You can donate 0.002 USDC for 2 reviewed packages.')
+    expect(printed).toContain('You can donate 0.02 USDC for 2 reviewed packages.')
     expect(printed).toContain('all reviewed packages in the lockfile')
     expect(printed).not.toContain('microUSDC')
     expect(printed).not.toContain('Known advisories')

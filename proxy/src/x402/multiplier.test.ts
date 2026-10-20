@@ -8,9 +8,9 @@ import {
 } from './multiplier.js'
 
 describe('parseMultiplier', () => {
-  test('a missing header gives the minimum multiplier', () => {
+  test('a missing header gives x1, ten tenths', () => {
     expect(parseMultiplier(undefined)).toBe(DEFAULT_MULTIPLIER_TENTHS)
-    expect(parseMultiplier(null)).toBe(1)
+    expect(parseMultiplier(null)).toBe(10)
   })
 
   test.each([
@@ -48,6 +48,7 @@ describe('parseMultiplier', () => {
 
 describe('totalPriceMicro', () => {
   test('is 1,000 x tenths x count in integers', () => {
+    expect(totalPriceMicro(1, DEFAULT_MULTIPLIER_TENTHS)).toBe(10_000)
     expect(totalPriceMicro(1, 1)).toBe(1_000)
     expect(totalPriceMicro(1, 10)).toBe(10_000)
     expect(totalPriceMicro(1, 1000)).toBe(1_000_000)
@@ -57,7 +58,7 @@ describe('totalPriceMicro', () => {
 
   test('the receipt carries base, multiplier and total', () => {
     expect(priceReceipt(3, 20)).toEqual({
-      baseMicro: 1000,
+      baseMicro: 10_000,
       multiplierTenths: 20,
       totalMicro: 60_000,
     })

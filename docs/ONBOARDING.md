@@ -8,7 +8,7 @@ links, and do not endorse it. The links are for convenience only.
 | Role | You want to | Wallet | Cost |
 |---|---|---|---|
 | [CLI user](#1-cli-user) | Install packages through AuPM | None | Free |
-| [Donor](#2-donor) | Pay for reviews of the packages you install | A key that `aupm` makes | 0.001 USDC per reviewed package |
+| [Donor](#2-donor) | Pay for reviews of the packages you install | A key that `aupm` makes | 0.01 USDC per reviewed package (x1) |
 | [MCP user](#3-mcp-user) | Let a coding agent check and install packages | None, or the donor key | Free, or as a donor |
 | [GitHub Action user](#4-github-action-user) | Install through AuPM in CI, and donate from CI | None, or the donor key | Free, or as a donor |
 | [Auditor](#5-auditor) | Read tarballs, record reviews and get paid | A cold account that you control | Small ALGO fees |
@@ -24,7 +24,7 @@ The HTTP routes, the status lookup and the offline check of an attestation are i
 |---|---|
 | AuPM origin | `https://aupm.fyi` |
 | USDC asset id | `31566704` (6 decimals) |
-| Price | Per reviewed package: minimum 1,000 microUSDC ($0.001, x0.1), suggested 10,000 ($0.01, x1) |
+| Price | Per reviewed package: default 10,000 microUSDC ($0.01, x1), minimum 1,000 ($0.001, x0.1), maximum x100 |
 
 WARNING: other assets use the name "USDC". Always select the USDC asset by the id `31566704`.
 
@@ -114,8 +114,9 @@ target split. See [Where the money goes](../README.md#where-the-money-goes).
 
 ## 2. Donor
 
-A donor pays 0.001 USDC for each reviewed package in a lockfile. The live contract pays the
-auditor who read the tarball (30%) and the AuPM operations (70%). This is the MVP split.
+A donor pays 0.01 USDC (x1, the default) for each reviewed package in a lockfile. The live
+contract pays the auditor who read the tarball (30%) and the AuPM operations (70%). This is
+the MVP split.
 
 The target split is 40/10/25/20/5. Treasury (20%) and ops (5%) come off the top. The other 75%
 goes to a pool for the exact package version: the reviewer line (40%), the contributor (10%) and
@@ -127,8 +128,8 @@ A donation happens only when you opt in.
 ### What you need
 
 - The `aupm` CLI (section 0).
-- About 0.3 ALGO and 1 to 5 USDC on Algorand (section 0). 1 USDC pays for 1,000 reviewed
-  packages.
+- About 0.3 ALGO and 1 to 5 USDC on Algorand (section 0). 1 USDC pays for 100 reviewed
+  packages at x1.
 
 The donor key is a hot key. It is in a file on your computer. Keep only a small amount of USDC
 in it. Do not use an account that holds anything else.
@@ -194,7 +195,7 @@ in it. Do not use an account that holds anything else.
    ```
 
    The cost is 1,000 microUSDC times your multiplier in tenths times the reviewed entries in the
-   lockfile. There is no cap and no discount. A lockfile with no reviewed entry is free. Without
+   lockfile. The default multiplier is 10 (x1, $0.01 per entry). There is no cap and no discount. A lockfile with no reviewed entry is free. Without
    `--donate`, the install summary says that a donation is optional. If you have no donor key, it tells you to run
    `aupm donor init` once.
 8. Check the payment. A paid run prints the settlement txid. Open it in an Algorand explorer, for

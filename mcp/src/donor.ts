@@ -20,7 +20,7 @@ import { x402Client } from '@x402-avm/core/client'
 import { decodePaymentRequiredHeader, decodePaymentResponseHeader } from '@x402-avm/core/http'
 import type { PaymentRequirements } from '@x402-avm/core/types'
 import { wrapFetchWithPayment } from '@x402-avm/fetch'
-import { describeMultiplier, type MultiplierSetting } from './config.js'
+import { DEFAULT_MULTIPLIER_TENTHS, describeMultiplier, type MultiplierSetting } from './config.js'
 import { AUPM_DONOR_MNEMONIC_ENV, loadDonorMnemonic } from './donor-key.js'
 import { signerFromMnemonic } from './signer.js'
 
@@ -43,24 +43,27 @@ export function donorAlgodUrl(): string {
   return override || DONOR_ALGOD_URL
 }
 
-/** Base price of one reviewed entry, in microUSDC. The donor multiplier scales it in tenths. */
-export const PRICE_PER_ENTRY_MICRO = 1_000
+/** Base donation for one reviewed entry, in microUSDC ($0.01). It is the price at x1. */
+export const BASE_DONATION_MICRO = 10_000
+
+/** Price of one tenth of the multiplier, in microUSDC. The minimum, x0.1, is one tenth. */
+export const MICRO_PER_TENTH = BASE_DONATION_MICRO / 10
 
 /** Price of one reviewed entry at a multiplier of `tenths` tenths, in microUSDC. */
 export function entryPriceMicro(tenths: number): number {
   if (!Number.isInteger(tenths) || tenths < 1 || tenths > 1000) {
     throw new Error(`multiplier must be an integer from 1 to 1000 tenths, got ${tenths}`)
   }
-  return PRICE_PER_ENTRY_MICRO * tenths
+  return MICRO_PER_TENTH * tenths
 }
 
 /**
- * A donation never signs above `PRICE_PER_ENTRY_MICRO * tenths * entryCount`
+ * A donation never signs above `MICRO_PER_TENTH * tenths * entryCount`
  * microUSDC: one entry for a tarball or a single attestation,
  * or the number of entries in a lockfile. The only other limit is the donor account
  * balance.
  */
-export function donationCapMicro(entryCount: number, tenths = 1): bigint {
+export function donationCapMicro(entryCount: number, tenths = DEFAULT_MULTIPLIER_TENTHS): bigint {
   if (!Number.isInteger(entryCount) || entryCount < 0) {
     throw new Error(`entryCount must be a non-negative integer, got ${entryCount}`)
   }
@@ -76,7 +79,7 @@ export type DonationReceipt = {
 
 export function donationReceipt(setting: MultiplierSetting, totalMicro: number): DonationReceipt {
   return {
-    baseMicro: PRICE_PER_ENTRY_MICRO,
+    baseMicro: BASE_DONATION_MICRO,
     multiplier: describeMultiplier(setting),
     totalMicro,
   }
@@ -424,7 +427,7 @@ export type DonationFetchResult =
  *
  * `entryCount` is the number of lockfile entries the caller is sending (1
  * for a tarball or a single attestation). `tenths` is the donor multiplier, 1 to 1000.
- * Both set the spend cap: `PRICE_PER_ENTRY_MICRO * tenths * entryCount` microUSDC.
+ * Both set the spend cap: `MICRO_PER_TENTH * tenths * entryCount` microUSDC.
  * The request carries `X-AuPM-Multiplier: <tenths>` with the opt-in.
  *
  * A paid response carries `settlement`: the settlement txid from
@@ -436,7 +439,7 @@ export async function fetchWithDonation(
   init: RequestInit | undefined,
   allowDonation: boolean,
   entryCount = 1,
-  tenths = 1,
+  tenths = DEFAULT_MULTIPLIER_TENTHS,
 ): Promise<DonationFetchResult> {
   const requestInit = withDonateHeader(init, allowDonation, tenths)
 

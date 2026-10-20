@@ -140,7 +140,7 @@ describe('fetchWithDonation', () => {
     expect(seenHeaderValues).toEqual(['1', '1'])
   })
 
-  it('a lockfile with 25 entries scales the cap: a 402 for exactly 25,000 microUSDC is paid', async () => {
+  it('a lockfile with 25 entries scales the cap: a 402 for exactly 250,000 microUSDC is paid', async () => {
     process.env.AUPM_DONOR_MNEMONIC = TEST_MNEMONIC
     let paidRequestCount = 0
 
@@ -163,7 +163,7 @@ describe('fetchWithDonation', () => {
 
     expect(result.kind).toBe('response')
     if (result.kind !== 'response') throw new Error('unreachable')
-    expect(result.settlement).toEqual({ txid: 'txid-25-entries-ok', amountMicro: 25_000 })
+    expect(result.settlement).toEqual({ txid: 'txid-25-entries-ok', amountMicro: 250_000 })
     expect(paidRequestCount).toBe(1)
   })
 

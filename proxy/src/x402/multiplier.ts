@@ -5,18 +5,19 @@
 // is x1. All money math is integer math, never floating point.
 import type { HTTPRequestContext } from '@x402-avm/core/http'
 
-/** Integer micro-USDC owed for one reviewed package at the minimum multiplier (x0.1). */
-export const PRICE_PER_REVIEWED_PACKAGE_MICRO = 1_000
+/** The base donation for one reviewed package, in micro-USDC ($0.01). It is the price at x1. */
+export const BASE_DONATION_MICRO = 10_000
+
+/** Micro-USDC for one tenth of the multiplier, so x0.1 is the minimum of 1,000. */
+export const MICRO_PER_TENTH = BASE_DONATION_MICRO / 10
 
 /** Request header that carries the multiplier, in tenths. */
 export const MULTIPLIER_HEADER = 'x-aupm-multiplier'
 
 export const MIN_MULTIPLIER_TENTHS = 1
 export const MAX_MULTIPLIER_TENTHS = 1000
-/** The multiplier a client without the header pays: the minimum. */
-export const DEFAULT_MULTIPLIER_TENTHS = MIN_MULTIPLIER_TENTHS
-/** The multiplier that the public texts suggest: x1. */
-export const SUGGESTED_MULTIPLIER_TENTHS = 10
+/** The multiplier a request without the header pays: x1, the base donation. */
+export const DEFAULT_MULTIPLIER_TENTHS = 10
 
 export const MULTIPLIER_ERROR =
   `${MULTIPLIER_HEADER} must be a whole number of tenths from ${MIN_MULTIPLIER_TENTHS} to ` +
@@ -32,7 +33,7 @@ export interface PriceReceipt {
 const CANONICAL_INTEGER = /^[1-9][0-9]{0,3}$/
 
 /**
- * Parses a raw header value. A missing header gives the default. Any value
+ * Parses a raw header value. A missing header gives the default, x1. Any value
  * that is not a canonical decimal integer in range gives null. There is no
  * fallback to another price.
  */
@@ -45,12 +46,12 @@ export function parseMultiplier(raw: string | null | undefined): number | null {
 
 /** Integer micro-USDC owed for `reviewedCount` packages at `multiplierTenths`. */
 export function totalPriceMicro(reviewedCount: number, multiplierTenths: number): number {
-  return PRICE_PER_REVIEWED_PACKAGE_MICRO * multiplierTenths * reviewedCount
+  return MICRO_PER_TENTH * multiplierTenths * reviewedCount
 }
 
 export function priceReceipt(reviewedCount: number, multiplierTenths: number): PriceReceipt {
   return {
-    baseMicro: PRICE_PER_REVIEWED_PACKAGE_MICRO,
+    baseMicro: BASE_DONATION_MICRO,
     multiplierTenths,
     totalMicro: totalPriceMicro(reviewedCount, multiplierTenths),
   }

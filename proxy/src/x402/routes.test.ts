@@ -73,7 +73,7 @@ describe('buildRoutes', () => {
 
   test("the lockfile route's description states the per-package price, never the old flat rate", () => {
     const description = routes[LOCKFILE_ROUTE_KEY].description ?? ''
-    expect(description).toContain('minimum $0.001, suggested $0.01')
+    expect(description).toContain('suggested $0.01, minimum $0.001')
     expect(description).not.toContain(STALE_FLAT_LOCKFILE_PRICE)
   })
 
@@ -89,7 +89,7 @@ describe('buildRoutes', () => {
       OG_DESCRIPTION,
     ]
     for (const text of texts) {
-      expect(text).toContain('minimum $0.001, suggested $0.01')
+      expect(text).toContain('suggested $0.01, minimum $0.001')
       expect(text).toContain('Target split 40/10/25/20/5')
       expect(text).not.toContain('30/10/20/25/10/5')
       expect(text).toContain('30% to the auditor, 70% to the operator')

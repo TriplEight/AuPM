@@ -17,7 +17,7 @@ import {
 const CONFIG_USAGE =
   'Usage: aupm config set donate <true|false>  |  aupm config get donate\n' +
   '       aupm config set multiplier <x>  |  aupm config get multiplier\n' +
-  'The multiplier is a decimal from 0.1 to 100. Minimum $0.001 (x0.1), suggested $0.01 (x1).'
+  'The multiplier is a decimal from 0.1 to 100. Default $0.01 (x1), minimum $0.001 (x0.1), maximum x100.'
 
 /** Runs `aupm config set|get donate|multiplier`. Returns the process exit code. */
 export function runConfig(argv: string[]): number {

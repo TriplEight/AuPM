@@ -220,7 +220,7 @@ describe('aupm donor init', () => {
       'This file holds the secret key of your donor wallet (25 words):',
       `  ${keyFile}`,
       'The key is stored on this computer. Any program that runs as your user\n  can spend the funds.',
-      '1 USDC pays for 1,000 reviewed packages',
+      '1 USDC pays for 100 reviewed packages',
       'This file is the only copy.',
       'Back up the 25 words offline: on paper,\n  or on an external drive.',
       'Never paste the key into a chat, an issue or a log.',
@@ -262,7 +262,7 @@ describe('aupm donor init', () => {
     expect(text).toContain('5. Donate. Add --donate to an install or attest command:')
     expect(text).toContain('aupm install --donate   or   aupm attest package-lock.json --donate')
     expect(text).toContain('aupm attest package-lock.json --donate')
-    expect(text).toContain('minimum $0.001 (x0.1), suggested $0.01 (x1).')
+    expect(text).toContain('default $0.01 (x1), minimum $0.001, maximum x100.')
     expect(text).toContain('every install is free, reviewed packages included.')
     expect(text).toContain('To donate on every install, run `aupm config set donate true`.')
     expect(text.replace(/\s+/g, ' ')).toContain(
@@ -637,7 +637,7 @@ describe('aupm donor init on a terminal', () => {
     const text = allText(io)
     expect(text).toContain('Press Enter when you have sent the USDC.')
     expect(text).toContain('The USDC has not arrived yet. Wait for the transfer, then press Enter.')
-    expect(text).toContain('The wallet holds 2 USDC (pays for 2000 reviewed packages).')
+    expect(text).toContain('The wallet holds 2 USDC (pays for 200 reviewed packages).')
     expect(text).toContain('Donate.')
     expect(text).not.toContain('Stopped.')
     expect(state.submitted).toEqual([])
@@ -674,7 +674,7 @@ describe('aupm donor init on a terminal', () => {
     expect(text).toContain('All set.')
     expect(text).toContain(account.address)
     expect(text).toContain('ALGO balance: 0.25 ALGO')
-    expect(text).toContain('USDC balance: 2.5 USDC (pays for 2500 reviewed packages)')
+    expect(text).toContain('USDC balance: 2.5 USDC (pays for 250 reviewed packages)')
     expect(text).toContain('Setting: donate = true (source: file ')
     expect(text).toContain('--no-donate')
     expect(text).not.toContain('Donate.')
@@ -910,7 +910,7 @@ describe('aupm donor status', () => {
     const io = captureIo()
     await runDonor(['status'], { io })
     const text = allText(io)
-    expect(text).toContain('USDC balance: 2.5005 USDC (pays for 2500 reviewed packages)')
+    expect(text).toContain('USDC balance: 2.5005 USDC (pays for 250 reviewed packages)')
     expect(text).toContain('aupm attest package-lock.json --donate')
   })
 
@@ -1059,12 +1059,12 @@ describe('aupm donor init: multiplier', () => {
     vi.stubEnv('AUPM_MULTIPLIER', '')
   })
 
-  it('shows the minimum, the suggested price and the funding text, asks again on an empty answer, and writes the config', async () => {
+  it('shows the default, the minimum and the maximum price and the funding text, asks again on an empty answer, and writes the config', async () => {
     installFakeAlgod(freshState(0n))
     const { io, options } = guided(['', '2.5', 'yes'])
     expect(await runDonor(['init'], options)).toBe(0)
     const text = allText(io).replace(/\s+/g, ' ')
-    expect(text).toContain('minimum $0.001 (x0.1), suggested $0.01 (x1)')
+    expect(text).toContain('default $0.01 (x1), minimum $0.001, maximum x100')
     expect(text).toContain('A donation pays for each reviewed package')
     expect(text).toContain('Type a multiplier from 0.1 to 100')
     expect(fs.readFileSync(configFile(), 'utf8')).toContain('multiplier = "2.5"\n')

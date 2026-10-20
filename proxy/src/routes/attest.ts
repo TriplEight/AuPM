@@ -1,11 +1,12 @@
 // proxy/src/routes/attest.ts
 //
 // Handlers for the two paid attestation routes:
-//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC x the
-//                                donor multiplier per reviewed entry, free
+//   POST /v1/attest/lockfile  — whole-tree attestation, 1,000 microUSDC x the donor
+//                                multiplier (default 10, x1) per reviewed entry, free
 //                                when the tree has zero reviewed packages.
 //   GET  /v1/attest           — single-package attestation, 1,000 microUSDC x
-//                                the donor multiplier (query: name, version). Free when the requested
+//                                the donor multiplier, default 10 (x1) (query:
+//                                name, version). Free when the requested
 //                                version resolves below COMMUNITY_REVIEWED,
 //                                including a paid-tier row with no stored
 //                                integrity (an incomplete review).
@@ -368,7 +369,7 @@ function honoContextFrom(context: HTTPRequestContext): AttestContext | undefined
 
 /**
  * DynamicPrice for `GET /v1/attest`: 1,000 microUSDC x the donor multiplier
- * in tenths (`X-AuPM-Multiplier`, default 1). Integer math only.
+ * in tenths (`X-AuPM-Multiplier`, default 10). Integer math only.
  */
 export function singleAttestDynamicPrice(context: HTTPRequestContext): AssetAmount {
   const amountMicro = totalPriceMicro(1, multiplierFromContext(context))

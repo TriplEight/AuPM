@@ -19,6 +19,7 @@ import { readFileSync } from 'node:fs'
 import { basename } from 'node:path'
 import * as ed from '@noble/ed25519'
 import { formatMultiplier } from 'aupm-mcp/config'
+import { BASE_DONATION_MICRO } from 'aupm-mcp/donor'
 import { receiptLine } from './donor-text.js'
 
 const PNPM_LOCKFILE_NAME = 'pnpm-lock.yaml'
@@ -264,20 +265,23 @@ const MAX_MULTIPLIER_TENTHS = 1000
 export type DonationReceipt = { ok: true; line: string } | { ok: false; reason: string }
 
 /**
- * The base price, multiplier and total that the signed predicate records for a paid
+ * The base donation, multiplier and total that the signed predicate records for a paid
  * attestation. Returns null when the predicate has no donation record. Returns a
- * failure when the record is malformed: a value that is not a positive integer, a
- * multiplier outside 1 to 1000 tenths, or a total that is not a multiple of base times
- * multiplier. Call it only after the signature check passed.
+ * failure when the record is malformed: a value that is not a positive integer, a base
+ * other than 10,000, a multiplier outside 1 to 1000 tenths, or a total that differs from
+ * base / 10 x tenths x reviewed count. The reviewed count is `summary.reviewed` of a
+ * lockfile attestation, or 1 for a single-package attestation. Call it only after the
+ * signature check passed.
  */
 export function donationReceipt(envelope: Envelope): DonationReceipt | null {
-  let donation: unknown
+  let predicate: { donation?: unknown; summary?: { reviewed?: unknown } } | undefined
   try {
     const payload = Buffer.from(envelope.payload, 'base64').toString('utf8')
-    donation = (JSON.parse(payload) as { predicate?: { donation?: unknown } }).predicate?.donation
+    predicate = (JSON.parse(payload) as { predicate?: typeof predicate }).predicate
   } catch {
     return null
   }
+  const donation = predicate?.donation
   if (donation === undefined) return null
   const { baseMicro, multiplierTenths, totalMicro } = (donation ?? {}) as Record<string, unknown>
   if (
@@ -290,15 +294,26 @@ export function donationReceipt(envelope: Envelope): DonationReceipt | null {
       reason: 'baseMicro, multiplierTenths and totalMicro must be positive integers',
     }
   }
+  if (baseMicro !== BASE_DONATION_MICRO) {
+    return { ok: false, reason: `baseMicro must be ${BASE_DONATION_MICRO}` }
+  }
   if (multiplierTenths < MIN_MULTIPLIER_TENTHS || multiplierTenths > MAX_MULTIPLIER_TENTHS) {
     return { ok: false, reason: 'multiplierTenths must be from 1 to 1000' }
   }
-  if (totalMicro % (baseMicro * multiplierTenths) !== 0) {
-    return { ok: false, reason: 'totalMicro is not a multiple of baseMicro times multiplierTenths' }
+  const reviewed = predicate?.summary === undefined ? 1 : predicate.summary.reviewed
+  if (!isPositiveInteger(reviewed)) {
+    return { ok: false, reason: 'summary.reviewed must be a positive integer' }
+  }
+  const expectedMicro = (baseMicro / 10) * multiplierTenths * reviewed
+  if (totalMicro !== expectedMicro) {
+    return {
+      ok: false,
+      reason: `totalMicro must be ${expectedMicro} (base / 10 x tenths x ${reviewed} reviewed)`,
+    }
   }
   return {
     ok: true,
-    line: `donation: ${receiptLine(formatMultiplier(multiplierTenths), totalMicro, baseMicro)}`,
+    line: `donation: ${receiptLine(formatMultiplier(multiplierTenths), totalMicro)}`,
   }
 }
 

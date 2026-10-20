@@ -385,7 +385,7 @@ describe('POST /v1/attest/lockfile', () => {
     const attribution = getAttribution()
     expect(attribution).toBeDefined()
     expect(attribution?.route).toBe('lockfile')
-    expect(attribution?.priceMicro).toBe(1_000) // 1,000 microUSDC x 1 reviewed entry
+    expect(attribution?.priceMicro).toBe(10_000) // 10,000 microUSDC (x1) x 1 reviewed entry
     // No `reviewer` login stored on the row (only the on-chain `auditor_addr`
     // was set): the auditor identity must be null, never the Algorand
     // address — the ledger keys strictly on `github:<login>` and could never
@@ -780,7 +780,7 @@ describe('GET /v1/attest', () => {
     expect(res.status).toBe(200)
     const attribution = getAttribution()
     expect(attribution?.route).toBe('single-attest')
-    expect(attribution?.priceMicro).toBe(1_000)
+    expect(attribution?.priceMicro).toBe(10_000)
     // No `reviewer` login stored (only auditor_addr): auditor must be null,
     // never the Algorand address the ledger cannot key on.
     expect(attribution?.packages).toEqual([{ pkg: 'ms', version: '2.1.3', auditor: null }])
@@ -992,7 +992,7 @@ describe('GET /v1/attest: integrity-format gating', () => {
     expect(ok).toBe(true)
     expect(getAttribution()).toEqual({
       route: 'single-attest',
-      priceMicro: 1_000,
+      priceMicro: 10_000,
       packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
@@ -1061,7 +1061,7 @@ describe('GET /v1/attest: sha512 digest length gating', () => {
     expect(statement.subject[0]?.digest.sha512).toBe(SHA512_FIXTURE_HEX)
     expect(getAttribution()).toEqual({
       route: 'single-attest',
-      priceMicro: 1_000,
+      priceMicro: 10_000,
       packages: [{ pkg: 'ms', version: '2.1.3', auditor: null }],
     })
   })
@@ -1301,7 +1301,7 @@ describe('POST /v1/attest/lockfile: pnpm-lock.yaml (Content-Type: application/ya
     expect(predicate.format).toBe('pnpm')
     expect(predicate.lockfileVersion).toBe('9.0')
     expect(body.summary).toMatchObject({ reviewed: 2, integrityMismatch: 1, unresolvable: 1 })
-    expect(getAttribution()?.priceMicro).toBe(2_000)
+    expect(getAttribution()?.priceMicro).toBe(20_000)
   })
 
   test('the same tree as a package-lock.json yields the same summary and price', async () => {
@@ -1486,11 +1486,12 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     const { app, getAttribution } = buildTestApp()
     const res = await app.request('/v1/attest?name=ms&version=2.1.3')
     const body = (await res.json()) as { price: unknown }
-    expect(body.price).toEqual({ baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 })
-    expect(getAttribution()?.priceMicro).toBe(1000)
+    expect(body.price).toEqual({ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 10_000 })
+    expect(getAttribution()?.priceMicro).toBe(10_000)
   })
 
   test.each([
+    ['1', 1_000],
     ['10', 10_000],
     ['1000', 1_000_000],
   ])('single attest receipt at multiplier %s totals %i', async (tenths, total) => {
@@ -1501,7 +1502,7 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     })
     const body = (await res.json()) as { price: unknown }
     expect(body.price).toEqual({
-      baseMicro: 1000,
+      baseMicro: 10_000,
       multiplierTenths: Number(tenths),
       totalMicro: total,
     })
@@ -1518,7 +1519,7 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     })
     expect(res.status).toBe(200)
     const body = (await res.json()) as { price: unknown }
-    expect(body.price).toEqual({ baseMicro: 1000, multiplierTenths: 25, totalMicro: 25_000 })
+    expect(body.price).toEqual({ baseMicro: 10_000, multiplierTenths: 25, totalMicro: 25_000 })
     expect(getAttribution()?.priceMicro).toBe(25_000)
   })
 
@@ -1589,18 +1590,20 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
   }
 
   test.each([
+    ['1', 1_000],
     ['10', 10_000],
     ['1000', 1_000_000],
   ])('a paid single attestation signs the donation at multiplier %s', async (tenths, total) => {
     const body = await paidSingle(tenths)
     expect(decodeStatement(body.attestation).predicate.donation).toEqual({
-      baseMicro: 1000,
+      baseMicro: 10_000,
       multiplierTenths: Number(tenths),
       totalMicro: total,
     })
   })
 
   test.each([
+    ['1', 3_000],
     ['10', 30_000],
     ['1000', 3_000_000],
   ])(
@@ -1608,7 +1611,7 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     async (tenths, total) => {
       const body = await paidLockfile(['pkg-a', 'pkg-b', 'pkg-c'], tenths)
       expect(decodeStatement(body.attestation).predicate.donation).toEqual({
-        baseMicro: 1000,
+        baseMicro: 10_000,
         multiplierTenths: Number(tenths),
         totalMicro: total,
       })
@@ -1648,7 +1651,7 @@ describe('donor multiplier: paid handlers and pre-middleware', () => {
     const statement = decodeStatement(body.attestation)
     const forged = {
       ...statement.predicate,
-      donation: { baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 },
+      donation: { baseMicro: 10_000, multiplierTenths: 1, totalMicro: 1000 },
     }
     const payload = Buffer.from(JSON.stringify({ ...statement, predicate: forged })).toString(
       'base64',

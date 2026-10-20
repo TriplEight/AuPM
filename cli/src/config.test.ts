@@ -78,9 +78,7 @@ describe('config', () => {
   it('runConfig set multiplier writes the file, get reads it, and a raise or a lower is the same command', () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {})
     expect(runConfig(['get', 'multiplier'])).toBe(0)
-    expect(log).toHaveBeenLastCalledWith(
-      'multiplier = x0.1 (not set; aupm config set multiplier <x>)',
-    )
+    expect(log).toHaveBeenLastCalledWith('multiplier = x1 (default)')
     expect(runConfig(['set', 'multiplier', '2.5'])).toBe(0)
     expect(fs.readFileSync(configFilePath(), 'utf8')).toContain('multiplier = "2.5"\n')
     expect(runConfig(['get', 'multiplier'])).toBe(0)

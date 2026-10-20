@@ -195,7 +195,7 @@ export const tarballFreeTierHook: ProtectedRequestHook = async (
 
 /**
  * DynamicPrice for a reviewed tarball: 1,000 microUSDC x the donor
- * multiplier in tenths (`X-AuPM-Multiplier`, default 1). Integer math only.
+ * multiplier in tenths (`X-AuPM-Multiplier`, default 10). Integer math only.
  */
 export function tarballDynamicPrice(context: HTTPRequestContext): AssetAmount {
   const amountMicro = totalPriceMicro(1, multiplierFromContext(context))

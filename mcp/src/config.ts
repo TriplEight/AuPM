@@ -29,8 +29,8 @@ export const DONATION_SETTING_TEXT =
   "(true or false) applies. Then 'donate = true' in $XDG_CONFIG_HOME/aupm/config.toml applies. " +
   'If none is set, donation is off. A malformed env var or config file makes the call fail with an error. ' +
   `The donation per reviewed package is the multiplier times $0.01 ('multiplier = "<x>"' in the same file, ` +
-  `or env var ${MULTIPLIER_ENV}). The minimum is x0.1 ($0.001) and the suggested value is x1 ($0.01). ` +
-  'The range is x0.1 to x100. Without a multiplier, the donation is x0.1.'
+  `or env var ${MULTIPLIER_ENV}). The default is x1 ($0.01). The minimum is x0.1 ($0.001) ` +
+  'and the maximum is x100 ($1.00). Without a multiplier, the donation is x1.'
 
 /** Thrown for a malformed env value or config file. The message says how to fix it. */
 export class ConfigError extends Error {}
@@ -44,7 +44,7 @@ const MULTIPLIER_LINE = /^multiplier\s*=\s*"([^"]*)"\s*(#.*)?$/
 /** The donor multiplier is a whole number of tenths: 1 is x0.1 and 1000 is x100. */
 export const MIN_MULTIPLIER_TENTHS = 1
 export const MAX_MULTIPLIER_TENTHS = 1000
-export const DEFAULT_MULTIPLIER_TENTHS = MIN_MULTIPLIER_TENTHS
+export const DEFAULT_MULTIPLIER_TENTHS = 10
 
 const MULTIPLIER_RANGE_TEXT =
   'The multiplier must be a decimal from 0.1 to 100 with at most one fraction digit, for example 0.1, 1 or 2.5.'
@@ -77,10 +77,10 @@ export interface MultiplierSetting {
   source: MultiplierSource
 }
 
-/** The multiplier text for a receipt. A default value says how to set it. */
+/** The multiplier text for a receipt. A default value says so. */
 export function describeMultiplier(setting: MultiplierSetting): string {
   const label = formatMultiplier(setting.tenths)
-  return setting.source === 'default' ? `${label} (not set; aupm config set multiplier <x>)` : label
+  return setting.source === 'default' ? `${label} (default)` : label
 }
 
 interface ConfigValues {
@@ -182,7 +182,7 @@ export function writeConfigMultiplier(tenths: number): string {
   return writeConfigFile({ ...readConfigFile(configFilePath()), multiplier: tenths })
 }
 
-/** Resolves the multiplier: env var, then config file, then the minimum x0.1. */
+/** Resolves the multiplier: env var, then config file, then the default x1. */
 export function resolveMultiplier(env: NodeJS.ProcessEnv = process.env): MultiplierSetting {
   const raw = env[MULTIPLIER_ENV]
   if (raw !== undefined && raw !== '') {

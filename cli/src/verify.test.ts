@@ -549,19 +549,20 @@ describe('donationReceipt', () => {
     }
   }
 
-  test('shows the base, the multiplier and the total of the signed donation record', () => {
+  test('shows the base, the multiplier and the total of a single-package record', () => {
     const envelope = envelopeWith({
-      donation: { baseMicro: 1000, multiplierTenths: 25, totalMicro: 50_000 },
+      donation: { baseMicro: 10_000, multiplierTenths: 25, totalMicro: 25_000 },
     })
     expect(donationReceipt(envelope)).toEqual({
       ok: true,
-      line: 'donation: Base 0.001 USDC (x0.1). Multiplier x2.5. Total 0.05 USDC.',
+      line: 'donation: Base 0.01 USDC. Multiplier x2.5. Total 0.025 USDC.',
     })
   })
 
-  test('a lockfile total is a multiple of base times multiplier', () => {
+  test('a lockfile total is 1,000 x tenths x the reviewed count', () => {
     const envelope = envelopeWith({
-      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 30_000 },
+      summary: { reviewed: 3 },
+      donation: { baseMicro: 10_000, multiplierTenths: 10, totalMicro: 30_000 },
     })
     expect(donationReceipt(envelope)).toMatchObject({ ok: true })
   })
@@ -576,17 +577,20 @@ describe('donationReceipt', () => {
   })
 
   test.each([
-    [{}],
-    [null],
-    [{ baseMicro: 1000, multiplierTenths: 1.5, totalMicro: 1000 }],
-    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: '1000' }],
-    [{ baseMicro: 1000, multiplierTenths: 0, totalMicro: 1000 }],
-    [{ multiplierTenths: 10, totalMicro: 10_000 }],
-    [{ baseMicro: 1000, multiplierTenths: 1001, totalMicro: 1_001_000 }],
-    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: 15_000 }],
-    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: 5_000 }],
-  ])('rejects the malformed donation %j', (donation) => {
-    expect(donationReceipt(envelopeWith({ donation }))).toMatchObject({ ok: false })
+    [{}, undefined],
+    [null, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 1.5, totalMicro: 15_000 }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 10, totalMicro: '10000' }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 0, totalMicro: 10_000 }, undefined],
+    [{ multiplierTenths: 10, totalMicro: 10_000 }, undefined],
+    [{ baseMicro: 1000, multiplierTenths: 10, totalMicro: 10_000 }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 1001, totalMicro: 1_001_000 }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 15_000 }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 20_000 }, undefined],
+    [{ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 30_000 }, { reviewed: 2 }],
+    [{ baseMicro: 10_000, multiplierTenths: 10, totalMicro: 10_000 }, { reviewed: 0 }],
+  ])('rejects the malformed donation %j', (donation, summary) => {
+    expect(donationReceipt(envelopeWith({ donation, summary }))).toMatchObject({ ok: false })
   })
 })
 
@@ -627,10 +631,10 @@ describe('runVerify: signed donation record', () => {
 
   test('prints base, multiplier and total after a passing signature', async () => {
     const { code, output } = await runSigned({
-      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 10_000 },
+      donation: { baseMicro: 10_000, multiplierTenths: 10, totalMicro: 10_000 },
     })
     expect(code).toBe(0)
-    expect(output).toContain('donation: Base 0.001 USDC (x0.1). Multiplier x1. Total 0.01 USDC.')
+    expect(output).toContain('donation: Base 0.01 USDC. Multiplier x1. Total 0.01 USDC.')
     expect(output).toContain('verify: PASS')
   })
 
@@ -642,7 +646,7 @@ describe('runVerify: signed donation record', () => {
 
   test('rejects a malformed signed donation record', async () => {
     const { code, output } = await runSigned({
-      donation: { baseMicro: 1000, multiplierTenths: 10, totalMicro: 15_000 },
+      donation: { baseMicro: 10_000, multiplierTenths: 10, totalMicro: 15_000 },
     })
     expect(code).toBe(1)
     expect(output).toContain('donation: FAIL')
@@ -651,7 +655,7 @@ describe('runVerify: signed donation record', () => {
 
   test('changing the donation after signing breaks the signature and prints no receipt', async () => {
     const { code, output } = await runSigned(
-      { donation: { baseMicro: 1000, multiplierTenths: 1, totalMicro: 1000 } },
+      { donation: { baseMicro: 10_000, multiplierTenths: 1, totalMicro: 1000 } },
       (payload) =>
         Buffer.from(
           Buffer.from(payload, 'base64')

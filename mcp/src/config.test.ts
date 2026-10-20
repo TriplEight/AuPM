@@ -119,18 +119,16 @@ describe('config', () => {
     },
   )
 
-  it('formats tenths and describes a default as not set', () => {
+  it('formats tenths and describes a default as default', () => {
     expect(formatMultiplier(1)).toBe('x0.1')
     expect(formatMultiplier(25)).toBe('x2.5')
     expect(formatMultiplier(1000)).toBe('x100')
-    expect(describeMultiplier({ tenths: 1, source: 'default' })).toBe(
-      'x0.1 (not set; aupm config set multiplier <x>)',
-    )
+    expect(describeMultiplier({ tenths: 10, source: 'default' })).toBe('x1 (default)')
     expect(describeMultiplier({ tenths: 10, source: 'file' })).toBe('x1')
   })
 
-  it('the multiplier defaults to x0.1, then the file, then the env var', () => {
-    expect(resolveMultiplier()).toEqual({ tenths: 1, source: 'default' })
+  it('the multiplier defaults to x1, then the file, then the env var', () => {
+    expect(resolveMultiplier()).toEqual({ tenths: 10, source: 'default' })
     writeConfig('multiplier = "2.5"\n')
     expect(resolveMultiplier()).toEqual({ tenths: 25, source: 'file' })
     vi.stubEnv('AUPM_MULTIPLIER', '3')

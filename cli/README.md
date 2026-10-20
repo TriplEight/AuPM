@@ -1,7 +1,7 @@
 # aupm
 
 `aupm` is the command line for AuPM, an npm-compatible registry overlay on Algorand. Unreviewed
-packages pass through to npm for free. A human-reviewed package costs at least 0.001 USDC (suggested 0.01 USDC), paid by a donor only when you opt in. Plain `aupm install` stays free.
+packages pass through to npm for free. A human-reviewed package costs 0.01 USDC by default (minimum 0.001 USDC), paid by a donor only when you opt in. Plain `aupm install` stays free.
 
 ## Install
 
@@ -74,9 +74,10 @@ package you named. The donor key is the environment variable
 `AUPM_DONOR_MNEMONIC`, or the file that `aupm donor init` writes to
 `~/.config/aupm/donor.key` (mode 0600; the words and a newline). The key is 25 words (Algorand mnemonic) or 24 words
 (Pera Universal Wallet phrase, derivation 1). `aupm donor init` makes a 25-word key. A donation per reviewed package is the multiplier times 10,000
-microUSDC: minimum $0.001 (x0.1), suggested $0.01 (x1), at most x100. Set it with
+microUSDC: default $0.01 (x1), minimum $0.001 (x0.1), at most x100. Set it with
 `aupm config set multiplier <x>` or the env var `AUPM_MULTIPLIER`. `aupm donor init` asks for it
-on a terminal. Without a multiplier, the donation is x0.1, and each receipt says so. A lockfile
+on a terminal. With `--yes` it writes nothing. Without a multiplier, the donation is x1, and
+each receipt says `x1 (default)`. A lockfile
 costs that price times the number of reviewed entries. A lockfile with no reviewed entry is free.
 
 On a terminal, `aupm donor init` guides you one step at a time. It shows the 25 words one time
