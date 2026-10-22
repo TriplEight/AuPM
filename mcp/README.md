@@ -49,7 +49,7 @@ fix. The server does not donate in that case. A call that sets `allowDonation` s
 
 ## Where a donation goes
 
-Target split, per 1,000 microUSDC:
+Split, per donation:
 
 | Recipient | Share |
 |---|---|
@@ -60,9 +60,9 @@ Target split, per 1,000 microUSDC:
 | Ops | 5% |
 
 Treasury and ops come off the top. The other 75% goes to a pool for the exact package version.
-A pool share with no payee goes to treasury.
+A pool share with no payee goes to treasury, never to ops.
 
-MVP split: only the auditor and ops roles are onboarded, and the live contract pays the auditor
-30% and ops 70%. A new contract version moves to the target split.
+The contributor and maintainer roles are not onboarded yet. Until then, their shares (35%) go to
+the treasury.
 
 Source, spec and license (AGPL-3.0-only): <https://github.com/TriplEight/AuPM>.

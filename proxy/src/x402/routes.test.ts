@@ -78,10 +78,10 @@ describe('buildRoutes', () => {
   })
 
   // Composed, not a literal, for the same reason as STALE_FLAT_LOCKFILE_PRICE
-  // above: never write this misattribution while ops holds it.
+  // above: never write this misattribution while the treasury holds it.
   const OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER = ['20%', 'to maintainers'].join(' ')
 
-  test('every Bazaar description and og:description shows both splits and the minimum and suggested price', () => {
+  test('every Bazaar description and og:description shows the split and the minimum and suggested price', () => {
     const texts = [
       routes[LOCKFILE_ROUTE_KEY].description ?? '',
       routes[SINGLE_ATTEST_ROUTE_KEY].description ?? '',
@@ -90,9 +90,10 @@ describe('buildRoutes', () => {
     ]
     for (const text of texts) {
       expect(text).toContain('suggested $0.01, minimum $0.001')
-      expect(text).toContain('Target split 40/10/25/20/5')
+      expect(text).toContain('Split 40/10/25/20/5')
       expect(text).not.toContain('30/10/20/25/10/5')
-      expect(text).toContain('30% to the auditor, 70% to the operator')
+      expect(text).not.toContain('70% to the operator')
+      expect(text).toContain('their 35% goes to the treasury')
       expect(text).not.toContain(OPS_SHARE_MISATTRIBUTED_TO_MAINTAINER)
     }
   })

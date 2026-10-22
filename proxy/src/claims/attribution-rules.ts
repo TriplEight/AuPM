@@ -41,18 +41,6 @@ export const POOL_ROLES: readonly PoolRole[] = ['reviewer', 'contributor', 'main
 /** The four kinds of treasury income in the ledger. */
 export type TreasuryKind = 'cut' | 'unallocated' | 'slash' | 'forfeit'
 
-/**
- * The MVP split that the live contract still pays: the auditor gets 30%,
- * ops gets the rest. Only the public disclosure text uses it.
- */
-export function mvpSplit(): {
-  auditorPercent: number
-  opsPercent: number
-} {
-  const auditorPercent = 30
-  return { auditorPercent, opsPercent: 100 - auditorPercent }
-}
-
 /** Default hold of a pool share, in days. */
 export const DEFAULT_HOLD_DAYS = 30
 
