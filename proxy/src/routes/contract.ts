@@ -1,11 +1,11 @@
 // proxy/src/routes/contract.ts
 //
 // GET /api/v1/contract: free, unauthenticated, never gated. Publishes the
-// public coordinates the auditor CLI needs to build a claim. Public values
+// public coordinates the auditor CLI needs. Public values
 // only: never a key, a mnemonic, or the crediter address.
 
 import { Hono } from 'hono'
-import { CAIP2_NETWORK, MIN_CLAIM, PAY_TO, USDC_ASA_ID } from '../config.js'
+import { CAIP2_NETWORK, PAY_TO, USDC_ASA_ID } from '../config.js'
 
 const POSITIVE_INTEGER = /^[1-9]\d*$/
 
@@ -32,7 +32,6 @@ router.get('/', (c) => {
     appId,
     payTo: PAY_TO,
     usdcAssetId: Number(USDC_ASA_ID),
-    minClaim: MIN_CLAIM,
   })
 })
 

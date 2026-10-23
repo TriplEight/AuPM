@@ -9,9 +9,9 @@ examples use the MainNet origin `https://aupm.fyi`. For the onboarding of each r
 | Route | Result |
 |---|---|
 | `GET /api/v1/status/<name>/<version>` | The review status of one package version. A scoped name has two segments: `/api/v1/status/@babel/core/7.25.2`. |
-| `GET /api/v1/earnings/github/<login>` | The ledger earnings of one auditor. |
+| `GET /api/v1/earnings/github/<login>` | The ledger earnings of one auditor: held, matured unpaid, frozen and paid micro-USDC, and whether a payout address is set. It never returns the address. |
 | `GET /api/v1/reviews?reviewer=<login>` | The reviews of one auditor, with the status and the anchor txid of each. |
-| `GET /api/v1/contract` | The network, the PaymentRouter app id, the `payTo` address, the USDC asset id and `minClaim`. |
+| `GET /api/v1/contract` | The network, the PaymentRouter app id, the `payTo` address, and the USDC asset id. |
 | `GET /api/v1/health` | The server state and the deployed `version` and `commit`. |
 | `GET /.well-known/aupm-keys.json` | The public keys that sign attestations. |
 | `GET /.well-known/x402` | The x402 discovery document. |

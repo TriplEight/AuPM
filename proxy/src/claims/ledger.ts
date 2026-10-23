@@ -133,48 +133,70 @@ const sumAccrualsByIdentityAndRole = db.prepare<[string], { role: string; total:
     'WHERE identity = ? AND treasury_kind IS NULL GROUP BY role',
 )
 
-const sumPaidByIdentityAndRole = db.prepare<[string], { role: string; total: number }>(
-  'SELECT role, SUM(amount_micro) as total FROM payouts WHERE identity = ? GROUP BY role',
+const PAYEE_ROLES = "role IN ('reviewer', 'contributor', 'maintainer')"
+
+const sumHeldStmt = db.prepare<[string, number], { total: number | null }>(
+  `SELECT SUM(amount_micro) AS total FROM accruals
+   WHERE identity = ? AND paid_seq IS NULL AND treasury_kind IS NULL AND frozen = 0
+     AND unlock_at > ? AND ${PAYEE_ROLES}`,
+)
+const sumFrozenStmt = db.prepare<[string], { total: number | null }>(
+  `SELECT SUM(amount_micro) AS total FROM accruals
+   WHERE identity = ? AND paid_seq IS NULL AND treasury_kind IS NULL AND frozen = 1
+     AND ${PAYEE_ROLES}`,
+)
+// A share counts as paid when the batch that credited it has a confirmed credit txid.
+// A pending batch has paid pointers on its rows but no txid yet.
+const sumPaidStmt = db.prepare<[string], { total: number | null }>(
+  `SELECT SUM(a.amount_micro) AS total FROM accruals a
+   JOIN batches b ON b.app_id = a.paid_app_id AND b.batch_seq = a.paid_seq
+   WHERE a.identity = ? AND a.treasury_kind IS NULL AND b.credit_txid IS NOT NULL
+     AND a.${PAYEE_ROLES}`,
 )
 
 export interface RoleEarnings {
   role: string
   accruedMicro: number
-  claimedMicro: number
 }
 
 export interface Earnings {
   identity: string
   roles: RoleEarnings[]
   totalAccruedMicro: number
-  totalClaimedMicro: number
+  heldMicro: number
+  maturedUnpaidMicro: number
+  frozenMicro: number
+  paidMicro: number
+  payoutAddressSet: boolean
+  lastOptinCheckAt: number | null
+  lastPayoutAt: number | null
 }
 
 /**
- * Accrued and claimed (paid out) totals per role for one GitHub login.
- * Public and free — reports only this identity's
- * own data, never another identity's.
+ * The earnings of one GitHub login in integer micro-USDC: accrued per role,
+ * and the payee shares split into held, matured and unpaid, frozen and paid.
+ * Public and free. It reports only this identity's own data. It never
+ * returns the payout address, only whether one is set.
  */
-export function getEarningsForLogin(login: string): Earnings {
+export function getEarningsForLogin(login: string, now: number = Date.now()): Earnings {
   const identity = canonicalizeIdentity(`github:${login}`)
-  const accrued = new Map<string, number>()
-  for (const row of sumAccrualsByIdentityAndRole.all(identity)) accrued.set(row.role, row.total)
-
-  const claimed = new Map<string, number>()
-  for (const row of sumPaidByIdentityAndRole.all(identity)) claimed.set(row.role, row.total)
-
-  const roles = new Set([...accrued.keys(), ...claimed.keys()])
-  const roleEarnings: RoleEarnings[] = [...roles].sort().map((role) => ({
-    role,
-    accruedMicro: accrued.get(role) ?? 0,
-    claimedMicro: claimed.get(role) ?? 0,
-  }))
-
+  const roles: RoleEarnings[] = sumAccrualsByIdentityAndRole
+    .all(identity)
+    .map((row) => ({ role: row.role, accruedMicro: row.total }))
+    .sort((a, b) => a.role.localeCompare(b.role))
+  const payee = getPayee(identity)
+  const matured = listPayeeBalances(now).find((row) => row.identity === identity)
   return {
     identity,
-    roles: roleEarnings,
-    totalAccruedMicro: roleEarnings.reduce((sum, r) => sum + r.accruedMicro, 0),
-    totalClaimedMicro: roleEarnings.reduce((sum, r) => sum + r.claimedMicro, 0),
+    roles,
+    totalAccruedMicro: roles.reduce((sum, r) => sum + r.accruedMicro, 0),
+    heldMicro: sumHeldStmt.get(identity, now)?.total ?? 0,
+    maturedUnpaidMicro: matured?.balanceMicro ?? 0,
+    frozenMicro: sumFrozenStmt.get(identity)?.total ?? 0,
+    paidMicro: sumPaidStmt.get(identity)?.total ?? 0,
+    payoutAddressSet: payee !== undefined,
+    lastOptinCheckAt: payee?.last_optin_check ? payee.last_optin_check : null,
+    lastPayoutAt: payee?.last_payout_at ?? null,
   }
 }
 

@@ -22,19 +22,15 @@ describe('GET /api/v1/contract', () => {
       appId: 123456,
       payTo: PAY_TO,
       usdcAssetId: 31566704,
-      minClaim: 100000,
     })
     expect(Number.isInteger(body.appId)).toBe(true)
     expect(Number.isInteger(body.usdcAssetId)).toBe(true)
-    expect(Number.isInteger(body.minClaim)).toBe(true)
   })
 
   test('carries no key, mnemonic, or crediter field', async () => {
     process.env.PAYMENT_ROUTER_APP_ID = '123456'
     const body = await (await contractRouter.request('/')).json()
-    expect(Object.keys(body).sort()).toEqual(
-      ['appId', 'minClaim', 'network', 'payTo', 'usdcAssetId'].sort(),
-    )
+    expect(Object.keys(body).sort()).toEqual(['appId', 'network', 'payTo', 'usdcAssetId'].sort())
     expect(JSON.stringify(body)).not.toMatch(/mnemonic|secret|crediter|private/i)
   })
 
