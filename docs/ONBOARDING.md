@@ -366,9 +366,7 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 
    - The command asks for your recovery phrase in a hidden prompt. The screen shows nothing while
      you type. If your terminal is not interactive, it stops and tells you so.
-   - It stops if your account is not the account that the ops linked to your login. Then it
-     prints the address that AuPM expects. For a Pera wallet with several accounts, add
-     `--address <address>`.
+   - For a Pera wallet with several accounts, add `--address <address>` to pick the account.
    - It asks four questions: what you read, the install scripts, your findings, and what changed
      since your previous reviewed version. It shows that previous version. Type `first review`
      for the last question if this is your first review of the package. The whole review note
@@ -405,10 +403,17 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
      check fails, the job skips your payout and the ops tell you. Your balance stays.
 
    ```bash
-   aupm auditor balance <your GitHub login>
+   aupm auditor balance <your GitHub login> --address <your payout address>
    ```
 
-   The last line is `Next step:`. It tells you what to do.
+   - The command prints your held, matured unpaid, frozen and paid amounts and your last
+     payout time.
+   - The last line is `Next step:`. It tells you what to do.
+   - `--address` makes the command check the USDC opt-in and the frozen state of your payout
+     address on the Algorand node. The command never sends the address to the AuPM server.
+     Without `--address`, the command asks you to add it.
+   - If no payout address is set, the `Next step:` line tells you to send the address to the
+     ops (step 1).
 
 ## Help
 

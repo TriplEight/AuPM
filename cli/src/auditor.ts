@@ -1,22 +1,18 @@
 // cli/src/auditor.ts
 //
-// `aupm auditor review|balance|claim|status`. The key is typed on a hidden prompt for each
-// command that signs. No key file, no env var, no flag. The app id and the payTo
-// address come from GET /api/v1/contract. The anchor and the claim go to algod.
+// `aupm auditor review|balance|status`. The key is typed on a hidden prompt for each
+// command that signs. No key file, no env var, no flag. The network and the USDC asset id
+// come from GET /api/v1/contract. The anchor goes to algod. A payout address goes to algod
+// only. The CLI never sends it to the AuPM server.
+import algosdk from 'algosdk'
 import type { DerivationChoice } from 'aupm-mcp/key-phrase'
 import {
   type AccountFacts,
-  assertClaimable,
   assertGenesis,
-  assertMappedSigner,
   loraLink,
-  MIN_CLAIM_FEE,
   type NetworkName,
   readAccountFacts,
-  readBalance,
-  readMappedAddress,
   sendAnchor,
-  sendClaim,
 } from './auditor-chain.js'
 import {
   assertNoteFits,
@@ -27,13 +23,15 @@ import {
 } from './auditor-note.js'
 import {
   type ContractInfo,
+  type Earnings,
   fetchContract,
+  fetchEarnings,
   fetchNpmIntegrity,
   fetchReviews,
   previousReviewedVersion,
 } from './auditor-server.js'
 import { type AuditorDeps, defaultDeps, normalizeLogin, promptAccount } from './auditor-terminal.js'
-import { describeMicroUsdc, formatMicro } from './donor-text.js'
+import { describeMicroUsdc } from './donor-text.js'
 
 const MAINNET_CAIP2 = 'algorand:wGHE2Pwdvd7S12BL5FaOP20EGYesN73ktiC1qzkkit8='
 const TESTNET_CAIP2 = 'algorand:SGO1GKSzyE7IEPItTxCByw9x8FmnrCDexi9/cOUJOiI='
@@ -42,8 +40,7 @@ export const AUDITOR_USAGE = [
   'Usage:',
   '  aupm auditor review <name>@<version> [--login <github-login>]',
   '      [--derivation <n> | --address <address>]',
-  '  aupm auditor balance <github-login>',
-  '  aupm auditor claim [--login <github-login>] [--derivation <n> | --address <address>]',
+  '  aupm auditor balance <github-login> [--address <payout-address>]',
   '  aupm auditor status <github-login>',
 ]
 
@@ -127,8 +124,6 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
   const network = networkOf(contract)
   const algod = deps.algod(network)
   assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
-  const mapped = await readMappedAddress(algod, contract.appId, `github:${login}`)
-  assertMappedSigner(mapped, account.address, login)
   const integrity = await fetchNpmIntegrity(deps.fetch, name, version)
   const reviews = await fetchReviews(deps.fetch, deps.origin, login)
   const previous = previousReviewedVersion(reviews, name, version)
@@ -163,86 +158,111 @@ async function review(args: string[], deps: AuditorDeps): Promise<void> {
   deps.print(`After the ops record it, \`aupm auditor status ${login}\` shows it.`)
 }
 
-async function chainFacts(deps: AuditorDeps, login: string) {
+const PAYOUT_FLOOR_MICRO = 10_000n
+const PAYOUT_WEEKLY_MICRO = 100_000n
+const PAYOUT_NIGHTLY_MICRO = 1_000_000n
+
+/** The payout rule that applies to a matured balance, as one sentence. */
+function payoutRuleStep(matured: bigint): string {
+  if (matured >= PAYOUT_NIGHTLY_MICRO) {
+    return 'No action. The next nightly run pays your matured balance (1,000,000 microUSDC or more).'
+  }
+  if (matured >= PAYOUT_WEEKLY_MICRO) {
+    return (
+      'No action. The nightly run pays your matured balance when your last payout was ' +
+      '7 days ago or more. Your onboarding date counts if you have no payout.'
+    )
+  }
+  if (matured >= PAYOUT_FLOOR_MICRO) {
+    return (
+      'No action. The nightly run pays your matured balance when your last payout was ' +
+      '30 days ago or more. Your onboarding date counts if you have no payout.'
+    )
+  }
+  return (
+    'No action. Your matured balance is below 10,000 microUSDC. ' +
+    'It stays in the ledger until it reaches that floor.'
+  )
+}
+
+/** The one thing the auditor does next, from the first check that fails. */
+function balanceNextStep(args: {
+  earnings: Earnings
+  address: string | undefined
+  facts: AccountFacts | null
+  usdcAssetId: number
+}): string {
+  const { earnings, address, facts, usdcAssetId } = args
+  if (!earnings.payoutAddressSet) {
+    return (
+      'Send your payout address to the AuPM ops in your auditor application issue. ' +
+      'See docs/ONBOARDING.md, section Auditor, step 1.'
+    )
+  }
+  if (address === undefined || facts === null) {
+    return 'Run again with --address <your payout address> to check the USDC opt-in.'
+  }
+  if (!facts.optedIn) return `Opt in to the USDC asset ${usdcAssetId} on ${address}.`
+  if (facts.frozen)
+    return 'Contact the AuPM ops. The USDC holding of your payout address is frozen.'
+  return payoutRuleStep(earnings.maturedUnpaidMicro)
+}
+
+function payoutAddressFlag(args: string[]): string | undefined {
+  if (!args.includes('--address')) return undefined
+  const address = flagValue(args, '--address')
+  if (!address || !algosdk.isValidAddress(address)) {
+    throw new Error('--address needs a valid Algorand address.')
+  }
+  return address
+}
+
+async function readPayoutHolding(
+  deps: AuditorDeps,
+  address: string,
+): Promise<{ facts: AccountFacts; usdcAssetId: number; network: NetworkName }> {
   const contract = await fetchContract(deps.fetch, deps.origin)
   const network = networkOf(contract)
   const algod = deps.algod(network)
-  const identity = `github:${login}`
-  const mapped = await readMappedAddress(algod, contract.appId, identity)
-  const balance = await readBalance(algod, contract.appId, identity)
-  const facts: AccountFacts | null = mapped
-    ? await readAccountFacts(algod, mapped, contract.usdcAssetId)
-    : null
-  return { contract, network, algod, identity, mapped, balance, facts }
+  try {
+    assertGenesis(network, (await algod.getTransactionParams().do()).genesisID ?? '')
+    const facts = await readAccountFacts(algod, address, contract.usdcAssetId)
+    return { facts, usdcAssetId: contract.usdcAssetId, network }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(`Cannot read the payout address on the Algorand node: ${reason}`)
+  }
 }
 
-const CLAIM_STEP = 'Run: aupm auditor claim'
-
-/** The one thing the auditor does next, from the first check that fails. */
-function claimNextStep(args: {
-  mapped: string | null
-  credited: bigint
-  minClaim: number
-  facts: AccountFacts | null
-}): string {
-  const { mapped, credited, minClaim, facts } = args
-  if (mapped === null || facts === null) return 'Ask the AuPM ops to link your address.'
-  if (credited < BigInt(minClaim)) {
-    return `Wait. You can claim from ${describeMicroUsdc(BigInt(minClaim))}.`
-  }
-  if (!facts.optedIn) return 'Opt in to USDC with your wallet app.'
-  if (facts.algoAvailable < BigInt(MIN_CLAIM_FEE)) {
-    return `Send ${formatMicro(BigInt(MIN_CLAIM_FEE))} ALGO to ${mapped}.`
-  }
-  return CLAIM_STEP
+function lastPayoutText(lastPayoutAt: number | null): string {
+  return lastPayoutAt === null ? 'never' : new Date(lastPayoutAt).toISOString()
 }
 
 async function balance(args: string[], deps: AuditorDeps): Promise<void> {
   const raw = positionals(args)[0]
   if (!raw) throw missingArgument('GitHub login', 'balance <github-login>')
   const login = normalizeLogin(raw)
-  const { contract, network, mapped, balance: credited, facts } = await chainFacts(deps, login)
-  const step = claimNextStep({ mapped, credited, minClaim: contract.minClaim, facts })
-  deps.print(`identity:         github:${login}`)
-  deps.print(`network:          ${network}`)
-  deps.print(`mapped address:   ${mapped ?? 'none (the AuPM ops must link it)'}`)
-  deps.print(`credited balance: ${credited} microUSDC`)
-  deps.print(`minimum claim:    ${contract.minClaim} microUSDC`)
-  deps.print(`USDC opt-in:      ${facts ? (facts.optedIn ? 'yes' : 'no') : 'unknown'}`)
-  deps.print(
-    `ALGO for the fee: ${facts ? `${facts.algoAvailable} microALGO available` : 'unknown'}`,
-  )
-  deps.print(`claim possible:   ${step === CLAIM_STEP ? 'yes' : 'no'}`)
+  const address = payoutAddressFlag(args)
+  const earnings = await fetchEarnings(deps.fetch, deps.origin, login)
+  const holding = address === undefined ? null : await readPayoutHolding(deps, address)
+  const step = balanceNextStep({
+    earnings,
+    address,
+    facts: holding?.facts ?? null,
+    usdcAssetId: holding?.usdcAssetId ?? 0,
+  })
+  deps.print(`identity:       github:${login}`)
+  deps.print(`held:           ${describeMicroUsdc(earnings.heldMicro)}`)
+  deps.print(`matured unpaid: ${describeMicroUsdc(earnings.maturedUnpaidMicro)}`)
+  deps.print(`frozen:         ${describeMicroUsdc(earnings.frozenMicro)}`)
+  deps.print(`paid:           ${describeMicroUsdc(earnings.paidMicro)}`)
+  deps.print(`last payout:    ${lastPayoutText(earnings.lastPayoutAt)}`)
+  deps.print(`payout address: ${earnings.payoutAddressSet ? 'set' : 'not set'}`)
+  if (holding) {
+    deps.print(`USDC opt-in:    ${holding.facts.optedIn ? 'yes' : 'no'}`)
+    deps.print(`USDC frozen:    ${holding.facts.frozen ? 'yes' : 'no'}`)
+  }
   deps.print(`Next step: ${step}`)
-}
-
-async function claim(args: string[], deps: AuditorDeps): Promise<void> {
-  const account = await promptAccount(deps, derivationChoice(args))
-  const login = await loginFrom(args, deps)
-  const state = await chainFacts(deps, login)
-  const signer = account.address
-  assertGenesis(state.network, (await state.algod.getTransactionParams().do()).genesisID ?? '')
-  assertClaimable({
-    balance: state.balance,
-    minClaim: state.contract.minClaim,
-    mapped: state.mapped,
-    signer,
-    login,
-    usdcAssetId: state.contract.usdcAssetId,
-    facts: state.facts ?? { optedIn: false, algoAvailable: 0n },
-  })
-  deps.print(
-    `Claiming ${describeMicroUsdc(state.balance)} for ${state.identity}. The USDC goes to ${signer}.`,
-  )
-  const txid = await sendClaim(state.algod, account, {
-    appId: state.contract.appId,
-    identity: state.identity,
-    payTo: state.contract.payTo,
-    usdcAssetId: state.contract.usdcAssetId,
-    network: state.network,
-  })
-  deps.print(`Claimed. The USDC is in your wallet. Transaction: ${txid}`)
-  deps.print(`Explorer: ${loraLink(state.network, txid)}`)
 }
 
 async function status(args: string[], deps: AuditorDeps): Promise<void> {
@@ -266,11 +286,10 @@ async function status(args: string[], deps: AuditorDeps): Promise<void> {
 const COMMANDS: Record<string, (args: string[], deps: AuditorDeps) => Promise<void>> = {
   review,
   balance,
-  claim,
   status,
 }
 
-const SIGNING = new Set(['review', 'claim'])
+const SIGNING = new Set(['review'])
 
 /** Runs one auditor command. Returns the exit code. */
 export async function runAuditor(

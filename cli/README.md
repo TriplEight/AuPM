@@ -97,26 +97,30 @@ an external drive.
 
 ## Auditors
 
-An auditor anchors a human review and claims the credited USDC. The commands that sign ask for
+An auditor anchors a human review and checks the ledger earnings. The commands that sign ask for
 the key on a hidden prompt each time. The key is 25 words (Algorand mnemonic) or 24 words
 (Pera Universal Wallet phrase). There is no key file, no environment variable and no key flag.
 The commands need a terminal.
 
 ```sh
 aupm auditor review <name>@<version> [--login <github-login>]   # four questions, then a 0-ALGO anchor
-aupm auditor balance <github-login>                             # credited balance, minimum claim, next step
-aupm auditor claim [--login <github-login>]                     # one claim() call
+aupm auditor balance <github-login> [--address <payout-address>]   # ledger earnings, next step
 aupm auditor status <github-login>                              # your reviews on the server
 ```
 
 `review` shows every field and sends the anchor only after you type `yes`. An unread review
-is allowed on TestNet only. The app id and the `payTo` address come from the server
-(`GET /api/v1/contract`). `claim` refuses below the minimum claim (100,000 microUSDC), without the USDC opt-in,
-and when the key address is not the address that the ops linked to `github:<login>`.
+is allowed on TestNet only. The network and the USDC asset id come from the server
+(`GET /api/v1/contract`).
+
+`balance` asks no key. It reads `GET /api/v1/earnings/github/<login>` and prints the held,
+matured unpaid, frozen and paid amounts, the last payout time and one `Next step:` line.
+You send no transaction to get paid: the nightly job pays your payout address. With
+`--address <payout-address>`, `balance` also reads the USDC opt-in and the frozen state of that
+address on the Algorand node. The CLI never sends the address to the AuPM server.
 
 A 24-word phrase derives its account with ARC-52 at `m/44'/283'/n'/0/0`. The default is
-`n = 1`, the first named account in Pera. `n = 0` is the wallet root. `review` and `claim`
-accept `--derivation <n>` to pick another `n`, or `--address <address>` to search `n = 0`
+`n = 1`, the first named account in Pera. `n = 0` is the wallet root. `review`
+accepts `--derivation <n>` to pick another `n`, or `--address <address>` to search `n = 0`
 to `19` for that address. Use one flag, not both. Both flags are an error with a 25-word key.
 
 ## Where a donation goes
