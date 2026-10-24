@@ -4,7 +4,7 @@ import * as ed from '@noble/ed25519'
 import algosdk from 'algosdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runAuditor } from './auditor.js'
-import { assertGenesis, balanceBoxName, identityBoxName, sendAnchor } from './auditor-chain.js'
+import { assertGenesis, sendAnchor } from './auditor-chain.js'
 import { assertReadAllowed, buildScope, encodeReviewNote } from './auditor-note.js'
 import { type AuditorDeps, normalizeLogin } from './auditor-terminal.js'
 
@@ -28,14 +28,28 @@ const DERIVATION_0 = 'JNFVWY2Q44O3K5IYRYG5JE7ZKR4KP34JEQVGCKE7ECXKTTX7364VXFDK7M
 const DERIVATION_1 = 'XRGJY2DYXW3E3O34VFKLSA4VLUESY77Z2D6NBNKTNFBA76WM3NYKPTRH7A'
 const REVIEW_ANSWERS = ['full source', 'none', 'none', 'first review', 'yes']
 
+const ZERO_EARNINGS = {
+  identity: 'github:alice',
+  roles: [],
+  totalAccruedMicro: 0,
+  heldMicro: 0,
+  maturedUnpaidMicro: 0,
+  frozenMicro: 0,
+  paidMicro: 0,
+  payoutAddressSet: true,
+  lastOptinCheckAt: null,
+  lastPayoutAt: null,
+}
+
 interface World {
   network?: string
   contractStatus?: number
   reviews?: unknown[]
-  mapped?: string | null
-  balance?: bigint
+  earnings?: Record<string, unknown>
+  earningsStatus?: number
   optedIn?: boolean
-  algo?: bigint
+  frozen?: boolean
+  algodError?: boolean
   answers?: string[]
   secret?: string
   tty?: boolean
@@ -47,12 +61,6 @@ function setup(world: World = {}) {
   const answers = [...(world.answers ?? [])]
   const network = world.network ?? TESTNET
   const genesisID = network === MAINNET ? 'mainnet-v1.0' : 'testnet-v1.0'
-  const mapped = world.mapped === undefined ? auditor.addr.toString() : world.mapped
-  const boxes = new Map<string, Uint8Array>()
-  if (mapped) boxes.set('id:github:alice', algosdk.decodeAddress(mapped).publicKey)
-  if (world.balance !== undefined) {
-    boxes.set('bal:github:alice', algosdk.encodeUint64(world.balance))
-  }
   const algod = {
     getTransactionParams: () => ({
       do: async () => ({
@@ -65,19 +73,18 @@ function setup(world: World = {}) {
         flatFee: false,
       }),
     }),
-    getApplicationBoxByName: (_app: number, name: Uint8Array) => ({
-      do: async () => {
-        const value = boxes.get(new TextDecoder().decode(name))
-        if (!value) throw Object.assign(new Error('box not found'), { status: 404 })
-        return { value }
-      },
-    }),
     accountInformation: () => ({
-      do: async () => ({
-        amount: (world.algo ?? 0n) + 100_000n,
-        minBalance: 100_000n,
-        assets: world.optedIn === false ? [] : [{ assetId: 10458941n, amount: 0n }],
-      }),
+      do: async () => {
+        if (world.algodError) throw new Error('algod is down')
+        return {
+          amount: 100_000n,
+          minBalance: 100_000n,
+          assets:
+            world.optedIn === false
+              ? []
+              : [{ assetId: 10458941n, amount: 0n, isFrozen: world.frozen === true }],
+        }
+      },
     }),
     sendRawTransaction: (bytes: Uint8Array) => ({
       do: async () => {
@@ -99,9 +106,13 @@ function setup(world: World = {}) {
               appId: 77,
               payTo: other.addr.toString(),
               usdcAssetId: 10458941,
-              minClaim: 100000,
             }
           : { error: 'contract not configured' }
+      return new Response(JSON.stringify(body), { status })
+    }
+    if (u.includes('/api/v1/earnings/github/')) {
+      const status = world.earningsStatus ?? 200
+      const body = status === 200 ? { ...ZERO_EARNINGS, ...world.earnings } : { error: 'down' }
       return new Response(JSON.stringify(body), { status })
     }
     if (u.includes('/api/v1/reviews')) {
@@ -153,7 +164,7 @@ describe('aupm auditor review', () => {
   })
 
   it('signs with derivation 1 of a 24-word phrase by default', async () => {
-    const t = setup({ secret: universal, mapped: DERIVATION_1, answers: REVIEW_ANSWERS })
+    const t = setup({ secret: universal, answers: REVIEW_ANSWERS })
     expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(0)
     const signed = algosdk.decodeSignedTransaction(t.sent[0])
     expect(signed.txn.sender.toString()).toBe(DERIVATION_1)
@@ -164,25 +175,17 @@ describe('aupm auditor review', () => {
   })
 
   it('signs with --derivation 0 and with --address', async () => {
-    const byDerivation = setup({ secret: universal, mapped: DERIVATION_0, answers: REVIEW_ANSWERS })
+    const byDerivation = setup({ secret: universal, answers: REVIEW_ANSWERS })
     const args = ['review', 'ms@1.2.0']
     expect(await runAuditor([...args, '--derivation', '0'], byDerivation.deps)).toBe(0)
     expect(algosdk.decodeSignedTransaction(byDerivation.sent[0]).txn.sender.toString()).toBe(
       DERIVATION_0,
     )
-    const byAddress = setup({ secret: universal, mapped: DERIVATION_0, answers: REVIEW_ANSWERS })
+    const byAddress = setup({ secret: universal, answers: REVIEW_ANSWERS })
     expect(await runAuditor([...args, '--address', DERIVATION_0], byAddress.deps)).toBe(0)
     expect(algosdk.decodeSignedTransaction(byAddress.sent[0]).txn.sender.toString()).toBe(
       DERIVATION_0,
     )
-  })
-
-  it('refuses a derivation that is not the mapped address and sends nothing', async () => {
-    captureErrors()
-    const t = setup({ secret: universal, mapped: DERIVATION_1, answers: REVIEW_ANSWERS })
-    expect(await runAuditor(['review', 'ms@1.2.0', '--derivation', '0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('The phrase you typed belongs to address')
-    expect(t.sent).toHaveLength(0)
   })
 
   it.each([
@@ -249,28 +252,6 @@ describe('aupm auditor review', () => {
     const t = setup({ answers: ['full source', '', 'none', 'first review'] })
     expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
     expect(errors.join()).toContain("Write 'none'")
-  })
-
-  it('refuses an unmapped login and sends nothing', async () => {
-    captureErrors()
-    const t = setup({
-      mapped: null,
-      answers: ['full source', 'none', 'none', 'first review', 'yes'],
-    })
-    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('No wallet address is linked to the GitHub login alice.')
-    expect(t.sent).toHaveLength(0)
-  })
-
-  it('refuses a key that is not the mapped address and sends nothing', async () => {
-    captureErrors()
-    const t = setup({
-      mapped: other.addr.toString(),
-      answers: ['full source', 'none', 'none', 'first review', 'yes'],
-    })
-    expect(await runAuditor(['review', 'ms@1.2.0'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('The phrase you typed belongs to address')
-    expect(t.sent).toHaveLength(0)
   })
 
   it('stops on a server 503', async () => {
@@ -357,110 +338,7 @@ describe('review note and scope', () => {
   })
 })
 
-describe('aupm auditor claim', () => {
-  const base = { balance: 150_000n, algo: 5_000n }
-
-  it('refuses with no TTY', async () => {
-    captureErrors()
-    const t = setup({ ...base, tty: false })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(t.fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('refuses an unmapped login', async () => {
-    captureErrors()
-    const t = setup({ ...base, mapped: null })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('No wallet address is linked to the GitHub login alice.')
-  })
-
-  it('refuses when the key address is not the mapped address', async () => {
-    captureErrors()
-    const t = setup({ ...base, mapped: other.addr.toString() })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('The phrase you typed belongs to address')
-    expect(t.sent).toHaveLength(0)
-  })
-
-  it('refuses below MIN_CLAIM', async () => {
-    captureErrors()
-    const t = setup({ ...base, balance: 99_999n })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toBe(
-      'Your balance is 99,999 microUSDC (0.099999 USDC). ' +
-        'The minimum claim is 100,000 microUSDC (0.1 USDC). ' +
-        'Wait for more donations. Check with: aupm auditor balance alice',
-    )
-  })
-
-  it('refuses without the USDC opt-in', async () => {
-    captureErrors()
-    const t = setup({ ...base, optedIn: false })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('has not opted in to USDC (asset id 10458941).')
-    expect(errors.join()).toContain('Opt in with your wallet app.')
-    expect(errors.join()).not.toContain('donor optin')
-  })
-
-  it('refuses without ALGO for the fee', async () => {
-    captureErrors()
-    const t = setup({ ...base, algo: 1_500n })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(1)
-    expect(errors.join()).toContain('has 0.0015 ALGO free. The claim fee is 0.002 ALGO.')
-    expect(errors.join()).toContain('Send at least 0.0005 ALGO to')
-  })
-
-  it('claims with derivation 1 of a 24-word phrase by default', async () => {
-    const t = setup({ ...base, secret: universal, mapped: DERIVATION_1 })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(0)
-    expect(algosdk.decodeSignedTransaction(t.sent[0]).txn.sender.toString()).toBe(DERIVATION_1)
-  })
-
-  it('claims with --address of a 24-word phrase', async () => {
-    const t = setup({ ...base, secret: universal, mapped: DERIVATION_0 })
-    expect(await runAuditor(['claim', '--login', 'alice', '--address', DERIVATION_0], t.deps)).toBe(
-      0,
-    )
-    expect(algosdk.decodeSignedTransaction(t.sent[0]).txn.sender.toString()).toBe(DERIVATION_0)
-  })
-
-  it('refuses an --address that no derivation gives', async () => {
-    captureErrors()
-    const t = setup({ ...base, secret: universal })
-    const unknown = other.addr.toString()
-    expect(await runAuditor(['claim', '--login', 'alice', '--address', unknown], t.deps)).toBe(1)
-    expect(errors.join()).toContain('No derivation from 0 to 19')
-    expect(t.sent).toHaveLength(0)
-  })
-
-  it('sends one claim call with the pooled outer fee and the box references', async () => {
-    const t = setup(base)
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(0)
-    expect(t.sent).toHaveLength(1)
-    const txn = algosdk.decodeSignedTransaction(t.sent[0]).txn
-    expect(txn.fee).toBe(2000n)
-    expect(txn.applicationCall?.appIndex).toBe(77n)
-    expect(txn.applicationCall?.boxes.map((b) => new TextDecoder().decode(b.name))).toEqual([
-      new TextDecoder().decode(identityBoxName('github:alice')),
-      new TextDecoder().decode(balanceBoxName('github:alice')),
-    ])
-  })
-})
-
 describe('aupm auditor balance and status', () => {
-  it('balance prints the credited balance, the minimum claim and the claim state', async () => {
-    const t = setup({ balance: 150_000n, algo: 5_000n })
-    expect(await runAuditor(['balance', 'Alice'], t.deps)).toBe(0)
-    const out = t.printed.join('\n')
-    expect(out).toContain('credited balance: 150000 microUSDC')
-    expect(out).toContain('minimum claim:    100000 microUSDC')
-    expect(out).not.toContain('MIN_CLAIM')
-    expect(out).toContain('USDC opt-in:      yes')
-    expect(out).toContain('claim possible:   yes')
-    expect(out).toContain('Next step: Run: aupm auditor claim')
-    expect(t.deps.askSecret).not.toHaveBeenCalled()
-  })
-
   it('balance needs a login', async () => {
     captureErrors()
     const t = setup()
@@ -470,7 +348,9 @@ describe('aupm auditor balance and status', () => {
   it('balance stops on a server 503', async () => {
     captureErrors()
     const t = setup({ contractStatus: 503 })
-    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(1)
+    expect(await runAuditor(['balance', 'alice', '--address', other.addr.toString()], t.deps)).toBe(
+      1,
+    )
   })
 
   it('status lists the reviews', async () => {
@@ -545,7 +425,9 @@ describe('auditor messages', () => {
   it('names the HTTP status of a server error', async () => {
     captureErrors()
     const t = setup({ contractStatus: 502 })
-    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(1)
+    expect(await runAuditor(['balance', 'alice', '--address', other.addr.toString()], t.deps)).toBe(
+      1,
+    )
     expect(errors.join()).toContain('The AuPM server answered 502')
     expect(errors.join()).toContain('Try again later.')
   })
@@ -618,44 +500,7 @@ describe('auditor messages', () => {
   })
 })
 
-describe('aupm auditor balance next step', () => {
-  it.each([
-    [{ mapped: null }, 'Next step: Ask the AuPM ops to link your address.'],
-    [
-      { balance: 90_000n, algo: 5_000n },
-      'Next step: Wait. You can claim from 100,000 microUSDC (0.1 USDC).',
-    ],
-    [
-      { balance: 150_000n, algo: 5_000n, optedIn: false },
-      'Next step: Opt in to USDC with your wallet app.',
-    ],
-    [{ balance: 150_000n, algo: 1_000n }, `Next step: Send 0.002 ALGO to ${auditor.addr}.`],
-  ])('prints the step for case %#', async (world, line) => {
-    const t = setup(world)
-    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(0)
-    const out = t.printed.join('\n')
-    expect(out.split('\n').at(-1)).toBe(line)
-    expect(out).toContain('claim possible:   no')
-  })
-
-  it('names the ops when no address is linked', async () => {
-    const t = setup({ mapped: null })
-    await runAuditor(['balance', 'alice'], t.deps)
-    expect(t.printed.join('\n')).toContain('none (the AuPM ops must link it)')
-  })
-})
-
-describe('aupm auditor claim and status texts', () => {
-  it('prints the value in USDC and where the USDC goes', async () => {
-    const t = setup({ balance: 150_000n, algo: 5_000n })
-    expect(await runAuditor(['claim', '--login', 'alice'], t.deps)).toBe(0)
-    const out = t.printed.join('\n')
-    expect(out).toContain(
-      `Claiming 150,000 microUSDC (0.15 USDC) for github:alice. The USDC goes to ${auditor.addr}.`,
-    )
-    expect(out).toMatch(/Claimed\. The USDC is in your wallet\. Transaction: [A-Z2-7]{52}/)
-  })
-
+describe('aupm auditor status texts', () => {
   it('says why there are no reviews and what to do', async () => {
     const t = setup()
     expect(await runAuditor(['status', 'alice'], t.deps)).toBe(0)
@@ -663,5 +508,121 @@ describe('aupm auditor claim and status texts', () => {
       'No reviews found for github:alice. ' +
         'The ops record a review after you post its txid in your application issue.',
     )
+  })
+})
+
+describe('aupm auditor balance', () => {
+  const ADDRESS = other.addr.toString()
+  const matured = (maturedUnpaidMicro: number) => ({ earnings: { maturedUnpaidMicro } })
+
+  it('prints the amounts, the last payout and one Next step line', async () => {
+    const t = setup({
+      earnings: {
+        heldMicro: 5_000,
+        maturedUnpaidMicro: 150_000,
+        frozenMicro: 20_000,
+        paidMicro: 1_234_567,
+        lastPayoutAt: Date.UTC(2026, 9, 1),
+      },
+    })
+    expect(await runAuditor(['balance', 'Alice'], t.deps)).toBe(0)
+    const out = t.printed.join('\n')
+    expect(out).toContain('held:           5,000 microUSDC (0.005 USDC)')
+    expect(out).toContain('matured unpaid: 150,000 microUSDC (0.15 USDC)')
+    expect(out).toContain('frozen:         20,000 microUSDC (0.02 USDC)')
+    expect(out).toContain('paid:           1,234,567 microUSDC (1.234567 USDC)')
+    expect(out).toContain('last payout:    2026-10-01T00:00:00.000Z')
+    expect(t.printed.filter((line) => line.startsWith('Next step:'))).toHaveLength(1)
+    expect(out.toLowerCase()).not.toContain('claim')
+    expect(t.deps.askSecret).not.toHaveBeenCalled()
+  })
+
+  it('case a: asks for a payout address when none is set', async () => {
+    const t = setup({ earnings: { payoutAddressSet: false } })
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(0)
+    expect(t.printed.at(-1)).toBe(
+      'Next step: Send your payout address to the AuPM ops in your auditor application issue. ' +
+        'See docs/ONBOARDING.md, section Auditor, step 1.',
+    )
+  })
+
+  it('case b: asks for the USDC opt-in on the given address', async () => {
+    const t = setup({ optedIn: false })
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(0)
+    expect(t.printed.at(-1)).toBe(`Next step: Opt in to the USDC asset 10458941 on ${ADDRESS}.`)
+  })
+
+  it('case c: sends a frozen holding to the ops', async () => {
+    const t = setup({ frozen: true })
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(0)
+    expect(t.printed.at(-1)).toBe(
+      'Next step: Contact the AuPM ops. The USDC holding of your payout address is frozen.',
+    )
+  })
+
+  it('case d: asks for --address when it is missing', async () => {
+    const t = setup()
+    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(0)
+    expect(t.printed.at(-1)).toBe(
+      'Next step: Run again with --address <your payout address> to check the USDC opt-in.',
+    )
+  })
+
+  it.each([
+    [1_000_000, 'The next nightly run pays your matured balance'],
+    [100_000, '7 days ago or more'],
+    [10_000, '30 days ago or more'],
+    [9_999, 'below 10,000 microUSDC'],
+    [0, 'below 10,000 microUSDC'],
+  ])('case e: matured %i names the rule', async (micro, text) => {
+    const t = setup(matured(micro))
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(0)
+    expect(t.printed.at(-1)).toMatch(/^Next step: No action\./)
+    expect(t.printed.at(-1)).toContain(text)
+  })
+
+  it('prints zeros and "never" for an unknown login', async () => {
+    const t = setup({ earnings: { payoutAddressSet: false } })
+    expect(await runAuditor(['balance', 'nobody'], t.deps)).toBe(0)
+    const out = t.printed.join('\n')
+    expect(out).toContain('held:           0 microUSDC (0 USDC)')
+    expect(out).toContain('last payout:    never')
+    expect(out).toContain('payout address: not set')
+  })
+
+  it('refuses a malformed --address before any network call', async () => {
+    captureErrors()
+    const t = setup()
+    expect(await runAuditor(['balance', 'alice', '--address', 'NOTANADDRESS'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('--address needs a valid Algorand address.')
+    expect(t.fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('stops when the earnings route fails', async () => {
+    captureErrors()
+    const t = setup({ earningsStatus: 500 })
+    expect(await runAuditor(['balance', 'alice'], t.deps)).toBe(1)
+    expect(errors.join()).toContain('The AuPM server answered 500')
+  })
+
+  it('stops with a clear message when algod fails', async () => {
+    captureErrors()
+    const t = setup({ algodError: true })
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(1)
+    expect(errors.join()).toBe('Cannot read the payout address on the Algorand node: algod is down')
+  })
+
+  it('never sends the --address value to the AuPM server', async () => {
+    const t = setup()
+    expect(await runAuditor(['balance', 'alice', '--address', ADDRESS], t.deps)).toBe(0)
+    const urls = t.fetchMock.mock.calls.map((call) => String(call[0]))
+    expect(urls.length).toBeGreaterThan(0)
+    for (const url of urls) expect(url).not.toContain(ADDRESS)
+  })
+
+  it('does not accept the claim command', async () => {
+    const t = setup()
+    expect(await runAuditor(['claim'], t.deps)).toBe(1)
+    expect(t.printed.join('\n')).not.toContain('claim')
   })
 })

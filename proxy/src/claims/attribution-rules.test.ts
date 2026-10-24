@@ -8,7 +8,6 @@ import {
   DEFAULT_PAYOUT_RULES,
   holdMsFromEnv,
   isPayoutDue,
-  mvpSplit,
   OPS_PER_1000,
   POOL_ROLES,
   POOL_SHARE_PER_1000,
@@ -24,12 +23,6 @@ describe('split constants', () => {
     const pool = POOL_ROLES.reduce((sum, role) => sum + POOL_SHARE_PER_1000[role], 0)
     expect(pool).toBe(750)
     expect(CUT_PER_1000 + OPS_PER_1000 + pool).toBe(1000)
-  })
-})
-
-describe('mvpSplit', () => {
-  test('MVP split', () => {
-    expect(mvpSplit()).toEqual({ auditorPercent: 30, opsPercent: 70 })
   })
 })
 

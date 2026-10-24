@@ -1,14 +1,11 @@
 // cli/src/auditor-server.ts
 //
-// The AuPM server reads of the auditor commands. The app id and the payTo address come from
+// The AuPM server reads of the auditor commands. The network and the USDC asset id come from
 // GET /api/v1/contract only. They are never hardcoded.
 
 export interface ContractInfo {
   network: string
-  appId: number
-  payTo: string
   usdcAssetId: number
-  minClaim: number
 }
 
 export interface ReviewRecord {
@@ -52,17 +49,47 @@ function isPositiveInt(value: unknown): value is number {
 /** Reads the contract facts. Throws when the server has no contract configured (503). */
 export async function fetchContract(fetchImpl: Fetch, origin: string): Promise<ContractInfo> {
   const body = (await getJson(fetchImpl, `${origin}/api/v1/contract`)) as Partial<ContractInfo>
-  const { network, appId, payTo, usdcAssetId, minClaim } = body
+  const { network, usdcAssetId } = body
+  if (typeof network !== 'string' || !isPositiveInt(usdcAssetId)) {
+    throw new Error(UNREADABLE_ANSWER)
+  }
+  return { network, usdcAssetId }
+}
+
+export interface Earnings {
+  heldMicro: bigint
+  maturedUnpaidMicro: bigint
+  frozenMicro: bigint
+  paidMicro: bigint
+  payoutAddressSet: boolean
+  lastPayoutAt: number | null
+}
+
+/** Reads the ledger earnings of one auditor. The route never returns an address. */
+export async function fetchEarnings(
+  fetchImpl: Fetch,
+  origin: string,
+  login: string,
+): Promise<Earnings> {
+  const url = `${origin}/api/v1/earnings/github/${encodeURIComponent(login)}`
+  const body = (await getJson(fetchImpl, url)) as Record<string, unknown>
+  const micro = [body.heldMicro, body.maturedUnpaidMicro, body.frozenMicro, body.paidMicro]
+  const last = body.lastPayoutAt
   if (
-    typeof network !== 'string' ||
-    typeof payTo !== 'string' ||
-    !isPositiveInt(appId) ||
-    !isPositiveInt(usdcAssetId) ||
-    !isPositiveInt(minClaim)
+    !micro.every((v) => Number.isSafeInteger(v) && (v as number) >= 0) ||
+    typeof body.payoutAddressSet !== 'boolean' ||
+    !(last === null || Number.isSafeInteger(last))
   ) {
     throw new Error(UNREADABLE_ANSWER)
   }
-  return { network, appId, payTo, usdcAssetId, minClaim }
+  return {
+    heldMicro: BigInt(micro[0] as number),
+    maturedUnpaidMicro: BigInt(micro[1] as number),
+    frozenMicro: BigInt(micro[2] as number),
+    paidMicro: BigInt(micro[3] as number),
+    payoutAddressSet: body.payoutAddressSet,
+    lastPayoutAt: last as number | null,
+  }
 }
 
 /** Reads the reviews of one auditor. `login` is the lower-case bare login. */

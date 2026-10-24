@@ -49,12 +49,8 @@ account.
 
 1. Donors: make the donor key first. Run `aupm donor init` (section 2, step 1). It prints the
    address to fund.
-2. Get ALGO and USDC on Algorand. Two examples:
-   - Pera Wallet: buy with Pera Fund. See the
-     [Pera Fund guide](https://support.perawallet.app/en/article/funding-an-account-using-pera-fund-oyinow/).
-   - From USDC on another chain: use a cross-chain swap that delivers USDC on Algorand, for example
-     [SideShift](https://sideshift.ai/usd0eth/usdcalgo). Give the Algorand address as the
-     receiver.
+2. Get ALGO and USDC on Algorand. For example, buy with Pera Fund in Pera Wallet. See the
+   [Pera Fund guide](https://support.perawallet.app/en/article/funding-an-account-using-pera-fund-oyinow/).
 3. Do a check of the first 6 and the last 6 characters of each address before you send.
 
 ## 1. CLI user
@@ -99,11 +95,11 @@ money.
 Plain `npm install` never donates. `aupm install` donates only with `--donate`, or after
 `aupm config set donate true` (section 2).
 
-Each donation pays for human review. The live contract pays the auditor who read the tarball
-(30%) and the AuPM operations (70%). This is the MVP split. The target split is 40/10/25/20/5:
-treasury (20%) and ops (5%) come off the top, and 75% goes to a pool for the exact package
-version (reviewer line 40%, contributor 10%, maintainer 25%). A new contract version brings the
-target split. See [Where the money goes](../README.md#where-the-money-goes).
+Each donation pays for human review. The split is 40/10/25/20/5. Treasury (20%) and ops (5%)
+come off the top. The other 75% goes to a pool for the exact package version: the reviewer line
+(40%), the contributor (10%) and the maintainer (25%). The contributor and maintainer roles are
+not onboarded yet. Until then, their shares (35%) go to the treasury. See
+[Where the money goes](../README.md#where-the-money-goes).
 
 | Status | Meaning |
 |---|---|
@@ -114,14 +110,12 @@ target split. See [Where the money goes](../README.md#where-the-money-goes).
 
 ## 2. Donor
 
-A donor pays 0.01 USDC (x1, the default) for each reviewed package in a lockfile. The live
-contract pays the auditor who read the tarball (30%) and the AuPM operations (70%). This is
-the MVP split.
+A donor pays 0.01 USDC (x1, the default) for each reviewed package in a lockfile.
 
-The target split is 40/10/25/20/5. Treasury (20%) and ops (5%) come off the top. The other 75%
-goes to a pool for the exact package version: the reviewer line (40%), the contributor (10%) and
-the maintainer (25%). A new contract version brings the target split. See
-[Where the money goes](../README.md#where-the-money-goes).
+The split is 40/10/25/20/5. Treasury (20%) and ops (5%) come off the top. The other 75% goes to
+a pool for the exact package version: the reviewer line (40%), the contributor (10%) and the
+maintainer (25%). The contributor and maintainer roles are not onboarded yet. Until then, their
+shares (35%) go to the treasury. See [Where the money goes](../README.md#where-the-money-goes).
 
 A donation happens only when you opt in.
 
@@ -324,8 +318,9 @@ Do not add a `schedule` trigger to a workflow that donates. Do not re-run a job 
 ## 5. Auditor
 
 An auditor reads the exact tarball of a package version and records the review on chain. Then
-AuPM shows that version as `COMMUNITY_REVIEWED`. The live contract pays the auditor 30% of each
-donation for that version (the MVP split).
+AuPM shows that version as `COMMUNITY_REVIEWED`. The reviewer line of that version gets 40% of
+each donation for it. If you are the only auditor of the version, that is 4,000 microUSDC for
+each donation at x1.
 
 NOTE: this audit process is the MVP version. It will change soon, after the auditor pilot.
 
@@ -335,11 +330,10 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 - A cold Algorand account. This account signs your reviews and receives your USDC. Two kinds
   work:
   - A Pera Universal Wallet account (24-word recovery phrase). `aupm` uses the first account that
-    Pera shows. For another account of the same wallet, add `--address <address>` to `review` and
-    `claim`.
+    Pera shows. For another account of the same wallet, add `--address <address>` to `review`.
   - An Algo25 account (25-word recovery phrase).
-- About 0.5 ALGO (section 0): 0.1 for the account, 0.1 for the USDC opt-in, 0.001 for each
-  review and at least 0.002 for each claim.
+- About 0.3 ALGO (section 0): 0.1 for the account, 0.1 for the USDC opt-in and 0.001 for each
+  review. A payout to you costs you no ALGO.
 - The `aupm` CLI (section 0).
 
 ### Precautions
@@ -355,6 +349,7 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 
 1. Apply. [Open an issue with the "Auditor application" form](https://github.com/TriplEight/AuPM/issues/new?template=auditor-application.yml).
    Give the address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
+   The ops check the opt-in. Then they add the address as your payout address.
 2. Read the files. Get the exact tarball that users install:
 
    ```bash
@@ -371,9 +366,7 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 
    - The command asks for your recovery phrase in a hidden prompt. The screen shows nothing while
      you type. If your terminal is not interactive, it stops and tells you so.
-   - It stops if your account is not the account that the ops linked to your login. Then it
-     prints the address that AuPM expects. For a Pera wallet with several accounts, add
-     `--address <address>`.
+   - For a Pera wallet with several accounts, add `--address <address>` to pick the account.
    - It asks four questions: what you read, the install scripts, your findings, and what changed
      since your previous reviewed version. It shows that previous version. Type `first review`
      for the last question if this is your first review of the package. The whole review note
@@ -394,26 +387,33 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
    `No reviews found for github:<your GitHub login>.`
 
 6. Wait for the ops to return to you. They reply in your issue.
-7. Check your balance. Each donation for a version that you reviewed adds 300 microUSDC. The
-   nightly job credits the balances. You can claim starting from 100,000 microUSDC (0.1 USDC).
+7. Get paid. You send no transaction for this.
+   - Each donation for a version that you reviewed adds your share to your balance in the AuPM
+     ledger.
+   - AuPM holds each share for 30 days after the donation. A dispute can freeze a held share.
+     After the hold, the share is yours.
+   - The nightly job sends your matured balance to your payout address when one of these rules
+     applies:
+     - The balance is 1 USDC (1,000,000 microUSDC) or more.
+     - Your last payout was 7 days ago or more, and the balance is 0.1 USDC or more.
+     - Your last payout was 30 days ago or more, and the balance is 0.01 USDC or more.
+   - A smaller balance stays in the ledger until a rule applies. The ops can change these
+     values.
+   - Keep the USDC opt-in on your payout address. Before each payout, the job checks it. If the
+     check fails, the job skips your payout and the ops tell you. Your balance stays.
 
    ```bash
-   aupm auditor balance <your GitHub login>
+   aupm auditor balance <your GitHub login> --address <your payout address>
    ```
 
-   The last line is `Next step:`. It tells you what to do: ask the ops to link your address,
-   wait, opt in to USDC with your wallet app, add ALGO, or run `aupm auditor claim`.
-
-8. Claim:
-
-   ```bash
-   aupm auditor claim
-   ```
-
-   The command asks for your recovery phrase in a hidden prompt. It refuses below the minimum
-   claim of 100,000 microUSDC (0.1 USDC), without the USDC opt-in, or when the account is not the
-   account that the ops linked to your login. It prints the amount that it claims. The contract
-   pays your whole balance to your account.
+   - The command prints your held, matured unpaid, frozen and paid amounts and your last
+     payout time.
+   - The last line is `Next step:`. It tells you what to do.
+   - `--address` makes the command check the USDC opt-in and the frozen state of your payout
+     address on the Algorand node. The command never sends the address to the AuPM server.
+     Without `--address`, the command asks you to add it.
+   - If no payout address is set, the `Next step:` line tells you to send the address to the
+     ops (step 1).
 
 ## Help
 

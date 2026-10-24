@@ -29,7 +29,6 @@ const {
   matureUnpaidTotal,
   openBatch,
   recordBatchCreditTxid,
-  recordPayout,
   releaseBatch,
   recordBacklog,
   releaseShares,
@@ -181,9 +180,8 @@ describe('getEarningsForLogin', () => {
     const earnings = getEarningsForLogin('alice')
     expect(earnings.identity).toBe('github:alice')
     // alice reviewed ms and chalk: 2 reviewer lines of 400
-    expect(earnings.roles).toEqual([{ role: 'reviewer', accruedMicro: 800, claimedMicro: 0 }])
+    expect(earnings.roles).toEqual([{ role: 'reviewer', accruedMicro: 800 }])
     expect(earnings.totalAccruedMicro).toBe(800)
-    expect(earnings.totalClaimedMicro).toBe(0)
   })
 
   test("never exposes another identity's data", () => {
@@ -192,11 +190,69 @@ describe('getEarningsForLogin', () => {
     expect(getEarningsForLogin('bob').totalAccruedMicro).toBe(400)
   })
 
-  test('claimed totals reflect recorded payouts', () => {
-    writeAccruals(LOCKFILE_ATTRIBUTION, 'TXID-EARN-3', NOW, HOLD)
-    recordPayout('github:alice', 'reviewer', 1000, 'PAYOUT-TX-1')
-    const role = getEarningsForLogin('alice').roles.find((r) => r.role === 'reviewer')
-    expect(role?.claimedMicro).toBe(1000)
+  test('an unknown login reports zeros, no payout address and null times', () => {
+    expect(getEarningsForLogin('nobody', NOW)).toEqual({
+      identity: 'github:nobody',
+      roles: [],
+      totalAccruedMicro: 0,
+      heldMicro: 0,
+      maturedUnpaidMicro: 0,
+      frozenMicro: 0,
+      paidMicro: 0,
+      payoutAddressSet: false,
+      lastOptinCheckAt: null,
+      lastPayoutAt: null,
+    })
+  })
+
+  test('a share is held one millisecond before unlock_at and matured at unlock_at', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-EDGE', NOW, HOLD)
+    const before = getEarningsForLogin('alice', NOW + HOLD - 1)
+    expect(before.heldMicro).toBe(400)
+    expect(before.maturedUnpaidMicro).toBe(0)
+    const at = getEarningsForLogin('alice', NOW + HOLD)
+    expect(at.heldMicro).toBe(0)
+    expect(at.maturedUnpaidMicro).toBe(400)
+  })
+
+  test('a frozen share counts as frozen, not as held or matured', () => {
+    writeAccruals(SINGLE_ALICE, 'TXID-FROZEN', NOW, HOLD)
+    freezeShares({ pkg: 'ms', version: '2.1.3', role: 'reviewer' }, NOW)
+    const earnings = getEarningsForLogin('alice', NOW + HOLD + 1)
+    expect(earnings.frozenMicro).toBe(400)
+    expect(earnings.heldMicro).toBe(0)
+    expect(earnings.maturedUnpaidMicro).toBe(0)
+  })
+
+  test('a share credited by a confirmed batch counts as paid only', () => {
+    upsertPayee('github:alice', 'ALICE-ADDR', 0, 55)
+    writeAccruals(SINGLE_ALICE, 'TXID-PAID', NOW, HOLD)
+    const rows = listCreditCandidates()
+    openBatch(APP, 1, {
+      counted: rows,
+      paid: rows.filter((r) => r.role === 'reviewer'),
+      addresses: { 'github:alice': 'ALICE-ADDR' },
+    })
+    const now = NOW + HOLD
+    const pending = getEarningsForLogin('alice', now)
+    expect(pending.paidMicro).toBe(0)
+    recordBatchCreditTxid(APP, 1, 'CREDIT-TXID', 4242)
+    const paid = getEarningsForLogin('alice', now)
+    expect(paid.paidMicro).toBe(400)
+    expect(paid.maturedUnpaidMicro).toBe(0)
+    expect(paid.heldMicro).toBe(0)
+    expect(paid.lastPayoutAt).toBe(4242)
+  })
+
+  test('reports the payout address as set and the opt-in check time, never the address', () => {
+    upsertPayee('github:alice', 'ALICE-ADDR', 0, 0)
+    expect(getEarningsForLogin('alice', NOW)).toMatchObject({
+      payoutAddressSet: true,
+      lastOptinCheckAt: null,
+    })
+    touchPayeeOptInCheck('github:alice', 77)
+    expect(getEarningsForLogin('alice', NOW).lastOptinCheckAt).toBe(77)
+    expect(JSON.stringify(getEarningsForLogin('alice', NOW))).not.toContain('ALICE-ADDR')
   })
 
   test('is case-insensitive and skips a slashed share', () => {
@@ -471,8 +527,7 @@ describe('payees', () => {
 
     expect(getPayee('github:alice')?.last_payout_at).toBe(4242)
     expect(getPayee('github:bob')?.last_payout_at).toBeNull()
-    const role = getEarningsForLogin('alice').roles.find((r) => r.role === 'reviewer')
-    expect(role?.claimedMicro).toBe(400)
+    expect(getEarningsForLogin('alice', NOW).paidMicro).toBe(400)
   })
 })
 

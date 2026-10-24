@@ -7,7 +7,6 @@ import type { DynamicPrice, PaymentOption, RouteConfig } from '@x402-avm/core/ht
 import type { Price } from '@x402-avm/core/types'
 import { declareDiscoveryExtension } from '@x402-avm/extensions'
 import { formatMicroUsd } from 'aupm-mcp/money'
-import { mvpSplit } from '../claims/attribution-rules.js'
 import { CAIP2_NETWORK, ISSUER, MAX_TIMEOUT_SECONDS, PAY_TO, TAG, USDC_ASA_ID } from '../config.js'
 import { lockfileDynamicPrice, singleAttestDynamicPrice } from '../routes/attest.js'
 import { BASE_DONATION_MICRO, MICRO_PER_TENTH, MIN_MULTIPLIER_TENTHS } from './multiplier.js'
@@ -28,16 +27,12 @@ export const MIN_PRICE_TEXT = formatMicroUsd(MICRO_PER_TENTH * MIN_MULTIPLIER_TE
 export const PRICE_PHRASE = `suggested ${PRICE_TEXT}, minimum ${MIN_PRICE_TEXT}`
 
 // Disclosure rule: every public text (README, `og:description`,
-// Bazaar descriptions) shows both the target split and the MVP split.
-// The target split is a literal: the ledger still uses the
-// table until the new contract ships (L32). The MVP split comes from the ledger,
-// because the live contract pays it.
-// Never claim a share goes to a role that is not onboarded.
-const { auditorPercent: MVP_AUDITOR_PERCENT, opsPercent: MVP_OPS_PERCENT } = mvpSplit()
+// Bazaar descriptions) shows the split and names the roles that are not
+// onboarded. Never claim a share goes to a role that is not onboarded.
 export const SPLIT_DISCLOSURE =
-  'Target split 40/10/25/20/5: treasury 20% and ops 5% off the top, 75% to a pool per ' +
-  `package version. In the MVP: ${MVP_AUDITOR_PERCENT}% to the auditor, ` +
-  `${MVP_OPS_PERCENT}% to the operator until the other roles launch.`
+  'Split 40/10/25/20/5: treasury 20% and ops 5% off the top, 75% to a pool per package ' +
+  'version (reviewer line 40%, contributor 10%, maintainer 25%). Until the contributor and ' +
+  'maintainer roles are onboarded, their 35% goes to the treasury.'
 
 // The canonical text for the `og:description` meta tag on the front page
 // at `GET /` (proxy/src/front-page.ts). The app serves it

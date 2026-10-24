@@ -13,13 +13,14 @@ import { beforeEach, describe, expect, test } from 'vitest'
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-routes-test-${randomUUID()}.db`)
 
 const { default: db } = await import('./schema.js')
-const { writeAccruals } = await import('./ledger.js')
+const { upsertPayee, writeAccruals } = await import('./ledger.js')
 const { createClaimsRouter } = await import('./routes.js')
 type Attribution = import('./attribution-rules.js').Attribution
 
 beforeEach(() => {
   db.exec('DELETE FROM accruals')
   db.exec('DELETE FROM payouts')
+  db.exec('DELETE FROM payees')
 })
 
 describe('GET /api/v1/earnings/github/:login', () => {
@@ -48,6 +49,29 @@ describe('GET /api/v1/earnings/github/:login', () => {
     expect(res.status).toBe(200)
     const body = (await res.json()) as { totalAccruedMicro: number }
     expect(body.totalAccruedMicro).toBe(0)
+  })
+
+  test('never returns the payout address and has no address field but payoutAddressSet', async () => {
+    const payoutAddress = `${'ALICE'.repeat(11)}1`
+    upsertPayee('github:alice', payoutAddress, 0, 5)
+    writeAccruals(
+      {
+        route: 'single-attest',
+        priceMicro: 1000,
+        packages: [{ pkg: 'ms', version: '2.1.3', auditor: 'github:alice' }],
+      },
+      'TXID-ROUTE-3',
+    )
+    const res = await createClaimsRouter().request('/api/v1/earnings/github/alice')
+    const body = (await res.json()) as Record<string, unknown>
+    expect(body.payoutAddressSet).toBe(true)
+    expect(body.lastOptinCheckAt).toBe(5)
+    expect(Object.values(body)).not.toContain(payoutAddress)
+    expect(JSON.stringify(body)).not.toContain(payoutAddress)
+    const names = Object.keys(body).filter((k) => /address/i.test(k))
+    expect(names).toEqual(['payoutAddressSet'])
+    expect(body).not.toHaveProperty('claimedMicro')
+    expect(body).not.toHaveProperty('totalClaimedMicro')
   })
 
   test('the login path segment is case-insensitive: ALICE reports the same accrual as alice', async () => {

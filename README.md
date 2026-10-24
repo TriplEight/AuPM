@@ -36,9 +36,9 @@ agents and CI pipelines choose and install most packages, and no person sees tha
 
 Have you ever thought you can thank the open source you use as you install it, $0.01 at
 a time (from $0.001)? Add `--donate` to an install. AuPM pays for a human review of each
-reviewed package in your lockfile. Today that donation pays the auditor who read the tarball
-(30%) and runs AuPM (70%). The planned split also pays maintainers and contributors. See
-[How donations work](#how-donations-work).
+reviewed package in your lockfile. The donation pays the auditors of that exact version (40%),
+the treasury (20%) and ops (5%). The contributor (10%) and maintainer (25%) shares go to the
+treasury until those roles are onboarded. See [How donations work](#how-donations-work).
 
 ## Try it in 30 seconds
 
@@ -178,8 +178,9 @@ We know: the wallet setup is the hardest step in AuPM today. We chose crypto any
 two reasons.
 
 1. **The payment is too small for a card.** Card networks charge a fixed fee on each
-   payment, typically tens of cents. That is far more than $0.001. A USDC payment on
-   Algorand costs a small fraction of a cent, so a $0.001 donation works.
+   payment, typically tens of cents. That is more than the donation itself: $0.01 by
+   default, $0.001 at the minimum. A USDC payment on Algorand costs a small fraction of a
+   cent, and the facilitator pays that fee. So even a $0.001 donation arrives in full.
 2. **The protocol is an open standard.** AuPM pays over [x402](https://www.x402.org), which
    turns HTTP status 402 "Payment Required" into a working payment flow. The
    [x402 Foundation](https://www.linuxfoundation.org/press/linux-foundation-announces-operational-launch-of-x402-foundation-to-standardize-internet-native-payments-for-ai-agents-and-applications)
@@ -188,7 +189,7 @@ two reasons.
 
 ### Where the money goes
 
-Target split, per $0.001 donated:
+Split, per donation:
 
 | Recipient | Share |
 |---|---|
@@ -199,43 +200,48 @@ Target split, per $0.001 donated:
 | Ops | 5% |
 
 Treasury and ops come off the top. The other 75% goes to a pool for the exact package version.
-A pool share with no payee goes to treasury.
+A pool share with no payee goes to treasury, never to ops.
 
-MVP split. So far, the split pays only the auditor and ops roles:
-
-| Recipient | Share |
-|---|---|
-| Auditor | 30% |
-| Ops | 70% |
-
-The MVP's 70% is ops income now, not a debt owed to the other roles. The live contract pays
-this split. A new contract version moves to the target split, and then a role with no payee
-sends its share to treasury, not to ops. TestNet runs the same split.
+The contributor and maintainer roles are not onboarded yet. Until then, their shares (35%) go to
+the treasury. TestNet runs the same split.
 
 ### Trust model
 
-The contract admin is a 2-of-3 multisig, not one key. The admin is trusted: two of the three
-signers can together redirect any credited balance and the unallocated USDC at any time, with
-no delay, because remapping an identity or changing the crediter key takes effect at once.
-A migration to a new contract needs a public announcement, then a 7-day delay, and then must
-run within the next 7 days or be announced again. The delay gives payees a warning window
-for a migration. It does not limit what the multisig can do. Any balance still unclaimed at
-migration moves to the treasury account, which pays it to the payee on request.
+The contract admin is a 2-of-3 multisig, not one key. The admin is trusted. Two of the three
+signers can together replace the crediter key or lower the payout cap at once. A higher
+payout cap, a new ops or treasury address, and a migration to a new contract need a public
+announcement, then a 7-day delay, and then must run within the next 7 days or be announced
+again. A migration moves no USDC. Held shares and small balances carry over to the next
+contract version.
+
+The crediter is a hot key that the nightly job uses. Each night, it pays the matured shares to
+the payout addresses in the AuPM ledger, and the ops and treasury shares to their fixed
+addresses. The contract trusts the crediter for the payout addresses. It limits the crediter
+in two ways:
+
+- It pays out only USDC that arrived and is not paid yet.
+- The payouts to payees in one period (about 1 day) total at most `payoutCap`.
+
+A stolen crediter key or a changed ledger can send at most `payoutCap` per period to a wrong
+address (up to 2 × `payoutCap` across a period boundary), until the admin lowers the cap or
+replaces the crediter. Each payout is a public transfer on chain.
 
 ## For auditors
 
 Onboarding is manual in the MVP (planned). The path today:
 
 1. Open an Algorand account and opt it in to USDC.
-2. The admin maps your identity `github:<login>` on-chain with `setIdentity`. This is the only
-   registry. It needs no redeploy. Logins are lower case.
+2. You apply with your GitHub login. The ops check the USDC opt-in and add your address as
+   your payout address in the AuPM ledger. Logins are lower case.
 3. You read the exact tarball you are reviewing.
 4. You anchor the review with a 0-ALGO self-payment to your own address, carrying an ARC-2
    note (`aupm:j{...}`).
 5. The operator runs `record-review` against your anchor transaction, which flips the package
    to `COMMUNITY_REVIEWED`.
-6. The nightly batch credits your balance in PaymentRouter.
-7. You call `claim()` once your balance reaches `MIN_CLAIM`.
+6. Each donation for that version adds your share to your balance in the ledger. AuPM holds
+   each share for 30 days. Then the nightly job pays your balance to your payout address when
+   it reaches a payout threshold. You send no transaction. See
+   [docs/ONBOARDING.md](docs/ONBOARDING.md#5-auditor).
 
 Attestations use DSSE envelopes with in-toto Statement v1 and ed25519 signatures.
 
