@@ -11,14 +11,23 @@ body:
         [auditor section of the onboarding guide](https://github.com/TriplEight/AuPM/blob/main/docs/ONBOARDING.md#5-auditor).
 
         Your GitHub login is the login of the account that opens this issue. AuPM maps that
-        login to the account address below.
+        login to the review address below.
 
         WARNING: this issue is public. Never write a recovery phrase or a private key here.
   - type: input
-    id: address
+    id: review-address
     attributes:
-      label: Account address
-      description: The Algorand address that signs your review anchors and receives your USDC.
+      label: Review address
+      description: The Algorand address that signs your review anchors.
+      placeholder: 58 characters, A-Z and 2-7
+    validations:
+      required: true
+  - type: input
+    id: payout-address
+    attributes:
+      label: Payout address
+      description: >-
+        The Algorand address that receives your USDC. It must differ from the review address.
       placeholder: 58 characters, A-Z and 2-7
     validations:
       required: true
@@ -38,10 +47,10 @@ body:
     attributes:
       label: Checks
       options:
-        - label: The account is opted in to USDC (ASA 31566704).
+        - label: The payout account is opted in to USDC (ASA 31566704).
           required: true
         - label: >-
-            I understand that this account is a cold wallet: its recovery phrase never goes on a
+            I understand that each account is a cold wallet: its recovery phrase never goes on a
             computer that is connected to the internet, except in the hidden prompt of an
             `aupm auditor` command.
           required: true
