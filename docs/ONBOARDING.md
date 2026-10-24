@@ -270,50 +270,22 @@ results.
 
 The AuPM Action replaces an `npm ci`, `pnpm install --frozen-lockfile` or
 `yarn install --frozen-lockfile` step. It installs through AuPM. If AuPM fails, it installs from
-the public registry. An AuPM failure never fails your job. An install failure fails the job, as
-with plain npm. The full reference is
-[.github/actions/aupm/README.md](../.github/actions/aupm/README.md). A working example is
-[TriplEight/AuPM-action-demo](https://github.com/TriplEight/AuPM-action-demo).
+the public registry. An AuPM failure never fails your job. With a donor secret, it donates for
+each reviewed package in the lockfile. The price is in the "Public values" table in
+[section 0](#public-values).
 
-### Procedure
+```yaml
+- uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
+  with:
+    endpoint: https://aupm.fyi
+    donate: 'true'                                            # omit for free use
+    donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}  # omit for free use
+```
 
-1. Get a full 40-character commit SHA of `TriplEight/AuPM` from the `main` branch. Never use a
-   branch name, a tag or a short SHA.
-2. Set up Node, and pnpm or yarn if the project uses them, before the AuPM step.
-3. To donate, do the donor procedure in section 2 first. Then store the same key file as a
-   repository secret:
-
-   ```bash
-   gh secret set AUPM_DONOR_MNEMONIC_MAINNET < ~/.config/aupm/donor.key
-   ```
-
-   Without `gh`: open **Settings > Secrets and variables > Actions > New repository secret**.
-   Name it `AUPM_DONOR_MNEMONIC_MAINNET`. Paste the 25 words. Never paste the words in a workflow
-   file, an issue or a log.
-4. Replace the install step:
-
-   ```yaml
-   - name: Install through AuPM
-     id: aupm
-     uses: TriplEight/AuPM/.github/actions/aupm@<40-character SHA>
-     with:
-       endpoint: https://aupm.fyi
-       donate: 'true'                                            # omit for free use
-       donor-secret: ${{ secrets.AUPM_DONOR_MNEMONIC_MAINNET }}  # omit for free use
-   ```
-
-   For a lockfile in a subdirectory, add `lockfile: apps/web/pnpm-lock.yaml`.
-5. Optional: upload the signed receipt `aupm-receipt.json` with `actions/upload-artifact`.
-6. Push. In the run log, find the AuPM step.
-   - Free use: a `::warning::` that names withheld reviewed packages is normal.
-   - Donations: the `::notice::AuPM donation: <N> microUSDC, settlement txid <txid>` annotation
-     and the "AuPM donation" table in the job summary show the payment.
-
-NOTE: A pull request from a branch of the same repository gets the secret, so its run pays. The
-merge to the default branch is a push, and that run pays again. You can put `[skip ci]` in the
-merge commit message to skip the payment.
-
-Do not add a `schedule` trigger to a workflow that donates. Do not re-run a job that paid.
+The full procedure is in the
+[demo repository](https://github.com/TriplEight/aupm-action-demo): fork, key, secret, pin,
+receipt and TestNet rehearsal. The input reference is
+[.github/actions/aupm/README.md](../.github/actions/aupm/README.md).
 
 ## 5. Auditor
 
