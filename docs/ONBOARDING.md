@@ -299,13 +299,19 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 ### What you need
 
 - A GitHub account. Your GitHub login is your auditor identity.
-- A cold Algorand account. This account signs your reviews and receives your USDC. Two kinds
-  work:
+- Two cold Algorand accounts:
+  - The review account signs your review anchors. The ops link it to your GitHub login.
+  - The payout account receives your USDC. It must be a different account.
+  - One account for both would make the link between your login and your payout address public.
+    Every review anchor shows your login and the review account.
+- Each account can be one of two kinds:
   - A Pera Universal Wallet account (24-word recovery phrase). `aupm` uses the first account that
     Pera shows. For another account of the same wallet, add `--address <address>` to `review`.
   - An Algo25 account (25-word recovery phrase).
-- About 0.3 ALGO (section 0): 0.1 for the account, 0.1 for the USDC opt-in and 0.001 for each
-  review. A payout to you costs you no ALGO.
+- ALGO for the review account (section 0): about 0.1 ALGO for the minimum balance and 0.001 ALGO
+  for each review. This account needs no USDC opt-in.
+- ALGO for the payout account: about 0.2 ALGO, which is 0.1 for the minimum balance and 0.1 for
+  the USDC opt-in. A payout to you costs you no ALGO.
 - The `aupm` CLI (section 0).
 
 ### Precautions
@@ -314,16 +320,18 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
   an AI agent.
 - Type the phrase only into the hidden prompt of an `aupm auditor` command, on your own computer.
   `aupm` does not store it.
-- Use this account only for AuPM reviews. Do not keep other funds in it.
+- Use the review account only for AuPM reviews. Do not keep other funds in it.
+- Do not send a transaction between the review account and the payout account. A transfer links
+  the two accounts on chain.
 - The AuPM team never asks for your recovery phrase.
 
 ### Procedure
 
 1. Apply. [Open an issue with the "Auditor application" form](https://github.com/TriplEight/AuPM/issues/new?template=auditor-application.yml).
-   Give the address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
-   The ops check the opt-in. Then they add the address as your payout address.
-   They also add the address that signs your reviews, with
-   `pnpm -C proxy auditor add github:<login> <address>`. The two addresses can differ.
+   Give two addresses: the review address and the payout address. They must differ. Opt the
+   payout account in to USDC (asset `31566704`) before you apply. The ops check the opt-in. Then
+   they add the payout address as your payout address. They also add the review address, which
+   signs your reviews, with `pnpm -C proxy auditor add github:<login> <review address>`.
 2. Read the files. Get the exact tarball that users install:
 
    ```bash
@@ -340,13 +348,14 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 
    - The command asks for your recovery phrase in a hidden prompt. The screen shows nothing while
      you type. If your terminal is not interactive, it stops and tells you so.
-   - For a Pera wallet with several accounts, add `--address <address>` to pick the account.
+   - The command signs with the review account. For a Pera wallet with several accounts, add
+     `--address <review address>` to pick the review account. Do not use the payout account.
    - It asks four questions: what you read, the install scripts, your findings, and what changed
      since your previous reviewed version. It shows that previous version. Type `first review`
      for the last question if this is your first review of the package. The whole review note
      must fit in 1,024 bytes, so keep the answers short.
    - It prints every field of the review. It asks `Send this review to the blockchain?` Type
-     `yes` to send it. It sends one 0-ALGO transaction from your account to your own account. The
+     `yes` to send it. It sends one 0-ALGO transaction from your review account to itself. The
      note holds the review. The fee is 0.001 ALGO. You cannot undo it.
    - It prints `Review recorded.`, the txid and an explorer link.
    - Add `--login <your GitHub login>` to skip the login question.
@@ -373,7 +382,8 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
      - Your last payout was 30 days ago or more, and the balance is 0.01 USDC or more.
    - A smaller balance stays in the ledger until a rule applies. The ops can change these
      values.
-   - Keep the USDC opt-in on your payout address. Before each payout, the job checks it. If the
+   - The payout goes to your payout account, not to your review account. Keep the USDC opt-in on
+     your payout account. Before each payout, the job checks it. If the
      check fails, the job skips your payout and the ops tell you. Your balance stays.
 
    ```bash

@@ -108,6 +108,10 @@ aupm auditor balance <github-login> [--address <payout-address>]   # ledger earn
 aupm auditor status <github-login>                              # your reviews on the server
 ```
 
+`review` signs with your review account. Payouts go to a separate payout account with a USDC
+opt-in. Use two accounts: one account for both would make the link between your login and your
+payout address public.
+
 `review` shows every field and sends the anchor only after you type `yes`. An unread review
 is allowed on TestNet only. The network and the USDC asset id come from the server
 (`GET /api/v1/contract`).
