@@ -54,14 +54,13 @@ COPY proxy/tsconfig.json proxy/tsconfig.json
 # needs aupm-mcp's source since it ships without a build step, same as proxy.
 COPY mcp/src mcp/src
 # scripts/record-review.mjs is the operator's `docker compose run`
-# entry point. It imports ./network.mjs, ./review-anchor.mjs and
-# ./router-boxes.mjs by relative path, and dynamically imports
-# ../proxy/src/status.js, so scripts/ must sit next to proxy/ in the image
-# with this same relative layout. Only these four files: not their
+# entry point. It imports ./network.mjs and ./review-anchor.mjs by relative
+# path, and dynamically imports ../proxy/src/status.js and
+# ../proxy/src/claims/ledger.js, so scripts/ must sit next to proxy/ in the
+# image with this same relative layout. Only these three files: not their
 # *.test.mjs, and not the auditor's tooling (the auditor's own machine,
 # never the server). scripts/dockerfile-scripts.test.mjs checks the list.
 COPY scripts/record-review.mjs scripts/record-review.mjs
-COPY scripts/router-boxes.mjs scripts/router-boxes.mjs
 COPY scripts/review-anchor.mjs scripts/review-anchor.mjs
 COPY scripts/network.mjs scripts/network.mjs
 

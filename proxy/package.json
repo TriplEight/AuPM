@@ -9,6 +9,7 @@
     "start": "node --env-file=../.env --import tsx/esm src/index.ts",
     "nightly": "node --env-file=../.env --import tsx/esm src/claims/nightly-main.ts",
     "payee": "node --env-file=../.env --import tsx/esm src/claims/payee-main.ts",
+    "auditor": "node --env-file=../.env --import tsx/esm src/claims/auditor-main.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "build:native": "pnpm rebuild better-sqlite3"

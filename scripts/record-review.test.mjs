@@ -46,19 +46,19 @@ const GOOD_PACKUMENT = {
   versions: { '2.1.3': { dist: { integrity: 'sha512-known-good' } } },
 }
 
-/** Fake PaymentRouter identity boxes: identity -> address. Records the lookups. */
-function stubRegistry(boxes) {
+/** Fake auditor table: identity -> review address. Records the lookups. */
+function stubRegistry(rows) {
   const lookups = []
   return {
     lookups,
-    readMappedAddress: async (appId, identity) => {
-      lookups.push([appId, identity])
-      return boxes[identity] ?? null
+    getAuditorReviewAddress: (identity) => {
+      lookups.push(identity)
+      return rows[identity] ?? null
     },
   }
 }
 
-const REGISTRY_ARGS = { paymentRouterAppId: '123', ...stubRegistry({ 'github:alice': 'ADDR1' }) }
+const REGISTRY_ARGS = stubRegistry({ 'github:alice': 'ADDR1' })
 
 function recordedRows(store) {
   const rows = []
@@ -117,7 +117,7 @@ test('declining the prompt writes nothing', async () => {
   assert.equal(rows.length, 0)
 })
 
-test('an unmapped reviewer login throws and writes nothing', async () => {
+test('a reviewer login without a review address throws and writes nothing', async () => {
   const { store, rows } = recordedRows()
   await assert.rejects(
     runRecordReview({
@@ -126,16 +126,15 @@ test('an unmapped reviewer login throws and writes nothing', async () => {
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      paymentRouterAppId: '123',
       ...stubRegistry({}),
       log: () => {},
     }),
-    /github:alice is not mapped in PaymentRouter/,
+    /github:alice has no review address/,
   )
   assert.equal(rows.length, 0)
 })
 
-test('a sender that differs from the mapped address throws and writes nothing', async () => {
+test('a sender that differs from the review address throws and writes nothing', async () => {
   const { store, rows } = recordedRows()
   await assert.rejects(
     runRecordReview({
@@ -149,32 +148,12 @@ test('a sender that differs from the mapped address throws and writes nothing', 
       ...REGISTRY_ARGS,
       log: () => {},
     }),
-    /is not the address mapped to github:alice/,
+    /is not the review address of github:alice/,
   )
   assert.equal(rows.length, 0)
 })
 
-test('a missing app id throws before any lookup and writes nothing', async () => {
-  const { store, rows } = recordedRows()
-  const registry = stubRegistry({ 'github:alice': 'ADDR1' })
-  await assert.rejects(
-    runRecordReview({
-      anchorTxid: 'TXID1',
-      indexerClient: stubIndexer(goodTx()),
-      fetchImpl: stubFetch(GOOD_PACKUMENT),
-      prompt: async () => 'yes',
-      statusStore: store,
-      paymentRouterAppId: undefined,
-      ...registry,
-      log: () => {},
-    }),
-    /PAYMENT_ROUTER_APP_ID is not set/,
-  )
-  assert.equal(registry.lookups.length, 0)
-  assert.equal(rows.length, 0)
-})
-
-test('a mixed-case reviewer login matches a lower-case box', async () => {
+test('a mixed-case reviewer login matches a lower-case ledger row', async () => {
   const { store, rows } = recordedRows()
   const registry = stubRegistry({ 'github:alice': 'ADDR1' })
   const result = await runRecordReview({
@@ -185,16 +164,15 @@ test('a mixed-case reviewer login matches a lower-case box', async () => {
     fetchImpl: stubFetch(GOOD_PACKUMENT),
     prompt: async () => 'yes',
     statusStore: store,
-    paymentRouterAppId: '123',
     ...registry,
     log: () => {},
   })
-  assert.deepEqual(registry.lookups, [[123, 'github:alice']])
+  assert.deepEqual(registry.lookups, ['github:alice'])
   assert.equal(result.reviewer, 'alice')
   assert.equal(rows[0][6], 'alice')
 })
 
-test('two different auditors both record from one registry', async () => {
+test('two different auditors both record from one ledger', async () => {
   const registry = stubRegistry({ 'github:alice': 'ADDR1', 'github:bob': 'ADDR2' })
   for (const [login, address] of [
     ['alice', 'ADDR1'],
@@ -213,7 +191,6 @@ test('two different auditors both record from one registry', async () => {
       fetchImpl: stubFetch(GOOD_PACKUMENT),
       prompt: async () => 'yes',
       statusStore: store,
-      paymentRouterAppId: '123',
       ...registry,
       log: () => {},
     })

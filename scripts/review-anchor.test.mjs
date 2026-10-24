@@ -4,7 +4,7 @@ import {
   checkIntegrityMatchesNpm,
   checkIsSelfZeroPayment,
   checkScopeAllowedOnNetwork,
-  checkSenderIsMappedAuditor,
+  checkSenderIsAuditorReviewAddress,
   decodeReviewNote,
   distIntegrityForVersion,
   encodeReviewNote,
@@ -90,36 +90,36 @@ test('githubIdentity lower-cases a bare login and a prefixed identity', () => {
   assert.equal(githubIdentity('github:alice'), 'github:alice')
 })
 
-test('checkSenderIsMappedAuditor throws when the identity box does not exist', () => {
+test('checkSenderIsAuditorReviewAddress throws when the identity has no review address', () => {
   assert.throws(
     () =>
-      checkSenderIsMappedAuditor({
+      checkSenderIsAuditorReviewAddress({
         sender: 'ADDR1',
         identity: 'github:alice',
-        mappedAddress: null,
+        reviewAddress: null,
       }),
-    /not mapped in PaymentRouter/,
+    /github:alice has no review address: run `pnpm -C proxy auditor add github:alice <address>`/,
   )
 })
 
-test('checkSenderIsMappedAuditor throws when the sender differs from the mapped address', () => {
+test('checkSenderIsAuditorReviewAddress throws when the sender differs from the review address', () => {
   assert.throws(
     () =>
-      checkSenderIsMappedAuditor({
+      checkSenderIsAuditorReviewAddress({
         sender: 'ADDR2',
         identity: 'github:alice',
-        mappedAddress: 'ADDR1',
+        reviewAddress: 'ADDR1',
       }),
-    /is not the address mapped to github:alice/,
+    /is not the review address of github:alice/,
   )
 })
 
-test('checkSenderIsMappedAuditor accepts the mapped address', () => {
+test('checkSenderIsAuditorReviewAddress accepts the review address', () => {
   assert.doesNotThrow(() =>
-    checkSenderIsMappedAuditor({
+    checkSenderIsAuditorReviewAddress({
       sender: 'ADDR1',
       identity: 'github:alice',
-      mappedAddress: 'ADDR1',
+      reviewAddress: 'ADDR1',
     }),
   )
 })

@@ -221,6 +221,17 @@ db.exec(`
   )
 `)
 
+// One row per auditor with a review address. The address signs the review
+// anchors of that identity. It may differ from the payout address in `payees`.
+// An ops action: record-review reads this table to check the anchor sender.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auditors (
+    identity       TEXT PRIMARY KEY,
+    review_address TEXT NOT NULL,
+    added_at       INTEGER NOT NULL
+  )
+`)
+
 // The payouts of one batch, written when the batch opens. A resend of a
 // pending batch pays exactly these addresses and amounts, even when the payee
 // table changed after the crash.
@@ -251,6 +262,12 @@ export type PayeeRow = {
   onboarded_at: number
   last_optin_check: number
   last_payout_at: number | null
+}
+
+export type AuditorRow = {
+  identity: string
+  review_address: string
+  added_at: number
 }
 
 export type BacklogRow = {

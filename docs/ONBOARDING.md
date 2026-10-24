@@ -322,6 +322,8 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
 1. Apply. [Open an issue with the "Auditor application" form](https://github.com/TriplEight/AuPM/issues/new?template=auditor-application.yml).
    Give the address of the account. Opt the account in to USDC (asset `31566704`) before you apply.
    The ops check the opt-in. Then they add the address as your payout address.
+   They also add the address that signs your reviews, with
+   `pnpm -C proxy auditor add github:<login> <address>`. The two addresses can differ.
 2. Read the files. Get the exact tarball that users install:
 
    ```bash

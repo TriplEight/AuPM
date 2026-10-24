@@ -16,6 +16,7 @@ process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-record-review-test-${rand
 
 const { default: db } = await import('./db.js')
 const statusStore = await import('./status.js')
+const ledger = await import('./claims/ledger.js')
 // scripts/*.mjs are plain JS (JSDoc-typed, not part of this tsconfig's
 // `include`), so tsc cannot infer their shape from a declaration file.
 // @ts-expect-error -- no .d.ts for scripts/record-review.mjs
@@ -25,6 +26,8 @@ const { encodeReviewNote } = await import('../../scripts/review-anchor.mjs')
 
 beforeEach(() => {
   db.exec('DELETE FROM audit_status')
+  db.exec('DELETE FROM auditors')
+  ledger.addAuditor('github:alice', 'ADDR1', 1)
 })
 
 const NOTE_FIELDS = {
@@ -71,8 +74,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      paymentRouterAppId: '123',
-      readMappedAddress: async () => 'ADDR1',
+      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
       network: 'mainnet',
       log: () => {},
     })
@@ -89,6 +91,41 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
     expect(row.auditor_addr).toBe('ADDR1')
   })
 
+  test('an unknown signer is refused and writes no row', async () => {
+    db.exec('DELETE FROM auditors')
+    await expect(
+      runRecordReview({
+        anchorTxid: 'TXID1',
+        indexerClient: stubIndexer(goodTx()),
+        fetchImpl: stubFetch(),
+        prompt: async () => 'yes',
+        statusStore,
+        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+        network: 'mainnet',
+        log: () => {},
+      }),
+    ).rejects.toThrow(/pnpm -C proxy auditor add github:alice/)
+    expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')
+  })
+
+  test('a wrong signer is refused and writes no row', async () => {
+    await expect(
+      runRecordReview({
+        anchorTxid: 'TXID1',
+        indexerClient: stubIndexer(
+          goodTx({ sender: 'ADDR2', paymentTransaction: { amount: 0n, receiver: 'ADDR2' } }),
+        ),
+        fetchImpl: stubFetch(),
+        prompt: async () => 'yes',
+        statusStore,
+        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+        network: 'mainnet',
+        log: () => {},
+      }),
+    ).rejects.toThrow(/is not the review address of github:alice/)
+    expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')
+  })
+
   test('declining the prompt writes no row at all', async () => {
     const result = await runRecordReview({
       anchorTxid: 'TXID1',
@@ -96,8 +133,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'no',
       statusStore,
-      paymentRouterAppId: '123',
-      readMappedAddress: async () => 'ADDR1',
+      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
       network: 'testnet',
       log: () => {},
     })
@@ -122,8 +158,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
           return 'yes'
         },
         statusStore,
-        paymentRouterAppId: '123',
-        readMappedAddress: async () => 'ADDR1',
+        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
         network: 'mainnet',
         log: () => {},
       }),
@@ -140,8 +175,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      paymentRouterAppId: '123',
-      readMappedAddress: async () => 'ADDR1',
+      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
       network: 'testnet',
       log: () => {},
     })

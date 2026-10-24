@@ -63,7 +63,7 @@ export function decodeReviewNote(noteBytes) {
 }
 
 /**
- * The PaymentRouter identity for a GitHub login: "github:<login>", lower
+ * The auditor identity for a GitHub login: "github:<login>", lower
  * case. GitHub logins are case-insensitive, so this is the only place that
  * builds or normalises such an identity. Accepts a bare login or an
  * identity that already has the "github:" prefix.
@@ -190,21 +190,20 @@ export function checkIsSelfZeroPayment(tx) {
 }
 
 /**
- * Throws unless `sender` equals the address that PaymentRouter maps to
- * `identity` (its identity box). `mappedAddress` is null when the box does
- * not exist.
+ * Throws unless `sender` equals the review address of `identity` in the proxy
+ * ledger. `reviewAddress` is null when the identity has no row.
  *
- * @param {{sender: string, identity: string, mappedAddress: string|null}} args
+ * @param {{sender: string, identity: string, reviewAddress: string|null}} args
  */
-export function checkSenderIsMappedAuditor({ sender, identity, mappedAddress }) {
-  if (mappedAddress === null) {
+export function checkSenderIsAuditorReviewAddress({ sender, identity, reviewAddress }) {
+  if (reviewAddress === null) {
     throw new Error(
-      `${identity} is not mapped in PaymentRouter: the admin must run setIdentity for it first`,
+      `${identity} has no review address: run \`pnpm -C proxy auditor add ${identity} <address>\` first`,
     )
   }
-  if (sender !== mappedAddress) {
+  if (sender !== reviewAddress) {
     throw new Error(
-      `anchor sender ${sender} is not the address mapped to ${identity} (${mappedAddress})`,
+      `anchor sender ${sender} is not the review address of ${identity} (${reviewAddress})`,
     )
   }
 }

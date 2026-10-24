@@ -14,6 +14,7 @@ import {
 } from './attribution-rules.js'
 import db, {
   type AccrualRow,
+  type AuditorRow,
   type BacklogRow,
   type BatchRow,
   type PayeeRow,
@@ -623,6 +624,30 @@ const touchPayeeStmt = db.prepare<[number, string]>(
 /** Records the time (ms) of the last opt-in check of a payee's address. */
 export function touchPayeeOptInCheck(identity: string, checkedAt: number): void {
   touchPayeeStmt.run(checkedAt, canonicalizeIdentity(identity))
+}
+
+const insertAuditorStmt = db.prepare<[string, string, number]>(
+  'INSERT INTO auditors (identity, review_address, added_at) VALUES (?, ?, ?)',
+)
+
+/**
+ * Adds an auditor with the address that signs the review anchors. Throws when the
+ * identity already has a row: a change of address is not supported. An ops action.
+ */
+export function addAuditor(identity: string, reviewAddress: string, addedAt: number): void {
+  insertAuditorStmt.run(canonicalizeIdentity(identity), reviewAddress, addedAt)
+}
+
+/** The review address of an auditor identity, or null when the identity has no row. */
+export function getAuditorReviewAddress(identity: string): string | null {
+  const row = db
+    .prepare<[string], AuditorRow>('SELECT * FROM auditors WHERE identity = ?')
+    .get(canonicalizeIdentity(identity))
+  return row?.review_address ?? null
+}
+
+export function listAuditors(): AuditorRow[] {
+  return db.prepare<[], AuditorRow>('SELECT * FROM auditors ORDER BY identity').all()
 }
 
 /** A payee's matured, unfrozen, unpaid pool balance in micro-USDC. */
