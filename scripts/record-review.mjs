@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Records one human review from its on-chain anchor.
 // Run by the operator, on the server. Reads the anchor transaction from the
-// indexer, checks its sender against the PaymentRouter
-// identity box of the note's reviewer, checks its integrity against
+// indexer, checks its sender against the review address of the note's reviewer
+// in the proxy ledger (add it with `pnpm -C proxy auditor add`), checks its integrity against
 // npm for that exact version, resolves the repo key, prints
 // every field, requires an interactive "yes", and only then writes the row
 // through the proxy's own SQLite schema (proxy/src/status.ts's setStatus —
@@ -22,12 +22,12 @@
 // with no TTY on stdin, it refuses before any network or database access.
 import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline/promises'
-import { algodEndpoint, indexerEndpoint, parseNetworkFlag } from './network.mjs'
+import { indexerEndpoint, parseNetworkFlag } from './network.mjs'
 import {
   checkIntegrityMatchesNpm,
   checkIsSelfZeroPayment,
   checkScopeAllowedOnNetwork,
-  checkSenderIsMappedAuditor,
+  checkSenderIsAuditorReviewAddress,
   decodeReviewNote,
   distIntegrityForVersion,
   fetchNpmPackument,
@@ -35,7 +35,6 @@ import {
   repositoryForVersion,
   resolveRepoKey,
 } from './review-anchor.mjs'
-import { readMappedAddress } from './router-boxes.mjs'
 
 const require = createRequire(new URL('../proxy/package.json', import.meta.url))
 
@@ -57,9 +56,8 @@ function printUsage() {
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {(question: string) => Promise<string>} deps.prompt
  * @param {{setStatus: Function, getStatusOrUnreviewed: Function}} deps.statusStore
- * @param {string|undefined} deps.paymentRouterAppId - PAYMENT_ROUTER_APP_ID.
- * @param {(appId: number, identity: string) => Promise<string|null>} deps.readMappedAddress -
- *   the address in the PaymentRouter identity box of `identity`, or null when unmapped.
+ * @param {(identity: string) => string|null} deps.getAuditorReviewAddress -
+ *   the review address of `identity` in the proxy ledger, or null when it has no row.
  * @param {string} deps.network - the network the review is recorded for.
  * @param {(line: string) => void} [deps.log]
  * @returns {Promise<{recorded: boolean, pkg?: string, version?: string, repo?: string, reviewer?: string}>}
@@ -70,22 +68,17 @@ export async function runRecordReview({
   fetchImpl = fetch,
   prompt,
   statusStore,
-  paymentRouterAppId,
-  readMappedAddress: readMapped,
+  getAuditorReviewAddress,
   network,
   log = console.log,
 }) {
-  if (!paymentRouterAppId) {
-    throw new Error('PAYMENT_ROUTER_APP_ID is not set: cannot read the auditor registry')
-  }
-
   const { transaction: tx } = await indexerClient.lookupTransactionByID(anchorTxid).do()
   checkIsSelfZeroPayment(tx)
   const note = decodeReviewNote(tx.note)
   checkScopeAllowedOnNetwork(note.scope, network)
   const identity = githubIdentity(note.reviewer)
-  const mappedAddress = await readMapped(Number(paymentRouterAppId), identity)
-  checkSenderIsMappedAuditor({ sender: tx.sender, identity, mappedAddress })
+  const reviewAddress = getAuditorReviewAddress(identity)
+  checkSenderIsAuditorReviewAddress({ sender: tx.sender, identity, reviewAddress })
   const login = identity.slice('github:'.length)
 
   const packument = await fetchNpmPackument(note.name, fetchImpl)
@@ -143,8 +136,6 @@ async function main() {
   const algosdk = require('algosdk')
   const { server, port, token } = indexerEndpoint(network)
   const indexerClient = new algosdk.Indexer(token, server, port)
-  const algodConfig = algodEndpoint(network)
-  const algod = new algosdk.Algodv2(algodConfig.token, algodConfig.server, algodConfig.port)
 
   const rl = createInterface({ input: process.stdin, output: process.stdout })
   const prompt = (question) => rl.question(question)
@@ -153,6 +144,7 @@ async function main() {
   // already be set in this process's environment (the operator's shell, or
   // the container's) before proxy/src/db.ts is evaluated.
   const statusStore = await import('../proxy/src/status.js')
+  const ledger = await import('../proxy/src/claims/ledger.js')
 
   try {
     const result = await runRecordReview({
@@ -160,8 +152,7 @@ async function main() {
       indexerClient,
       prompt,
       statusStore,
-      paymentRouterAppId: process.env.PAYMENT_ROUTER_APP_ID,
-      readMappedAddress: (appId, identity) => readMappedAddress(algod, appId, identity),
+      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
       network,
     })
     process.exit(result.recorded ? 0 : 1)
