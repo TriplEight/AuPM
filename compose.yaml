@@ -68,6 +68,7 @@ services:
     environment:
       SQLITE_PATH: /data/audit.db
       BACKUP_DIR: /backup
+      AUPM_NIGHTLY_PUSH_URL: ${AUPM_NIGHTLY_PUSH_URL:-}
       CREDITER_MNEMONIC_FILE: /run/secrets/crediter_mnemonic
       ATTEST_SIGNING_KEY_FILE: /run/secrets/attest_signing_key
     secrets:

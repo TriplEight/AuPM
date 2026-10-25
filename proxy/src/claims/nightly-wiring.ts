@@ -20,6 +20,7 @@ import { buildAlgodCreditClient, type CreditChainClient } from './credit.js'
 import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
 import { createIndexerClient } from './indexer.js'
 import type { NightlyDeps } from './nightly.js'
+import { buildNightlyPush } from './push.js'
 
 const DEFAULT_INDEXER_URL = 'https://mainnet-idx.algonode.cloud'
 const DEFAULT_ALGOD_SERVER = 'https://mainnet-api.algonode.cloud'
@@ -103,7 +104,7 @@ function buildCreditClient(indexerUrl: string): CreditChainClient | null {
 /**
  * Wires the real NightlyDeps from the current process's own environment
  * (INDEXER_URL, ALGOD_SERVER, ALGOD_TOKEN, ALGOD_PORT, INDEXER_TOKEN,
- * CREDITER_MNEMONIC, BACKUP_DIR — see .env.example). Call this once per
+ * CREDITER_MNEMONIC, BACKUP_DIR, AUPM_NIGHTLY_PUSH_URL — see .env.example). Call this once per
  * run: nightly-main.ts calls it once per process; proxy/src/index.ts's
  * scheduler calls it once at boot and reuses the result for every
  * scheduled and catch-up run.
@@ -120,5 +121,6 @@ export function buildRealNightlyDeps(): NightlyDeps {
     backup: () => backupDatabase(db, process.env.BACKUP_DIR ?? ''),
     creditClient: buildCreditClient(indexerUrl),
     assertGenesisMatches: buildGenesisGuard(algodServer, algodToken, indexerUrl, indexerToken),
+    push: buildNightlyPush(process.env),
   }
 }

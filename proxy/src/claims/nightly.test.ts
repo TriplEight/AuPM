@@ -9,10 +9,12 @@ import { randomUUID } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
+import { NETWORK } from '../config.js'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-nightly-test-${randomUUID()}.db`)
 
 const {
+  acquireNightlyLease,
   default: db,
   getLastNightlyRun,
   getLastSuccessfulNightlyRun,
@@ -105,7 +107,7 @@ describe('runNightly: order and stop conditions', () => {
         env: {},
         log: () => {},
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toMatchObject({ configSkip: 'PAYMENT_ROUTER_APP_ID is unset' })
 
     expect(backup).toHaveBeenCalledTimes(1)
     expect(creditClient.submitCredit).not.toHaveBeenCalled()
@@ -123,7 +125,7 @@ describe('runNightly: order and stop conditions', () => {
         env: { PAYMENT_ROUTER_APP_ID: '123', PAY_TO_ADDRESS: PAY_TO },
         log: () => {},
       }),
-    ).resolves.toBeUndefined()
+    ).resolves.toMatchObject({ configSkip: expect.stringMatching(/^CREDITER_\w+ is unset$/) })
 
     expect(backup).toHaveBeenCalledTimes(1)
   })
@@ -568,5 +570,137 @@ describe('runNightlyWithLease: lease overlap and expiry (item N1.4)', () => {
       () => new Date(staleHolderAt.getTime() + NIGHTLY_LEASE_STALE_MS + 1),
     )
     expect(afterStale.status).toBe('success')
+  })
+})
+
+describe('runNightlyWithLease: status push', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const now = () => new Date('2026-02-01T03:17:00Z')
+  const crediterUnset = /^\w+ CREDITER_\w+ is unset$/
+
+  function withPush(overrides: Partial<Parameters<typeof runNightly>[0]> = {}) {
+    const push = vi.fn(async (_status: string, _msg: string) => {})
+    return { push, deps: fullyConfiguredDeps({ push, ...overrides }) }
+  }
+
+  test('a normal run pushes up with the batch and the backlog', async () => {
+    writeAccruals(
+      {
+        route: 'single-attest',
+        priceMicro: 1000,
+        packages: [{ pkg: 'p', version: '1.0.0', auditor: 'github:alice' }],
+      },
+      'TXID-PUSH-1',
+    )
+    const { push, deps } = withPush()
+
+    await runNightlyWithLease(deps, now)
+
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('up', `${NETWORK} ok batch=1 backlog=0`)
+  })
+
+  test('a run with nothing to credit pushes up with batch none', async () => {
+    const { push, deps } = withPush()
+
+    await runNightlyWithLease(deps, now)
+
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('up', `${NETWORK} ok batch=none backlog=0`)
+  })
+
+  test('the backlog alert pushes down with the alert text', async () => {
+    const chain = stubCreditClient()
+    const pushes: [string, string][] = []
+    const push = async (status: string, msg: string) => {
+      pushes.push([status, msg])
+    }
+    for (let night = 1; night <= 7; night++) {
+      writeAccruals(
+        {
+          route: 'single-attest',
+          priceMicro: 1000,
+          packages: [{ pkg: `b-${night}`, version: '1.0.0', auditor: 'github:stuck' }],
+        },
+        `TXID-PUSH-BACKLOG-${night}`,
+        0,
+        1,
+      )
+      const at = night * DAY + 1000
+      const deps = fullyConfiguredDeps({ creditClient: chain, push, now: () => at })
+      await runNightlyWithLease(deps, () => new Date(at))
+    }
+
+    expect(pushes.slice(0, 6).map(([status]) => status)).toEqual(Array(6).fill('up'))
+    const [status, msg] = pushes[6] ?? []
+    expect(status).toBe('down')
+    expect(msg).toMatch(
+      new RegExp(
+        `^${NETWORK} ALERT matured unpaid payee total grew 7 nights in a row, now \\d+ micro-USDC$`,
+      ),
+    )
+  })
+
+  test('a failed run pushes down with the reason', async () => {
+    const { push, deps } = withPush({
+      backup: () => {
+        throw new Error('backup destination is unwritable')
+      },
+    })
+
+    await runNightlyWithLease(deps, now)
+
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith(
+      'down',
+      `${NETWORK} failed — backup destination is unwritable`,
+    )
+  })
+
+  test('a missing app id pushes down with the skip reason', async () => {
+    const { push, deps } = withPush({ env: {} })
+
+    await runNightlyWithLease(deps, now)
+
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('down', `${NETWORK} PAYMENT_ROUTER_APP_ID is unset`)
+  })
+
+  test('a missing crediter key pushes down with the skip reason', async () => {
+    const { push, deps } = withPush({ creditClient: null })
+
+    await runNightlyWithLease(deps, now)
+
+    expect(push).toHaveBeenCalledTimes(1)
+    expect(push).toHaveBeenCalledWith('down', expect.stringMatching(crediterUnset))
+  })
+
+  test('no push dependency means no push and the same outcome', async () => {
+    await expect(runNightlyWithLease(fullyConfiguredDeps(), now)).resolves.toEqual({
+      status: 'success',
+    })
+  })
+
+  test('a held lease pushes nothing', async () => {
+    const { push, deps } = withPush()
+    acquireNightlyLease(now().getTime())
+
+    const outcome = await runNightlyWithLease(deps, now)
+
+    expect(outcome).toEqual({ status: 'lease-held' })
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  test('a push that rejects leaves the outcome unchanged and logs the error name', async () => {
+    const log = vi.fn()
+    const push = vi.fn(async () => {
+      throw new TypeError('https://kuma.example/api/push/SECRET-TOKEN refused')
+    })
+
+    const outcome = await runNightlyWithLease(fullyConfiguredDeps({ push, log }), now)
+
+    expect(outcome).toEqual({ status: 'success' })
+    expect(log).toHaveBeenCalledWith('aupm-nightly: push failed — TypeError')
+    expect(JSON.stringify(log.mock.calls)).not.toContain('SECRET-TOKEN')
   })
 })
