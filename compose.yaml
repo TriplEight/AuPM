@@ -55,7 +55,7 @@
 
 services:
   aupm:
-    image: ghcr.io/tripleight/aupm:v0.2.15
+    image: ghcr.io/tripleight/aupm:v0.2.14
     pull_policy: always
     build:
       context: .
