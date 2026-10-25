@@ -8,7 +8,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type Database from 'better-sqlite3'
+import type { Attribution, AttributionEntry } from '../attest/attribution.js'
 import db from '../db.js'
+import { buildAccrualInputs, holdMsFromEnv } from './attribution-rules.js'
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS accruals (
@@ -146,19 +148,122 @@ const ACCRUALS_DDL = `
   )
 `
 
+/** An accrual row of the previous shape that no batch credited. */
+interface OpenAccrual {
+  settle_txid: string
+  route: string
+  pkg: string
+  version: string
+  repo: string | null
+  role: string
+  identity: string
+  amount_micro: number
+  created_at: number
+}
+
+/** One package of an uncredited payment, with its repo key. */
+type OpenPackage = AttributionEntry & { repo: string | null }
+
+/** The identity that the previous split wrote for a role with no payee. */
+const PREVIOUS_UNASSIGNED = 'unassigned'
+
+/**
+ * Reads one uncredited payment of the previous split back into its
+ * attribution: the price is the sum of its rows, and the reviewer of each
+ * package is the identity of its `auditor` row.
+ */
+function openPackages(rows: OpenAccrual[]): { priceMicro: number; packages: OpenPackage[] } {
+  const packages = new Map<string, OpenPackage>()
+  let priceMicro = 0
+  for (const row of rows) {
+    priceMicro += row.amount_micro
+    const key = `${row.pkg}@${row.version}`
+    const entry = packages.get(key) ?? {
+      pkg: row.pkg,
+      version: row.version,
+      auditor: null,
+      repo: row.repo,
+    }
+    if (row.role === 'auditor' && row.identity !== PREVIOUS_UNASSIGNED) entry.auditor = row.identity
+    packages.set(key, entry)
+  }
+  return { priceMicro, packages: [...packages.values()] }
+}
+
+/**
+ * Writes the rows of one uncredited payment with the current split. The rows
+ * keep the settlement time; a pool share unlocks one hold after it. They carry
+ * no batch, so the next batch credits them. Throws when the rows do not sum to
+ * the price of the payment.
+ */
+function rebuildOpenPayment(insert: Database.Statement, rows: OpenAccrual[], holdMs: number): void {
+  const { settle_txid: txid, route } = rows[0] as OpenAccrual
+  const { priceMicro, packages } = openPackages(rows)
+  const createdAt = Math.min(...rows.map((row) => row.created_at))
+  const inputs = buildAccrualInputs({
+    route: route as Attribution['route'],
+    priceMicro,
+    packages: packages.map(({ pkg, version, auditor }) => ({ pkg, version, auditor })),
+  })
+  const total = inputs.reduce((sum, input) => sum + input.amountMicro, 0)
+  if (total !== priceMicro) {
+    throw new Error(
+      `upgradePoolSchema: payment ${txid} rebuilds to ${total} micro-USDC, not ${priceMicro}.`,
+    )
+  }
+  const repoOf = new Map(packages.map((entry) => [`${entry.pkg}@${entry.version}`, entry.repo]))
+  for (const input of inputs) {
+    insert.run(
+      txid,
+      input.route,
+      input.pkg,
+      input.version,
+      repoOf.get(`${input.pkg}@${input.version}`) ?? null,
+      input.role,
+      input.identity.toLowerCase(),
+      input.amountMicro,
+      createdAt,
+      input.held ? createdAt + holdMs : 0,
+      input.treasuryKind,
+    )
+  }
+}
+
+/** Rebuilds every uncredited payment of `accruals_old` in the new `accruals` table. */
+function rebuildOpenAccruals(handle: Database.Database, holdMs: number): void {
+  const open = handle
+    .prepare(
+      `SELECT settle_txid, route, pkg, version, repo, role, identity, amount_micro, created_at
+       FROM accruals_old WHERE batch_seq IS NULL ORDER BY settle_txid`,
+    )
+    .all() as OpenAccrual[]
+  const payments = new Map<string, OpenAccrual[]>()
+  for (const row of open)
+    payments.set(row.settle_txid, [...(payments.get(row.settle_txid) ?? []), row])
+  const insert = handle.prepare(
+    `INSERT INTO accruals (settle_txid, route, pkg, version, repo, role, identity, amount_micro,
+                           created_at, unlock_at, treasury_kind)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+  for (const rows of payments.values()) rebuildOpenPayment(insert, rows, holdMs)
+}
+
 /**
  * Brings the ledger to the package-pool shape: `accruals` gets the hold,
  * freeze, treasury-kind and payout columns and a primary key that includes
  * `identity`; `batches` renames `attributed_micro` to `new_total_micro` and
- * gets `treasury_extra_micro`. Every existing row stays. Every existing
- * accrual was credited on the previous app, so its payout pointer copies its
- * batch pointer and the new job never pays it again. SQLite cannot change a
- * primary key in place, so the old table is rebuilt inside one transaction.
+ * gets `treasury_extra_micro`. A credited accrual stays as it is, and its
+ * payout pointer copies its batch pointer, so the new job never pays it again.
+ * An accrual that no batch credited was never paid: its payment is rebuilt
+ * with the current split, and the next batch credits it. SQLite cannot change
+ * a primary key in place, so the old table is rebuilt inside one transaction.
  * A database in the new shape is not touched, so the upgrade is safe on every
- * boot. Throws, and changes nothing, when an old accrual has no batch: credit
- * every old accrual on the previous app first.
+ * boot. On an error the transaction changes nothing.
  */
-export function upgradePoolSchema(handle: Database.Database): void {
+export function upgradePoolSchema(
+  handle: Database.Database,
+  holdMs: number = holdMsFromEnv(process.env),
+): void {
   const names = (table: string): string[] =>
     (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
   const upgrade = handle.transaction(() => {
@@ -170,14 +275,6 @@ export function upgradePoolSchema(handle: Database.Database): void {
       handle.exec('ALTER TABLE batches ADD COLUMN treasury_extra_micro INTEGER NOT NULL DEFAULT 0')
     }
     if (names('accruals').includes('unlock_at')) return
-    const open = handle.prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL').get()
-    const openCount = (open as { n: number }).n
-    if (openCount > 0) {
-      throw new Error(
-        `upgradePoolSchema: ${openCount} accrual row(s) are not credited yet. Credit every ` +
-          'accrual on the previous PaymentRouter app, then boot this version.',
-      )
-    }
     handle.exec('ALTER TABLE accruals RENAME TO accruals_old')
     handle.exec(ACCRUALS_DDL)
     handle.exec(
@@ -185,8 +282,9 @@ export function upgradePoolSchema(handle: Database.Database): void {
                              created_at, batch_app_id, batch_seq, paid_app_id, paid_seq)
        SELECT settle_txid, route, pkg, version, repo, role, identity, amount_micro,
               created_at, batch_app_id, batch_seq, batch_app_id, batch_seq
-       FROM accruals_old`,
+       FROM accruals_old WHERE batch_seq IS NOT NULL`,
     )
+    rebuildOpenAccruals(handle, holdMs)
     handle.exec('DROP TABLE accruals_old')
   })
   upgrade()
