@@ -133,8 +133,84 @@ describe('upgradePoolSchema', () => {
   const columns = (table: string) =>
     (handle.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map((c) => c.name)
 
-  test('an accrual that no batch credited yet: throws and changes nothing', () => {
-    expect(() => upgradePoolSchema(handle)).toThrow(/1 accrual row\(s\) are not credited yet/)
+  const HOLD = 1_000
+
+  /** The six rows that the previous split wrote for one reviewed package. */
+  function previousRows(txid: string, pkg: string, auditor: string, at: number): string {
+    const shares: [string, string, number][] = [
+      ['auditor', auditor, 300],
+      ['contributor', 'unassigned', 100],
+      ['maintainer', 'unassigned', 200],
+      ['reviewer', 'unassigned', 250],
+      ['treasury', 'unassigned', 100],
+      ['ops', 'ops', 50],
+    ]
+    return shares
+      .map(
+        ([role, id, amount]) => `('${txid}', 'lockfile', '${pkg}', '1.0.0', '${role}', '${id}',
+        ${amount}, ${at}, 'o/${pkg}', NULL, NULL)`,
+      )
+      .join(',')
+  }
+
+  test('an uncredited payment is rebuilt with the current split and keeps its time', () => {
+    handle.exec('DELETE FROM accruals WHERE batch_seq IS NULL')
+    handle.exec(
+      `INSERT INTO accruals (settle_txid, route, pkg, version, role, identity, amount_micro,
+                             created_at, repo, batch_seq, batch_app_id)
+       VALUES ${previousRows('S4', 'd', 'github:Rev', 50)}, ${previousRows('S4', 'e', 'unassigned', 50)}`,
+    )
+
+    upgradePoolSchema(handle, HOLD)
+
+    const rows = handle
+      .prepare(
+        `SELECT pkg, role, identity, amount_micro, created_at, unlock_at, treasury_kind, repo,
+                batch_seq, paid_seq
+         FROM accruals WHERE settle_txid = 'S4' ORDER BY pkg, role, identity`,
+      )
+      .all()
+    const row = (
+      pkg: string,
+      role: string,
+      identity: string,
+      amount: number,
+      kind: string | null,
+      held: boolean,
+    ) => ({
+      pkg,
+      role,
+      identity,
+      amount_micro: amount,
+      created_at: 50,
+      unlock_at: held ? 50 + HOLD : 0,
+      treasury_kind: kind,
+      repo: `o/${pkg}`,
+      batch_seq: null,
+      paid_seq: null,
+    })
+    expect(rows).toEqual([
+      row('d', 'contributor', 'treasury', 100, 'unallocated', true),
+      row('d', 'maintainer', 'treasury', 250, 'unallocated', true),
+      row('d', 'ops', 'ops', 50, null, false),
+      row('d', 'reviewer', 'github:rev', 400, null, true),
+      row('d', 'treasury', 'treasury', 200, 'cut', false),
+      row('e', 'contributor', 'treasury', 100, 'unallocated', true),
+      row('e', 'maintainer', 'treasury', 250, 'unallocated', true),
+      row('e', 'ops', 'ops', 50, null, false),
+      row('e', 'reviewer', 'treasury', 400, 'unallocated', true),
+      row('e', 'treasury', 'treasury', 200, 'cut', false),
+    ])
+    expect(
+      handle.prepare("SELECT SUM(amount_micro) AS n FROM accruals WHERE settle_txid = 'S4'").get(),
+    ).toEqual({ n: 2000 })
+    expect(
+      handle.prepare("SELECT COUNT(*) AS n FROM accruals WHERE settle_txid = 'S1'").get(),
+    ).toEqual({ n: 2 })
+  })
+
+  test('an uncredited payment that does not rebuild to its price: throws and changes nothing', () => {
+    expect(() => upgradePoolSchema(handle, HOLD)).toThrow(/priceMicro 300/)
     expect(columns('accruals')).not.toContain('unlock_at')
     expect(columns('batches')).toContain('attributed_micro')
     expect(handle.prepare('SELECT COUNT(*) AS n FROM accruals').get()).toEqual({ n: 4 })
