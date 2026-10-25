@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+// OLD APPS ONLY. This script works only against an app that has a claim() method (the earlier
+// PaymentRouter with identity and balance boxes). A push-payout app has no claim(): its credit()
+// call pays each payee directly, so there is nothing to claim and this script fails on it.
+//
 // Claims one identity's PaymentRouter balance. The
 // address the admin mapped to `identity` (via setIdentity, an admin-only,
 // out-of-band step this script never performs) signs claim(identity); the
