@@ -17,9 +17,10 @@
 // backup step, and a stub credit chain client — never a live network or
 // chain call.
 
-import { PAY_TO } from '../config.js'
+import { NETWORK, PAY_TO } from '../config.js'
 import { type CreditChainClient, runCreditStep } from './credit.js'
 import { matureUnpaidTotal, recordBacklog } from './ledger.js'
+import type { PushStatus } from './push.js'
 import { type IndexerClient, reconcile } from './reconcile.js'
 import {
   acquireNightlyLease,
@@ -57,13 +58,29 @@ export interface NightlyDeps {
    * assertions stay unchanged.
    */
   onCredited?: (batchSeq: number, creditTxid: string) => void
+  /**
+   * Reports the run's status to an external monitor. Undefined when no push
+   * URL is set. runNightlyWithLease calls it once per run that took the lease,
+   * and it must not throw (push.ts's pushStatus never does).
+   */
+  push?: (status: PushStatus, msg: string) => Promise<void>
+}
+
+/** What one run found, for the status that runNightlyWithLease reports. */
+export interface NightlyRunSummary {
+  /** The reason the credit step could not run for lack of configuration, else null. */
+  configSkip: string | null
+  /** The backlog alert text when the alert fired tonight, else null. */
+  alert: string | null
+  /** Tonight's matured, unpaid payee total in micro-USDC; null when not computed. */
+  backlog: number | null
 }
 
 /**
  * Runs the nightly job once: genesis guard, then reconcile, then back up,
  * then credit — always in that order (R3c).
  */
-export async function runNightly(deps: NightlyDeps): Promise<void> {
+export async function runNightly(deps: NightlyDeps): Promise<NightlyRunSummary> {
   const log = deps.log ?? console.log
   const env = deps.env ?? process.env
   const clock = deps.now ?? Date.now
@@ -84,16 +101,19 @@ export async function runNightly(deps: NightlyDeps): Promise<void> {
   log(`aupm-nightly: backed up to ${backupPath}`)
 
   if (!env.PAYMENT_ROUTER_APP_ID) {
-    log('aupm-nightly: credit skipped — PAYMENT_ROUTER_APP_ID is unset')
-    return
+    return skipForConfig(log, 'PAYMENT_ROUTER_APP_ID is unset')
   }
   if (!deps.creditClient) {
-    log('aupm-nightly: credit skipped — CREDITER_MNEMONIC is unset')
-    return
+    return skipForConfig(log, 'CREDITER_MNEMONIC is unset')
   }
 
   await creditAllBatches(deps, env, log, clock)
-  checkBacklog(log, clock())
+  return { configSkip: null, ...checkBacklog(log, clock()) }
+}
+
+function skipForConfig(log: (line: string) => void, reason: string): NightlyRunSummary {
+  log(`aupm-nightly: credit skipped — ${reason}`)
+  return { configSkip: reason, alert: null, backlog: null }
 }
 
 /** Nights in a row of growth of the matured, unpaid total that raise the alert. */
@@ -105,15 +125,16 @@ export const BACKLOG_ALERT_NIGHTS = 7
  * growing total means payees are not paid: an address that fails the opt-in
  * check, no address at all, or a payout cap that is too low.
  */
-function checkBacklog(log: (line: string) => void, now: number): void {
+function checkBacklog(
+  log: (line: string) => void,
+  now: number,
+): Pick<NightlyRunSummary, 'alert' | 'backlog'> {
   const total = matureUnpaidTotal(now)
   const nights = recordBacklog(total, now)
-  if (nights >= BACKLOG_ALERT_NIGHTS) {
-    log(
-      `aupm-nightly: ALERT matured unpaid payee total grew ${nights} nights in a row, ` +
-        `now ${total} micro-USDC`,
-    )
-  }
+  if (nights < BACKLOG_ALERT_NIGHTS) return { alert: null, backlog: total }
+  const alert = `ALERT matured unpaid payee total grew ${nights} nights in a row, now ${total} micro-USDC`
+  log(`aupm-nightly: ${alert}`)
+  return { alert, backlog: total }
 }
 
 /**
@@ -183,6 +204,7 @@ export async function runNightlyWithLease(
   let runId: number | null = null
   let batchSeq: number | null = null
   let creditTxid: string | null = null
+  let report: { status: PushStatus; msg: string } | null = null
 
   try {
     holder = acquireNightlyLease(startedAt)
@@ -193,7 +215,7 @@ export async function runNightlyWithLease(
 
     runId = recordNightlyRunStart(startedAt)
 
-    await runNightly({
+    const summary = await runNightly({
       ...deps,
       onCredited: (seq, txid) => {
         batchSeq = seq
@@ -202,6 +224,7 @@ export async function runNightlyWithLease(
       },
     })
     recordNightlyRunEnd(runId, now().getTime(), 'success', null, batchSeq, creditTxid)
+    report = successReport(summary, batchSeq)
     return { status: 'success' }
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err)
@@ -209,10 +232,38 @@ export async function runNightlyWithLease(
       recordNightlyRunEnd(runId, now().getTime(), 'failed', reason, batchSeq, creditTxid)
     }
     log(`aupm-nightly: failed — ${reason}`)
+    report = { status: 'down', msg: `${NETWORK} failed — ${reason}` }
     return { status: 'failed', error: reason }
   } finally {
     if (holder !== null) {
       releaseNightlyLease(holder)
+      if (report) await sendReport(deps, report, log)
     }
+  }
+}
+
+/** Calls deps.push and swallows its failure: a monitor outage never changes a run's outcome. */
+async function sendReport(
+  deps: NightlyDeps,
+  report: { status: PushStatus; msg: string },
+  log: (line: string) => void,
+): Promise<void> {
+  try {
+    await deps.push?.(report.status, report.msg)
+  } catch (err) {
+    log(`aupm-nightly: push failed — ${err instanceof Error ? err.name : 'error'}`)
+  }
+}
+
+/** Maps a finished run to the status pushed to the monitor. */
+function successReport(
+  summary: NightlyRunSummary,
+  batchSeq: number | null,
+): { status: PushStatus; msg: string } {
+  if (summary.configSkip) return { status: 'down', msg: `${NETWORK} ${summary.configSkip}` }
+  if (summary.alert) return { status: 'down', msg: `${NETWORK} ${summary.alert}` }
+  return {
+    status: 'up',
+    msg: `${NETWORK} ok batch=${batchSeq ?? 'none'} backlog=${summary.backlog}`,
   }
 }
