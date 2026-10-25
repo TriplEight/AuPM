@@ -2,7 +2,30 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-25
+- #152 `75cbbab`: the pool schema upgrade rebuilds each uncredited accrual of the previous split
+  with the current split. The next batch credits the rebuilt rows. A payment that does not
+  rebuild to its price stops the upgrade. Tag `v0.2.16`.
+
+## 2026-10-24
+- #143 `235b3a3`: the GitHub Action section of `docs/ONBOARDING.md` is shorter. The full
+  procedure is in `aupm-action-demo`.
+- #144 and #145 `e5dffc1`: the public texts show one split, 40/10/25/20/5. The shares of the
+  contributor and the maintainer go to the treasury until these roles are onboarded. The
+  PaymentRouter pays each payee in `credit()`. `aupm auditor claim` is removed.
+  `aupm auditor balance` shows the held, matured unpaid, frozen and paid amounts. The earnings
+  route returns these amounts and never a payout address. `/api/v1/contract` no longer returns
+  `minClaim`.
+- #147 `695c727`: stateful property tests for the push-payout PaymentRouter, on the emulator and
+  optionally on LocalNet. The contract source does not change.
+- #148 `d2d99d2`: `record-review` reads the review address from a new `auditors` table in the
+  proxy ledger. `pnpm -C proxy auditor add` and `auditor list` manage the table. The review
+  address can differ from the payout address.
+- `cli-v0.6.0` at `d2d99d2`: `aupm-cli` and `aupm-mcp` 0.6.0 with the `balance` command.
+
 ## 2026-10-20
+- #142 `5117241`: `aupm-cli` and `aupm-mcp` 0.5.0 ship the donor multiplier. The GitHub Action
+  has a `multiplier` input from 0.1 to 100 with at most one fraction digit.
 - #140 `ebf4571`: the base donation is $0.01 per reviewed package. A donor sets a multiplier
   from x0.1 ($0.001) to x100 in the header `X-AuPM-Multiplier`; the default is x1. A paid
   attestation signs the price in `predicate.donation`. CLI 0.4.5 stops paying after the next
