@@ -2,6 +2,11 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-26
+- #156 `b1c515e`: the nightly job sends one push to an Uptime Kuma Push monitor after each
+  run (`AUPM_NIGHTLY_PUSH_URL`). `down` means a backlog alert, a failed run, or a missing app id
+  or crediter key. Tag `v0.2.17`.
+
 ## 2026-10-25
 - #152 `75cbbab`: the pool schema upgrade rebuilds each uncredited accrual of the previous split
   with the current split. The next batch credits the rebuilt rows. A payment that does not
