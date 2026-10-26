@@ -3,9 +3,9 @@
 This file lists merged changes. The session log is not in this repository.
 
 ## 2026-10-26
-- The nightly credit step reads the payout cap of the PaymentRouter. It pays only the payees
-  whose balance fits in the room of the cap period. The others wait in the ledger. Ops and
-  treasury money is credited either way.
+- #158 `189fb31`: the nightly credit step reads the payout cap of the PaymentRouter. It pays
+  only the payees whose balance fits in the room of the cap period. The others wait in the
+  ledger. Ops and treasury money is credited either way. Tag `v0.2.18`.
 - #156 `b1c515e`: the nightly job sends one push to an Uptime Kuma Push monitor after each
   run (`AUPM_NIGHTLY_PUSH_URL`). `down` means a backlog alert, a failed run, or a missing app id
   or crediter key. Tag `v0.2.17`.
