@@ -29,6 +29,8 @@ const {
 const { setStatus } = await import('../status.js')
 const {
   runCreditStep,
+  payoutRoom,
+  CAP_PERIOD_ROUNDS,
   buildAlgodCreditClient,
   buildCreditGroup,
   innerTransferCount,
@@ -41,6 +43,7 @@ const {
 type AccrualRow = import('./schema.js').AccrualRow
 type Attribution = import('./attribution-rules.js').Attribution
 type CreditChainClient = import('./credit.js').CreditChainClient
+type CapState = import('./credit.js').CapState
 type PayoutAddressStatus = import('./credit.js').PayoutAddressStatus
 
 const APP_ID = '123'
@@ -89,7 +92,11 @@ interface StubOptions {
   noteTxid?: string | null
   /** Check result per payout address. An address not listed is fine. */
   statuses?: Record<string, PayoutAddressStatus>
+  /** The cap state algod reports. The default leaves a room that no test fills. */
+  capState?: CapState
 }
+
+const OPEN_CAP: CapState = { cap: 10n ** 12n, periodIndex: 0n, paidInPeriod: 0n, round: 0n }
 
 /** A stub CreditChainClient. `noteTxid` backs the pending-batch recovery path. */
 function stubClient(options: StubOptions = {}): CreditChainClient {
@@ -97,6 +104,7 @@ function stubClient(options: StubOptions = {}): CreditChainClient {
     isPayToRekeyed: vi.fn(async () => options.rekeyed ?? true),
     submitCredit: options.submit ?? makeSubmitMock(),
     getOnChainLastBatchSeq: vi.fn(async () => options.onChain ?? chainLast),
+    getCapState: vi.fn(async () => options.capState ?? OPEN_CAP),
     findCreditTxidByNote: vi.fn(async () => options.noteTxid ?? null),
     checkPayoutAddress: vi.fn(async (address) => options.statuses?.[address] ?? 'ok'),
   }
@@ -946,6 +954,151 @@ describe('runCreditStep: a backlog over the group limit splits into batches', ()
     const identities = firstCallArgs(submit)[2].payouts.map((p) => p.identity)
     expect(identities).toHaveLength(50)
     expect(identities).not.toContain('github:auditor-0')
+  })
+})
+
+describe('payoutRoom', () => {
+  const PERIOD = 3n
+  const ROUND = PERIOD * CAP_PERIOD_ROUNDS + 17n
+  const state = (overrides: Partial<CapState>): CapState => ({
+    cap: 1000n,
+    periodIndex: PERIOD,
+    paidInPeriod: 0n,
+    round: ROUND,
+    ...overrides,
+  })
+
+  test('the period of the read round is the stored period: the cap minus what was paid', () => {
+    expect(payoutRoom(state({ paidInPeriod: 300n }))).toBe(700n)
+  })
+
+  test('paid equal to the cap: no room left', () => {
+    expect(payoutRoom(state({ paidInPeriod: 1000n }))).toBe(0n)
+  })
+
+  test('paid above the cap (the cap was lowered): no room left', () => {
+    expect(payoutRoom(state({ paidInPeriod: 1500n }))).toBe(0n)
+  })
+
+  test('a newer period than the stored one: the whole cap, whatever was paid', () => {
+    expect(payoutRoom(state({ periodIndex: PERIOD - 1n, paidInPeriod: 1000n }))).toBe(1000n)
+  })
+
+  test('the last round of a period is still in it; the next round opens a new one', () => {
+    const last = (PERIOD + 1n) * CAP_PERIOD_ROUNDS - 1n
+    expect(payoutRoom(state({ paidInPeriod: 400n, round: last }))).toBe(600n)
+    expect(payoutRoom(state({ paidInPeriod: 400n, round: last + 1n }))).toBe(1000n)
+  })
+})
+
+describe('runCreditStep: payouts stay under the payout cap', () => {
+  const ROUND = 3n * CAP_PERIOD_ROUNDS + 5n
+
+  /** A payee that earns `packages` x 400 micro-USDC as reviewer. */
+  function writeReviewer(identity: string, packages: number): void {
+    onboard(identity)
+    write(lockfileOf(packages, identity, identity.replace('github:', '')), `TXID-${identity}`)
+  }
+
+  function capAt(paidInPeriod: bigint, cap: bigint, periodIndex = 3n): CapState {
+    return { cap, periodIndex, paidInPeriod, round: ROUND }
+  }
+
+  function unpaidOf(identity: string): number {
+    const row = db
+      .prepare(
+        'SELECT COUNT(*) AS n FROM accruals WHERE identity = ? AND role = ? AND paid_seq IS NULL',
+      )
+      .get(identity, 'reviewer') as { n: number }
+    return row.n
+  }
+
+  test('a backlog above the room: payees that fit are paid, the rest wait, ops and treasury are credited', async () => {
+    writeReviewer('github:a-big', 3)
+    writeReviewer('github:b-small', 1)
+    writeReviewer('github:c-small', 1)
+    const submit = makeSubmitMock()
+    const client = stubClient({ submit, capState: capAt(200n, 1000n) })
+    const log = vi.fn()
+
+    const outcome = await runCreditStep(client, envWithApp(), MATURE, log)
+
+    expect(outcome).toEqual({ ran: true, batchSeq: 1, creditTxid: 'CREDIT-TXID' })
+    const totals = firstCallArgs(submit)[2]
+    expect(totals.newTotalMicro).toBe(5000)
+    expect(totals.payouts).toEqual([
+      { identity: 'github:b-small', address: 'ADDR-b-small', amountMicro: 400 },
+      { identity: 'github:c-small', address: 'ADDR-c-small', amountMicro: 400 },
+    ])
+    expect(unpaidOf('github:a-big')).toBe(3)
+    expect(unpaidOf('github:b-small')).toBe(0)
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('payout left out for github:a-big'))
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('1200 micro-USDC stay in the ledger'))
+  })
+
+  test('a payee above the room is not checked on chain', async () => {
+    writeReviewer('github:a-big', 3)
+    const client = stubClient({ capState: capAt(0n, 1000n) })
+    await runCreditStep(client, envWithApp(), MATURE)
+    expect(client.checkPayoutAddress).not.toHaveBeenCalled()
+  })
+
+  test('the payee that waits is paid in a later period, when the room is enough', async () => {
+    writeReviewer('github:a-big', 3)
+    const submit = makeSubmitMock()
+    await runCreditStep(stubClient({ submit, capState: capAt(0n, 1000n) }), envWithApp(), MATURE)
+    expect(firstCallArgs(submit)[2].payouts).toEqual([])
+
+    const later = stubClient({ submit, capState: capAt(1000n, 2000n, 2n) })
+    await runCreditStep(later, envWithApp(), MATURE)
+    expect(submit.mock.calls[1]?.[2].payouts).toEqual([
+      { identity: 'github:a-big', address: 'ADDR-a-big', amountMicro: 1200 },
+    ])
+  })
+
+  test('paid equal to the cap in this period: no payout, but the batch still goes out', async () => {
+    writeReviewer('github:a-big', 1)
+    const submit = makeSubmitMock()
+    const client = stubClient({ submit, capState: capAt(1000n, 1000n) })
+
+    const outcome = await runCreditStep(client, envWithApp(), MATURE)
+
+    expect(outcome.ran).toBe(true)
+    expect(firstCallArgs(submit)[2].payouts).toEqual([])
+    expect(firstCallArgs(submit)[2].newTotalMicro).toBe(1000)
+  })
+
+  test('paid above the cap in this period: nothing is sent and the run logs it', async () => {
+    writeReviewer('github:a-big', 1)
+    const submit = makeSubmitMock()
+    const client = stubClient({ submit, capState: capAt(500n, 100n) })
+    const log = vi.fn()
+    const openBefore = db
+      .prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL')
+      .get()
+
+    const outcome = await runCreditStep(client, envWithApp(), MATURE, log)
+
+    expect(outcome).toEqual({ ran: false, reason: 'cap-exhausted' })
+    expect(submit).not.toHaveBeenCalled()
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('wait for the next cap period'))
+    const open = db.prepare('SELECT COUNT(*) AS n FROM accruals WHERE batch_seq IS NULL').get()
+    expect(open).toEqual(openBefore)
+    expect(open).not.toEqual({ n: 0 })
+  })
+
+  test('a new period with the old period counters full: the whole cap is the room', async () => {
+    writeReviewer('github:a-big', 1)
+    writeReviewer('github:b-small', 1)
+    const submit = makeSubmitMock()
+    const client = stubClient({ submit, capState: capAt(1000n, 1000n, 2n) })
+
+    await runCreditStep(client, envWithApp(), MATURE)
+
+    expect(firstCallArgs(submit)[2].payouts.map((p) => p.identity)).toEqual([
+      'github:a-big',
+      'github:b-small',
+    ])
   })
 })
 
