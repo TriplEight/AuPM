@@ -19,6 +19,7 @@ import { backupDatabase } from './backup.js'
 import { buildAlgodCreditClient, type CreditChainClient } from './credit.js'
 import { assertGenesisMatchesNetwork, fetchGenesisId } from './genesis.js'
 import { createIndexerClient } from './indexer.js'
+import { buildAlgodRouterReader } from './ledger-check.js'
 import type { NightlyDeps } from './nightly.js'
 import { buildNightlyPush } from './push.js'
 
@@ -120,6 +121,10 @@ export function buildRealNightlyDeps(): NightlyDeps {
     indexer,
     backup: () => backupDatabase(db, process.env.BACKUP_DIR ?? ''),
     creditClient: buildCreditClient(indexerUrl),
+    routerReader: buildAlgodRouterReader(
+      new algosdk.Algodv2(algodToken, algodServer, Number(process.env.ALGOD_PORT ?? 443)),
+      BigInt(USDC_ASA_ID),
+    ),
     assertGenesisMatches: buildGenesisGuard(algodServer, algodToken, indexerUrl, indexerToken),
     push: buildNightlyPush(process.env),
   }
