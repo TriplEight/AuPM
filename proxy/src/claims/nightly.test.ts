@@ -28,6 +28,8 @@ type Attribution = import('./attribution-rules.js').Attribution
 
 const PAY_TO = 'PAYTOADDRAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'
 
+const OPEN_CAP = { cap: 10n ** 12n, periodIndex: 0n, paidInPeriod: 0n, round: 0n }
+
 function emptyIndexer(): IndexerClient {
   return { listUsdcInflows: vi.fn().mockResolvedValue([]) }
 }
@@ -44,6 +46,7 @@ function stubCreditClient(
       return txidOf(seq)
     }),
     getOnChainLastBatchSeq: vi.fn(async () => onChain),
+    getCapState: vi.fn(async () => OPEN_CAP),
     findCreditTxidByNote: vi.fn().mockResolvedValue(null),
     checkPayoutAddress: vi.fn().mockResolvedValue('ok'),
   }
@@ -149,6 +152,7 @@ describe('runNightly: order and stop conditions', () => {
       }),
       submitCredit: vi.fn().mockResolvedValue('CREDIT-TXID'),
       getOnChainLastBatchSeq: vi.fn().mockResolvedValue(0),
+      getCapState: vi.fn(async () => OPEN_CAP),
       findCreditTxidByNote: vi.fn().mockResolvedValue(null),
       checkPayoutAddress: vi.fn().mockResolvedValue('ok'),
     }

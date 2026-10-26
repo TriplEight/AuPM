@@ -168,6 +168,8 @@ export interface CreditChainClient {
    * batch that already confirmed on-chain (crash before `recordBatchCreditTxid`)
    * is never resent — the contract would reject it forever. */
   getOnChainLastBatchSeq(appId: bigint): Promise<number>
+  /** The payout cap state of the app and the last round algod knows. */
+  getCapState(appId: bigint): Promise<CapState>
   /** Looks up the confirmed credit() transaction id for `batchSeq` by its
    * `aupm:credit:<batchSeq>` note (see `creditNote`). Null when the indexer
    * has no matching, confirmed application call from this app. */
@@ -177,8 +179,50 @@ export interface CreditChainClient {
   checkPayoutAddress(address: string): Promise<PayoutAddressStatus>
 }
 
+/**
+ * The length of one cap period in rounds. It must equal the CAP_PERIOD_ROUNDS
+ * that the PaymentRouter contract compiles in.
+ */
+export const CAP_PERIOD_ROUNDS = 30_000n
+
+/** The on-chain globals `cap`, `cpi` and `pip`, and the round they were read at. */
+export interface CapState {
+  /** Most micro-USDC the payouts of one cap period may add up to. */
+  cap: bigint
+  /** The cap period that `paidInPeriod` counts. */
+  periodIndex: bigint
+  /** Micro-USDC paid out in the period `periodIndex`. */
+  paidInPeriod: bigint
+  round: bigint
+}
+
+/**
+ * The micro-USDC that payouts may add up to in the next credit() call. The
+ * call confirms at the read round or later, and a later period only gives
+ * more room, so this never counts too much. Returns 0 when the period is
+ * used up. A period with more paid than the cap (the cap was lowered) also
+ * returns 0.
+ */
+export function payoutRoom(state: CapState): bigint {
+  if (state.round / CAP_PERIOD_ROUNDS !== state.periodIndex) return state.cap
+  const room = state.cap - state.paidInPeriod
+  return room > 0n ? room : 0n
+}
+
+/**
+ * True when the current period already paid more than the cap. The contract
+ * then rejects every credit() call, even one with no payouts.
+ */
+function capExhausted(state: CapState): boolean {
+  return state.round / CAP_PERIOD_ROUNDS === state.periodIndex && state.paidInPeriod > state.cap
+}
+
 /** Why the credit step declined to run tonight. */
-export type CreditSkipReason = 'app-id-unset' | 'payto-not-rekeyed' | 'nothing-to-credit'
+export type CreditSkipReason =
+  | 'app-id-unset'
+  | 'payto-not-rekeyed'
+  | 'nothing-to-credit'
+  | 'cap-exhausted'
 
 export type CreditOutcome =
   | { ran: false; reason: CreditSkipReason }
@@ -242,15 +286,31 @@ async function payoutBlocker(ctx: StepContext, payout: CreditPayout): Promise<st
 }
 
 /**
- * Walks the due payees in order, checks each payout address and keeps the
- * ones that pass, up to MAX_PAYOUTS_PER_GROUP. A payee that fails the check is
- * left out and logged; its share stays in the ledger.
+ * Walks the due payees in order and keeps the ones that fit in `room` (the
+ * micro-USDC left under the cap) and pass the address check, up to
+ * MAX_PAYOUTS_PER_GROUP. A payee whose balance is above the room that is left
+ * is skipped, and a later, smaller payee can still fit. A payee that is
+ * skipped or fails the check is logged; its share stays in the ledger. A
+ * payee is paid with its whole balance, so its balance is its payout.
  */
-async function admitPayees(ctx: StepContext, due: DuePayee[]): Promise<Record<string, string>> {
+async function admitPayees(
+  ctx: StepContext,
+  due: DuePayee[],
+  room: bigint,
+): Promise<Record<string, string>> {
   const addresses: Record<string, string> = {}
   let admitted = 0
+  let roomLeft = room
   for (const payee of due) {
     if (admitted >= MAX_PAYOUTS_PER_GROUP) break
+    const amount = BigInt(payee.balanceMicro)
+    if (amount > roomLeft) {
+      ctx.log(
+        `aupm-nightly: payout left out for ${payee.identity} (${payee.balanceMicro} micro-USDC ` +
+          'stay in the ledger): above the room of this cap period',
+      )
+      continue
+    }
     const payout = { identity: payee.identity, address: payee.address, amountMicro: 0 }
     const blocker = await payoutBlocker(ctx, payout)
     if (blocker) {
@@ -261,6 +321,7 @@ async function admitPayees(ctx: StepContext, due: DuePayee[]): Promise<Record<st
       continue
     }
     addresses[payee.identity] = payee.address
+    roomLeft -= amount
     admitted += 1
   }
   return addresses
@@ -372,6 +433,14 @@ function nextBatchSeq(ledgerApp: number, onChainLastBatchSeq: number): number {
  * carry 0 of each. A share that has not matured at `now`, or that is frozen,
  * is never credited. A payee whose address fails the check stays in the ledger.
  *
+ * The contract caps the payouts of one cap period (30,000 rounds) at the
+ * on-chain `cap`; ops and treasury transfers do not count. A payee whose whole
+ * balance does not fit in the room left stays in the ledger and is paid in a
+ * later period, while smaller payees still fit. Ops and treasury money is
+ * credited either way. When the period already paid more than the cap (the
+ * cap was lowered), the contract rejects every credit() call, so this step
+ * sends nothing and returns `{ ran: false, reason: 'cap-exhausted' }`.
+ *
  * A batch row that already exists with no credit_txid (a crash between
  * "assign rows to a batch" and "record the credit txid") is resent as-is,
  * from its own stored totals and payouts — unless the app's own on-chain
@@ -411,12 +480,20 @@ export async function runCreditStep(
     if (outcome) return outcome
   }
 
+  const capState = await client.getCapState(appId)
+  if (capExhausted(capState)) {
+    log(
+      'aupm-nightly: credits wait for the next cap period: the payouts of this period pass the cap',
+    )
+    return { ran: false, reason: 'cap-exhausted' }
+  }
+
   const rules = payoutRulesFromEnv(env)
   const { due, unmapped } = selectDuePayees(listPayeeBalances(now), listPayees(), now, rules)
   for (const identity of unmapped) {
     log(`aupm-nightly: ${identity} has a matured balance but no payout address`)
   }
-  const addresses = await admitPayees(ctx, due)
+  const addresses = await admitPayees(ctx, due, payoutRoom(capState))
   const plan = planCreditBatch(listCreditCandidates(), addresses, now)
   if (plan.counted.length === 0 && plan.paid.length === 0) {
     return { ran: false, reason: 'nothing-to-credit' }
@@ -457,10 +534,14 @@ export async function onboardPayee(
 
 // The exact global-state keys of the PaymentRouter fields this module reads
 // (contract.algo.ts): `lastBatchSeq` 'bsq', `opsAddress` 'ops',
-// `treasuryAddress` 'trs'.
+// `treasuryAddress` 'trs', `payoutCap` 'cap', `capPeriodIndex` 'cpi',
+// `paidInPeriod` 'pip'.
 const LAST_BATCH_SEQ_GLOBAL_KEY = 'bsq'
 const OPS_ADDRESS_GLOBAL_KEY = 'ops'
 const TREASURY_ADDRESS_GLOBAL_KEY = 'trs'
+const PAYOUT_CAP_GLOBAL_KEY = 'cap'
+const CAP_PERIOD_INDEX_GLOBAL_KEY = 'cpi'
+const PAID_IN_PERIOD_GLOBAL_KEY = 'pip'
 
 function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i])
@@ -624,6 +705,20 @@ export function buildAlgodCreditClient(
       const app = await algod.getApplicationByID(appId).do()
       const value = findGlobal(app.params.globalState ?? [], LAST_BATCH_SEQ_GLOBAL_KEY)
       return value ? Number(value.uint) : 0
+    },
+
+    async getCapState(appId) {
+      const app = await algod.getApplicationByID(appId).do()
+      const state = app.params.globalState ?? []
+      const cap = findGlobal(state, PAYOUT_CAP_GLOBAL_KEY)
+      if (!cap) throw new Error(`PaymentRouter global state "${PAYOUT_CAP_GLOBAL_KEY}" is not set`)
+      const status = await algod.status().do()
+      return {
+        cap: cap.uint,
+        periodIndex: findGlobal(state, CAP_PERIOD_INDEX_GLOBAL_KEY)?.uint ?? 0n,
+        paidInPeriod: findGlobal(state, PAID_IN_PERIOD_GLOBAL_KEY)?.uint ?? 0n,
+        round: status.lastRound,
+      }
     },
 
     checkPayoutAddress: buildAlgodPayoutChecker(algod, assetId),
