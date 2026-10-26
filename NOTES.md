@@ -3,6 +3,9 @@
 This file lists merged changes. The session log is not in this repository.
 
 ## 2026-10-26
+- #160 `6d5362e`: the nightly job compares the ledger with the PaymentRouter totals after the
+  credit step and logs `ledger check OK` or `ledger check MISMATCH`. `down` also means a batch
+  mismatch, a ledger excess, or a skipped inflow of the last 48 hours. Tag `v0.2.19`.
 - #158 `189fb31`: the nightly credit step reads the payout cap of the PaymentRouter. It pays
   only the payees whose balance fits in the room of the cap period. The others wait in the
   ledger. Ops and treasury money is credited either way. Tag `v0.2.18`.
