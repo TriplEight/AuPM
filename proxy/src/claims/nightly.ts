@@ -20,8 +20,9 @@
 import { NETWORK, PAY_TO } from '../config.js'
 import { type CreditChainClient, runCreditStep } from './credit.js'
 import { matureUnpaidTotal, recordBacklog } from './ledger.js'
+import { compareLedger, type RouterChainReader, readLedgerSide } from './ledger-check.js'
 import type { PushStatus } from './push.js'
-import { type IndexerClient, reconcile } from './reconcile.js'
+import { type IndexerClient, reconcile, type SkippedInflow } from './reconcile.js'
 import {
   acquireNightlyLease,
   recordNightlyRunEnd,
@@ -37,6 +38,9 @@ export interface NightlyDeps {
   /** null when CREDITER_MNEMONIC is unset — the credit step then logs why
    * and stops, the same as an unset app id. */
   creditClient: CreditChainClient | null
+  /** Reads the app totals and the payTo balance for the ledger check. When
+   * undefined, the check does not run. */
+  routerReader?: RouterChainReader
   /**
    * Throws when NETWORK does not match the connected algod's or indexer's
    * own reported genesis id (R3c genesis guard). Called first, before any
@@ -108,7 +112,55 @@ export async function runNightly(deps: NightlyDeps): Promise<NightlyRunSummary> 
   }
 
   await creditAllBatches(deps, env, log, clock)
-  return { configSkip: null, ...checkBacklog(log, clock()) }
+  const ledgerAlert = await checkLedger(
+    deps.routerReader,
+    BigInt(env.PAYMENT_ROUTER_APP_ID),
+    reconcileResult.skipped,
+    log,
+    clock(),
+  )
+  const backlog = checkBacklog(log, clock())
+  const alert = [backlog.alert, ledgerAlert].filter((text) => text !== null).join('; ')
+  return { configSkip: null, alert: alert || null, backlog: backlog.backlog }
+}
+
+/** A skipped inflow younger than this raises the ledger alert. Older ones stay in the log. */
+export const SKIPPED_INFLOW_ALERT_MS = 48 * 60 * 60 * 1000
+
+/**
+ * Compares the ledger with the app totals and logs one line: `ledger check OK`
+ * or `ledger check MISMATCH`. Returns the alert text, or null when all is well.
+ * A batch mismatch, a ledger excess or a skipped inflow of the last 48 hours
+ * raises the alert. A larger payTo balance than the ledger expects is normal
+ * and only logged.
+ */
+async function checkLedger(
+  reader: RouterChainReader | undefined,
+  appId: bigint,
+  skipped: SkippedInflow[],
+  log: (line: string) => void,
+  now: number,
+): Promise<string | null> {
+  if (!reader) return null
+  // Ledger first: an accrual is written after its settlement, so a payment
+  // that settles between the two reads can only widen the gap, never the excess.
+  const side = readLedgerSide(Number(appId))
+  const chain = await reader.readRouterTotals(appId, PAY_TO)
+  const result = compareLedger(side.batches, side.unbatchedMicro, chain)
+  const problems = [...result.mismatches.map((text) => `batch mismatch ${text}`)]
+  if (result.excessMicro > 0n) problems.push(`ledger excess ${result.excessMicro} micro-USDC`)
+  const recent = skipped.filter((s) => now - s.inflow.confirmedAt * 1000 <= SKIPPED_INFLOW_ALERT_MS)
+  for (const s of recent) {
+    problems.push(`skipped inflow ${s.inflow.txid} amount_micro=${s.inflow.amountMicro}`)
+  }
+  const numbers = `pin=${chain.pin} pot=${chain.pot} dct=${chain.dct} pdt=${chain.pdt} gap=${result.gapMicro}`
+  if (problems.length === 0) {
+    log(`aupm-nightly: ledger check OK ${numbers}`)
+    return null
+  }
+  const alert = `ALERT ledger check: ${problems.join(', ')}`
+  log(`aupm-nightly: ledger check MISMATCH ${numbers} ${problems.join(', ')}`)
+  return alert
 }
 
 function skipForConfig(log: (line: string) => void, reason: string): NightlyRunSummary {

@@ -708,3 +708,129 @@ describe('runNightlyWithLease: status push', () => {
     expect(JSON.stringify(log.mock.calls)).not.toContain('SECRET-TOKEN')
   })
 })
+
+describe('runNightly: ledger check', () => {
+  const NOW = Date.now()
+  const HOUR = 60 * 60 * 1000
+  const ZERO = { pin: 0n, pot: 0n, dct: 0n, pdt: 0n, payToBalance: 0n }
+
+  function runWith(
+    totals: Partial<typeof ZERO>,
+    lines: string[],
+    overrides: Partial<Parameters<typeof runNightly>[0]> = {},
+  ) {
+    return runNightly(
+      fullyConfiguredDeps({
+        routerReader: { readRouterTotals: async () => ({ ...ZERO, ...totals }) },
+        log: (line: string) => lines.push(line),
+        now: () => NOW,
+        ...overrides,
+      }),
+    )
+  }
+
+  function indexerWithDust(ageMs: number): IndexerClient {
+    const inflow = { txid: 'DUST', amountMicro: 1500, confirmedAt: (NOW - ageMs) / 1000 }
+    return { listUsdcInflows: vi.fn().mockResolvedValue([inflow]) }
+  }
+
+  test('a ledger that matches the chain logs OK and raises no alert', async () => {
+    const lines: string[] = []
+    const summary = await runWith({}, lines)
+    expect(summary.alert).toBeNull()
+    expect(lines.filter((l) => l.startsWith('aupm-nightly: ledger check OK'))).toHaveLength(1)
+  })
+
+  test('a global that differs from the ledger raises the alert', async () => {
+    const lines: string[] = []
+    const summary = await runWith({ pot: 5n, pin: 5n, dct: 5n }, lines)
+    expect(summary.alert).toContain('batch mismatch pot chain=5 ledger=0')
+    expect(lines.some((l) => l.startsWith('aupm-nightly: ledger check MISMATCH'))).toBe(true)
+  })
+
+  test('a ledger excess raises the alert', async () => {
+    writeAccruals(
+      {
+        route: 'single-attest',
+        priceMicro: 1000,
+        packages: [{ pkg: 'excess', version: '1.0.0', auditor: 'github:a' }],
+      },
+      'TXID-EXCESS',
+      0,
+      1,
+    )
+    const lines: string[] = []
+    const rekeyOff = { ...stubCreditClient(), isPayToRekeyed: vi.fn().mockResolvedValue(false) }
+    const summary = await runWith({}, lines, { creditClient: rekeyOff })
+    expect(summary.alert).toContain('ledger excess 1000 micro-USDC')
+  })
+
+  test('a payment that settles during the check raises no ledger excess', async () => {
+    const settleDuringRead = async () => {
+      writeAccruals(
+        {
+          route: 'single-attest',
+          priceMicro: 1000,
+          packages: [{ pkg: 'racing', version: '1.0.0', auditor: 'github:a' }],
+        },
+        'TXID-RACE',
+        0,
+        1,
+      )
+      return { ...ZERO, payToBalance: 1000n }
+    }
+    const lines: string[] = []
+    const rekeyOff = { ...stubCreditClient(), isPayToRekeyed: vi.fn().mockResolvedValue(false) }
+    const summary = await runWith({}, lines, {
+      creditClient: rekeyOff,
+      routerReader: { readRouterTotals: settleDuringRead },
+    })
+    expect(summary.alert).toBeNull()
+    expect(lines.some((l) => l.includes('ledger check OK') && l.includes('gap=1000'))).toBe(true)
+  })
+
+  test('payTo holding more than the ledger expects logs the gap and raises no alert', async () => {
+    const lines: string[] = []
+    const summary = await runWith({ payToBalance: 700n }, lines)
+    expect(summary.alert).toBeNull()
+    expect(lines.some((l) => l.includes('ledger check OK') && l.includes('gap=700'))).toBe(true)
+  })
+
+  test('a skipped inflow of the last 48 hours raises the alert', async () => {
+    const lines: string[] = []
+    const summary = await runWith({}, lines, { indexer: indexerWithDust(47 * HOUR) })
+    expect(summary.alert).toContain('skipped inflow DUST amount_micro=1500')
+  })
+
+  test('a skipped inflow older than 48 hours stays in the log only', async () => {
+    const lines: string[] = []
+    const summary = await runWith({}, lines, { indexer: indexerWithDust(49 * HOUR) })
+    expect(summary.alert).toBeNull()
+    expect(lines.some((l) => l.includes('reconcile skipped DUST'))).toBe(true)
+  })
+
+  test('the ledger alert is appended to the backlog alert', async () => {
+    const DAY = 24 * HOUR
+    const chain = stubCreditClient()
+    for (let night = 1; night <= 7; night++) {
+      writeAccruals(
+        {
+          route: 'single-attest',
+          priceMicro: 1000,
+          packages: [{ pkg: `kept-${night}`, version: '1.0.0', auditor: 'github:stuck' }],
+        },
+        `TXID-KEPT-${night}`,
+        0,
+        1,
+      )
+      const summary = await runWith({ pot: 1n, pin: 1n, dct: 1n }, [], {
+        creditClient: chain,
+        now: () => night * DAY + 1000,
+      })
+      if (night === 7) {
+        expect(summary.alert).toMatch(/^ALERT matured unpaid payee total grew 7 nights/)
+        expect(summary.alert).toContain('; ALERT ledger check: batch mismatch')
+      }
+    }
+  })
+})

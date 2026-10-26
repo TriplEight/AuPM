@@ -547,9 +547,12 @@ function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((byte, i) => byte === b[i])
 }
 
-type GlobalState = { key: Uint8Array; value: { bytes: Uint8Array; uint: bigint } }[]
+export type GlobalState = { key: Uint8Array; value: { bytes: Uint8Array; uint: bigint } }[]
 
-function findGlobal(state: GlobalState, name: string): GlobalState[number]['value'] | undefined {
+export function findGlobal(
+  state: GlobalState,
+  name: string,
+): GlobalState[number]['value'] | undefined {
   const key = new TextEncoder().encode(name)
   return state.find((kv) => bytesEqual(kv.key, key))?.value
 }
@@ -563,7 +566,7 @@ function globalAddress(state: GlobalState, name: string): string {
 }
 
 /** Floor of `newTotal * perThousand / 1000`, as the contract computes it. */
-function shareOf(newTotalMicro: number, perThousand: number): bigint {
+export function shareOf(newTotalMicro: number, perThousand: number): bigint {
   return (BigInt(newTotalMicro) * BigInt(perThousand)) / 1000n
 }
 
