@@ -190,21 +190,26 @@ export function checkIsSelfZeroPayment(tx) {
 }
 
 /**
- * Throws unless `sender` equals the review address of `identity` in the proxy
- * ledger. `reviewAddress` is null when the identity has no row.
+ * Throws unless `sender` held a review key of `identity` in `round`. A key row holds
+ * from `valid_from_round` to `valid_until_round`, both included; a null end means open.
+ * `keys` is empty when the identity is unknown.
  *
- * @param {{sender: string, identity: string, reviewAddress: string|null}} args
+ * @param {{sender: string, identity: string, round: number, keys: Array<{review_address: string, valid_from_round: number, valid_until_round: number|null}>}} args
  */
-export function checkSenderIsAuditorReviewAddress({ sender, identity, reviewAddress }) {
-  if (reviewAddress === null) {
+export function checkSenderIsAuditorReviewAddress({ sender, identity, round, keys }) {
+  if (keys.length === 0) {
     throw new Error(
-      `${identity} has no review address: run \`pnpm -C proxy auditor add ${identity} <address>\` first`,
+      `${identity} has no review key: run \`pnpm -C proxy auditor add ${identity} <address>\` first`,
     )
   }
-  if (sender !== reviewAddress) {
-    throw new Error(
-      `anchor sender ${sender} is not the review address of ${identity} (${reviewAddress})`,
-    )
+  const held = keys.some(
+    (key) =>
+      key.review_address === sender &&
+      key.valid_from_round <= round &&
+      (key.valid_until_round === null || round <= key.valid_until_round),
+  )
+  if (!held) {
+    throw new Error(`anchor sender ${sender} was not a review key of ${identity} in round ${round}`)
   }
 }
 

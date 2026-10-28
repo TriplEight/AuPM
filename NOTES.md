@@ -2,6 +2,10 @@
 
 This file lists merged changes. The session log is not in this repository.
 
+## 2026-10-28
+- #162: `pnpm -C proxy auditor rotate` replaces the review key of an auditor. The `auditor_keys`
+  table keeps each key with its round range. `record-review` checks the anchor round.
+
 ## 2026-10-26
 - #160 `6d5362e`: the nightly job compares the ledger with the PaymentRouter totals after the
   credit step and logs `ledger check OK` or `ledger check MISMATCH`. `down` also means a batch

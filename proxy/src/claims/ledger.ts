@@ -14,7 +14,7 @@ import {
 } from './attribution-rules.js'
 import db, {
   type AccrualRow,
-  type AuditorRow,
+  type AuditorKeyRow,
   type BacklogRow,
   type BatchRow,
   type PayeeRow,
@@ -626,28 +626,102 @@ export function touchPayeeOptInCheck(identity: string, checkedAt: number): void 
   touchPayeeStmt.run(checkedAt, canonicalizeIdentity(identity))
 }
 
-const insertAuditorStmt = db.prepare<[string, string, number]>(
-  'INSERT INTO auditors (identity, review_address, added_at) VALUES (?, ?, ?)',
+const insertAuditorKeyStmt = db.prepare<[string, string, number, number]>(
+  `INSERT INTO auditor_keys (identity, review_address, valid_from_round, added_at)
+   VALUES (?, ?, ?, ?)`,
+)
+const selectAuditorKeysStmt = db.prepare<[string], AuditorKeyRow>(
+  'SELECT * FROM auditor_keys WHERE identity = ? ORDER BY valid_from_round',
+)
+const closeAuditorKeyStmt = db.prepare<[number, string]>(
+  'UPDATE auditor_keys SET valid_until_round = ? WHERE identity = ? AND valid_until_round IS NULL',
 )
 
 /**
- * Adds an auditor with the address that signs the review anchors. Throws when the
- * identity already has a row: a change of address is not supported. An ops action.
+ * Adds an auditor with the address that signs the review anchors. The key is valid from
+ * round 0, so an auditor can anchor a review before onboarding. Throws when the identity
+ * already has a key row: a change of address goes through `rotateAuditorKey`. An ops action.
  */
 export function addAuditor(identity: string, reviewAddress: string, addedAt: number): void {
-  insertAuditorStmt.run(canonicalizeIdentity(identity), reviewAddress, addedAt)
+  const canonical = canonicalizeIdentity(identity)
+  db.transaction(() => {
+    if (selectAuditorKeysStmt.all(canonical).length > 0) {
+      throw new Error(`addAuditor: ${canonical} already has a key row`)
+    }
+    insertAuditorKeyStmt.run(canonical, reviewAddress, 0, addedAt)
+  })()
 }
 
-/** The review address of an auditor identity, or null when the identity has no row. */
-export function getAuditorReviewAddress(identity: string): string | null {
-  const row = db
-    .prepare<[string], AuditorRow>('SELECT * FROM auditors WHERE identity = ?')
-    .get(canonicalizeIdentity(identity))
-  return row?.review_address ?? null
+/** Every key row of an auditor identity, oldest first. Empty when the identity is unknown. */
+export function getAuditorKeys(identity: string): AuditorKeyRow[] {
+  return selectAuditorKeysStmt.all(canonicalizeIdentity(identity))
 }
 
-export function listAuditors(): AuditorRow[] {
-  return db.prepare<[], AuditorRow>('SELECT * FROM auditors ORDER BY identity').all()
+/** The key rotation that `planAuditorRotation` accepts. */
+export interface AuditorRotationPlan {
+  oldAddress: string
+  /** The last round in which the old key is valid. */
+  untilRound: number
+}
+
+/**
+ * Checks a key rotation and returns the plan. `untilRound` null means `currentRound`.
+ * Throws when the identity is unknown, the new address equals any address of the identity,
+ * or `untilRound` is below the start of the open key or above `currentRound`.
+ */
+export function planAuditorRotation(
+  identity: string,
+  newAddress: string,
+  untilRound: number | null,
+  currentRound: number,
+): AuditorRotationPlan {
+  const canonical = canonicalizeIdentity(identity)
+  const keys = selectAuditorKeysStmt.all(canonical)
+  const open = keys.find((key) => key.valid_until_round === null)
+  if (!open) throw new Error(`${canonical} has no open review key: add it first`)
+  if (open.review_address === newAddress) {
+    throw new Error(`${newAddress} is already the open review key of ${canonical}`)
+  }
+  if (keys.some((key) => key.review_address === newAddress)) {
+    throw new Error(`${newAddress} was already a review key of ${canonical}`)
+  }
+  const cutoff = untilRound ?? currentRound
+  if (cutoff < open.valid_from_round) {
+    throw new Error(`round ${cutoff} is below ${open.valid_from_round}, the start of the open key`)
+  }
+  if (cutoff > currentRound) {
+    throw new Error(`round ${cutoff} is above the current round ${currentRound}`)
+  }
+  return { oldAddress: open.review_address, untilRound: cutoff }
+}
+
+/**
+ * Closes the open key of an auditor at the cutoff round and opens the new key from the
+ * next round, in one transaction. Applies the checks of `planAuditorRotation`. An ops action.
+ */
+export function rotateAuditorKey(
+  identity: string,
+  newAddress: string,
+  untilRound: number | null,
+  currentRound: number,
+  addedAt: number,
+): AuditorRotationPlan {
+  const canonical = canonicalizeIdentity(identity)
+  return db.transaction(() => {
+    const plan = planAuditorRotation(canonical, newAddress, untilRound, currentRound)
+    closeAuditorKeyStmt.run(plan.untilRound, canonical)
+    insertAuditorKeyStmt.run(canonical, newAddress, plan.untilRound + 1, addedAt)
+    return plan
+  })()
+}
+
+const listAuditorKeysStmt = db.prepare<[], AuditorKeyRow>(
+  'SELECT * FROM auditor_keys ORDER BY identity, valid_from_round',
+)
+
+/** Every key row of every auditor. */
+export function listAuditors(): AuditorKeyRow[] {
+  return listAuditorKeysStmt.all()
 }
 
 /** A payee's matured, unfrozen, unpaid pool balance in micro-USDC. */

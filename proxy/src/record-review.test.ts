@@ -26,7 +26,7 @@ const { encodeReviewNote } = await import('../../scripts/review-anchor.mjs')
 
 beforeEach(() => {
   db.exec('DELETE FROM audit_status')
-  db.exec('DELETE FROM auditors')
+  db.exec('DELETE FROM auditor_keys')
   ledger.addAuditor('github:alice', 'ADDR1', 1)
 })
 
@@ -74,7 +74,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+      getAuditorKeys: ledger.getAuditorKeys,
       network: 'mainnet',
       log: () => {},
     })
@@ -92,7 +92,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
   })
 
   test('an unknown signer is refused and writes no row', async () => {
-    db.exec('DELETE FROM auditors')
+    db.exec('DELETE FROM auditor_keys')
     await expect(
       runRecordReview({
         anchorTxid: 'TXID1',
@@ -100,7 +100,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
         fetchImpl: stubFetch(),
         prompt: async () => 'yes',
         statusStore,
-        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+        getAuditorKeys: ledger.getAuditorKeys,
         network: 'mainnet',
         log: () => {},
       }),
@@ -118,11 +118,11 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
         fetchImpl: stubFetch(),
         prompt: async () => 'yes',
         statusStore,
-        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+        getAuditorKeys: ledger.getAuditorKeys,
         network: 'mainnet',
         log: () => {},
       }),
-    ).rejects.toThrow(/is not the review address of github:alice/)
+    ).rejects.toThrow(/was not a review key of github:alice in round 100/)
     expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')
   })
 
@@ -133,7 +133,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'no',
       statusStore,
-      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+      getAuditorKeys: ledger.getAuditorKeys,
       network: 'testnet',
       log: () => {},
     })
@@ -158,7 +158,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
           return 'yes'
         },
         statusStore,
-        getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+        getAuditorKeys: ledger.getAuditorKeys,
         network: 'mainnet',
         log: () => {},
       }),
@@ -175,7 +175,7 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
       fetchImpl: stubFetch(),
       prompt: async () => 'yes',
       statusStore,
-      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+      getAuditorKeys: ledger.getAuditorKeys,
       network: 'testnet',
       log: () => {},
     })
@@ -184,5 +184,47 @@ describe('record-review.mjs writes through the real SQLite status store', () => 
     expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').review_scope).toBe(
       'unread: testnet rehearsal',
     )
+  })
+
+  describe('after a key rotation', () => {
+    const run = (sender: string, round: bigint) =>
+      runRecordReview({
+        anchorTxid: 'TXID1',
+        indexerClient: stubIndexer(
+          goodTx({
+            sender,
+            paymentTransaction: { amount: 0n, receiver: sender },
+            confirmedRound: round,
+          }),
+        ),
+        fetchImpl: stubFetch(),
+        prompt: async () => 'yes',
+        statusStore,
+        getAuditorKeys: ledger.getAuditorKeys,
+        network: 'mainnet',
+        log: () => {},
+      })
+
+    beforeEach(() => {
+      ledger.rotateAuditorKey('github:alice', 'ADDR2', 150, 200, 2)
+    })
+
+    test('an old-key anchor confirmed at the cutoff is recorded', async () => {
+      expect((await run('ADDR1', 150n)).recorded).toBe(true)
+      expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').auditor_addr).toBe('ADDR1')
+    })
+
+    test('an old-key anchor confirmed after the cutoff is refused', async () => {
+      await expect(run('ADDR1', 151n)).rejects.toThrow(/ADDR1 was not a review key.*round 151/)
+      expect(statusStore.getStatusOrUnreviewed('ms', '2.1.3').status).toBe('UNREVIEWED')
+    })
+
+    test('a new-key anchor confirmed before its start is refused', async () => {
+      await expect(run('ADDR2', 150n)).rejects.toThrow(/ADDR2 was not a review key.*round 150/)
+    })
+
+    test('a new-key anchor confirmed at its start is recorded', async () => {
+      expect((await run('ADDR2', 151n)).recorded).toBe(true)
+    })
   })
 })

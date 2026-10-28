@@ -234,6 +234,9 @@ Onboarding is manual in the MVP (planned). The path today:
 2. You apply with your GitHub login. The ops check the USDC opt-in and add your address as
    your payout address in the AuPM ledger. The ops also add the address that signs your
    reviews with `pnpm -C proxy auditor add github:<login> <address>`. Logins are lower case.
+   If you lose the key or it leaks, tell the ops. They run
+   `pnpm -C proxy auditor rotate github:<login> <new-address> [--until <round>]`. The old key
+   stays valid for anchors confirmed up to the cutoff round. The new key starts one round later.
 3. You read the exact tarball you are reviewing.
 4. You anchor the review with a 0-ALGO self-payment to your own address, carrying an ARC-2
    note (`aupm:j{...}`).

@@ -56,8 +56,8 @@ function printUsage() {
  * @param {typeof fetch} [deps.fetchImpl]
  * @param {(question: string) => Promise<string>} deps.prompt
  * @param {{setStatus: Function, getStatusOrUnreviewed: Function}} deps.statusStore
- * @param {(identity: string) => string|null} deps.getAuditorReviewAddress -
- *   the review address of `identity` in the proxy ledger, or null when it has no row.
+ * @param {(identity: string) => Array<{review_address: string, valid_from_round: number, valid_until_round: number|null}>} deps.getAuditorKeys -
+ *   the review key rows of `identity` in the proxy ledger, empty when it has none.
  * @param {string} deps.network - the network the review is recorded for.
  * @param {(line: string) => void} [deps.log]
  * @returns {Promise<{recorded: boolean, pkg?: string, version?: string, repo?: string, reviewer?: string}>}
@@ -68,7 +68,7 @@ export async function runRecordReview({
   fetchImpl = fetch,
   prompt,
   statusStore,
-  getAuditorReviewAddress,
+  getAuditorKeys,
   network,
   log = console.log,
 }) {
@@ -77,8 +77,12 @@ export async function runRecordReview({
   const note = decodeReviewNote(tx.note)
   checkScopeAllowedOnNetwork(note.scope, network)
   const identity = githubIdentity(note.reviewer)
-  const reviewAddress = getAuditorReviewAddress(identity)
-  checkSenderIsAuditorReviewAddress({ sender: tx.sender, identity, reviewAddress })
+  checkSenderIsAuditorReviewAddress({
+    sender: tx.sender,
+    identity,
+    round: Number(tx.confirmedRound),
+    keys: getAuditorKeys(identity),
+  })
   const login = identity.slice('github:'.length)
 
   const packument = await fetchNpmPackument(note.name, fetchImpl)
@@ -152,7 +156,7 @@ async function main() {
       indexerClient,
       prompt,
       statusStore,
-      getAuditorReviewAddress: ledger.getAuditorReviewAddress,
+      getAuditorKeys: ledger.getAuditorKeys,
       network,
     })
     process.exit(result.recorded ? 0 : 1)
