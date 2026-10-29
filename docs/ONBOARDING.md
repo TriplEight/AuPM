@@ -324,6 +324,9 @@ NOTE: this audit process is the MVP version. It will change soon, after the audi
    The ops check the opt-in. Then they add the address as your payout address.
    They also add the address that signs your reviews, with
    `pnpm -C proxy auditor add github:<login> <address>`. The two addresses can differ.
+   If you lose the review key or it leaks, tell the ops. They replace it with
+   `pnpm -C proxy auditor rotate github:<login> <new-address> [--until <round>]`. The old key
+   stays valid for anchors confirmed up to the cutoff round. The new key starts one round later.
 2. Read the files. Get the exact tarball that users install:
 
    ```bash

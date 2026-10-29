@@ -319,16 +319,45 @@ db.exec(`
   )
 `)
 
-// One row per auditor with a review address. The address signs the review
-// anchors of that identity. It may differ from the payout address in `payees`.
+// One row per review key of an auditor. A key signs the review anchors of that identity
+// from the round `valid_from_round` to the round `valid_until_round`, both included.
+// NULL in `valid_until_round` means the key is open. An identity has at most one open
+// key. The address may differ from the payout address in `payees`.
 // An ops action: record-review reads this table to check the anchor sender.
 db.exec(`
-  CREATE TABLE IF NOT EXISTS auditors (
-    identity       TEXT PRIMARY KEY,
-    review_address TEXT NOT NULL,
-    added_at       INTEGER NOT NULL
+  CREATE TABLE IF NOT EXISTS auditor_keys (
+    identity          TEXT NOT NULL,
+    review_address    TEXT NOT NULL,
+    valid_from_round  INTEGER NOT NULL,
+    valid_until_round INTEGER,
+    added_at          INTEGER NOT NULL,
+    PRIMARY KEY (identity, review_address)
   )
 `)
+db.exec(`
+  CREATE UNIQUE INDEX IF NOT EXISTS auditor_keys_one_open
+    ON auditor_keys (identity) WHERE valid_until_round IS NULL
+`)
+
+// Moves the rows of the old one-address `auditors` table into `auditor_keys`, then drops
+// it. Each moved key is open and valid from round 0. Runs once: the table check skips it
+// when `auditors` is gone.
+export function migrateAuditors(handle: Database.Database): void {
+  const old = handle
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'auditors'")
+    .get()
+  if (!old) return
+  handle.transaction(() => {
+    handle.exec(
+      `INSERT OR IGNORE INTO auditor_keys
+         (identity, review_address, valid_from_round, valid_until_round, added_at)
+       SELECT identity, review_address, 0, NULL, added_at FROM auditors`,
+    )
+    handle.exec('DROP TABLE auditors')
+  })()
+}
+
+migrateAuditors(db)
 
 // The payouts of one batch, written when the batch opens. A resend of a
 // pending batch pays exactly these addresses and amounts, even when the payee
@@ -362,9 +391,12 @@ export type PayeeRow = {
   last_payout_at: number | null
 }
 
-export type AuditorRow = {
+export type AuditorKeyRow = {
   identity: string
   review_address: string
+  valid_from_round: number
+  /** NULL while the key is open. */
+  valid_until_round: number | null
   added_at: number
 }
 

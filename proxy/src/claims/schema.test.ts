@@ -10,7 +10,7 @@ import { beforeEach, describe, expect, test } from 'vitest'
 
 process.env.SQLITE_PATH = path.join(os.tmpdir(), `aupm-claims-schema-test-${randomUUID()}.db`)
 
-const { upgradeBatchSchema, upgradePoolSchema } = await import('./schema.js')
+const { migrateAuditors, upgradeBatchSchema, upgradePoolSchema } = await import('./schema.js')
 
 const APP = 4242
 
@@ -303,5 +303,52 @@ describe('upgradePoolSchema', () => {
     handle.exec('DELETE FROM batches; DELETE FROM accruals')
     expect(() => upgradePoolSchema(handle)).not.toThrow()
     expect(columns('accruals')).toContain('paid_seq')
+  })
+})
+
+describe('migrateAuditors', () => {
+  const KEYS_DDL = `
+    CREATE TABLE auditor_keys (
+      identity TEXT NOT NULL, review_address TEXT NOT NULL, valid_from_round INTEGER NOT NULL,
+      valid_until_round INTEGER, added_at INTEGER NOT NULL,
+      PRIMARY KEY (identity, review_address)
+    )`
+
+  test('moves each auditors row to an open key from round 0 and drops the old table', () => {
+    const handle = new Database(':memory:')
+    handle.exec(`
+      CREATE TABLE auditors (
+        identity TEXT PRIMARY KEY, review_address TEXT NOT NULL, added_at INTEGER NOT NULL
+      );
+      INSERT INTO auditors VALUES ('github:a', 'ADDR_A', 11), ('github:b', 'ADDR_B', 22);
+      ${KEYS_DDL};
+    `)
+    migrateAuditors(handle)
+    expect(handle.prepare('SELECT * FROM auditor_keys ORDER BY identity').all()).toEqual([
+      {
+        identity: 'github:a',
+        review_address: 'ADDR_A',
+        valid_from_round: 0,
+        valid_until_round: null,
+        added_at: 11,
+      },
+      {
+        identity: 'github:b',
+        review_address: 'ADDR_B',
+        valid_from_round: 0,
+        valid_until_round: null,
+        added_at: 22,
+      },
+    ])
+    const old = handle.prepare("SELECT name FROM sqlite_master WHERE name = 'auditors'").get()
+    expect(old).toBeUndefined()
+  })
+
+  test('does nothing when the auditors table is gone, and keeps rotated keys', () => {
+    const handle = new Database(':memory:')
+    handle.exec(`${KEYS_DDL}; INSERT INTO auditor_keys VALUES ('github:a', 'ADDR_A', 5, 9, 1);`)
+    migrateAuditors(handle)
+    migrateAuditors(handle)
+    expect(handle.prepare('SELECT count(*) AS n FROM auditor_keys').get()).toEqual({ n: 1 })
   })
 })

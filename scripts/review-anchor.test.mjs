@@ -90,38 +90,43 @@ test('githubIdentity lower-cases a bare login and a prefixed identity', () => {
   assert.equal(githubIdentity('github:alice'), 'github:alice')
 })
 
-test('checkSenderIsAuditorReviewAddress throws when the identity has no review address', () => {
+test('checkSenderIsAuditorReviewAddress throws when the identity has no key', () => {
   assert.throws(
     () =>
       checkSenderIsAuditorReviewAddress({
         sender: 'ADDR1',
         identity: 'github:alice',
-        reviewAddress: null,
+        round: 10,
+        keys: [],
       }),
-    /github:alice has no review address: run `pnpm -C proxy auditor add github:alice <address>`/,
+    /github:alice has no review key: run `pnpm -C proxy auditor add github:alice <address>`/,
   )
 })
 
-test('checkSenderIsAuditorReviewAddress throws when the sender differs from the review address', () => {
+test('checkSenderIsAuditorReviewAddress throws when the sender holds no key', () => {
   assert.throws(
     () =>
       checkSenderIsAuditorReviewAddress({
         sender: 'ADDR2',
         identity: 'github:alice',
-        reviewAddress: 'ADDR1',
+        round: 10,
+        keys: [{ review_address: 'ADDR1', valid_from_round: 0, valid_until_round: null }],
       }),
-    /is not the review address of github:alice/,
+    /ADDR2 was not a review key of github:alice in round 10/,
   )
 })
 
-test('checkSenderIsAuditorReviewAddress accepts the review address', () => {
-  assert.doesNotThrow(() =>
-    checkSenderIsAuditorReviewAddress({
-      sender: 'ADDR1',
-      identity: 'github:alice',
-      reviewAddress: 'ADDR1',
-    }),
-  )
+test('checkSenderIsAuditorReviewAddress accepts an open key and both ends of a closed key', () => {
+  const open = [{ review_address: 'ADDR1', valid_from_round: 5, valid_until_round: null }]
+  const closed = [{ review_address: 'ADDR1', valid_from_round: 5, valid_until_round: 9 }]
+  const check = (keys, round) =>
+    checkSenderIsAuditorReviewAddress({ sender: 'ADDR1', identity: 'github:alice', round, keys })
+  assert.doesNotThrow(() => check(open, 5))
+  assert.doesNotThrow(() => check(open, 1_000_000))
+  assert.doesNotThrow(() => check(closed, 5))
+  assert.doesNotThrow(() => check(closed, 9))
+  assert.throws(() => check(open, 4), /in round 4/)
+  assert.throws(() => check(closed, 10), /in round 10/)
 })
 
 // -- checkIntegrityMatchesNpm -----------------------------------------------

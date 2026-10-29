@@ -46,14 +46,17 @@ const GOOD_PACKUMENT = {
   versions: { '2.1.3': { dist: { integrity: 'sha512-known-good' } } },
 }
 
-/** Fake auditor table: identity -> review address. Records the lookups. */
+/** Fake key table: identity -> review address, or identity -> key rows. Records the lookups. */
 function stubRegistry(rows) {
   const lookups = []
   return {
     lookups,
-    getAuditorReviewAddress: (identity) => {
+    getAuditorKeys: (identity) => {
       lookups.push(identity)
-      return rows[identity] ?? null
+      const row = rows[identity]
+      if (row === undefined) return []
+      if (typeof row !== 'string') return row
+      return [{ review_address: row, valid_from_round: 0, valid_until_round: null }]
     },
   }
 }
@@ -129,7 +132,7 @@ test('a reviewer login without a review address throws and writes nothing', asyn
       ...stubRegistry({}),
       log: () => {},
     }),
-    /github:alice has no review address/,
+    /github:alice has no review key/,
   )
   assert.equal(rows.length, 0)
 })
@@ -148,7 +151,7 @@ test('a sender that differs from the review address throws and writes nothing', 
       ...REGISTRY_ARGS,
       log: () => {},
     }),
-    /is not the review address of github:alice/,
+    /was not a review key of github:alice in round 100/,
   )
   assert.equal(rows.length, 0)
 })
@@ -267,4 +270,58 @@ test('record-review.mjs refuses immediately with no TTY on stdin', () => {
   })
   assert.equal(result.status, 1)
   assert.match(result.stderr, /requires an interactive TTY/)
+})
+
+const ROTATED_KEYS = {
+  'github:alice': [
+    { review_address: 'ADDR1', valid_from_round: 0, valid_until_round: 150 },
+    { review_address: 'ADDR2', valid_from_round: 151, valid_until_round: null },
+  ],
+}
+
+function senderTx(sender, confirmedRound) {
+  return goodTx({
+    sender,
+    paymentTransaction: { amount: 0n, receiver: sender },
+    confirmedRound,
+  })
+}
+
+async function recordWith(tx, rows) {
+  const { store, rows: written } = recordedRows()
+  await runRecordReview({
+    anchorTxid: 'TXID1',
+    indexerClient: stubIndexer(tx),
+    fetchImpl: stubFetch(GOOD_PACKUMENT),
+    prompt: async () => 'yes',
+    statusStore: store,
+    ...stubRegistry(rows),
+    log: () => {},
+  })
+  return written
+}
+
+test('an old-key anchor confirmed at the cutoff is recorded after the rotation', async () => {
+  const written = await recordWith(senderTx('ADDR1', 150n), ROTATED_KEYS)
+  assert.equal(written.length, 1)
+  assert.equal(written[0][3], 'ADDR1')
+})
+
+test('an old-key anchor confirmed after the cutoff is refused', async () => {
+  await assert.rejects(
+    recordWith(senderTx('ADDR1', 151n), ROTATED_KEYS),
+    /ADDR1 was not a review key of github:alice in round 151/,
+  )
+})
+
+test('a new-key anchor confirmed before its start round is refused', async () => {
+  await assert.rejects(
+    recordWith(senderTx('ADDR2', 150n), ROTATED_KEYS),
+    /ADDR2 was not a review key of github:alice in round 150/,
+  )
+})
+
+test('a new-key anchor confirmed at its start round is recorded', async () => {
+  const written = await recordWith(senderTx('ADDR2', 151n), ROTATED_KEYS)
+  assert.equal(written[0][3], 'ADDR2')
 })
